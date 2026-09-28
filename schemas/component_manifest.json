@@ -1,0 +1,187 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Component manifest: the self-description of a component as a distribution unit",
+  "description": "The language-neutral canon of the self-description. The basis of \"download = install\": the installer reads this and merges the default wiring into the assembly manifest. Optional fields are absent when unused — writers never emit null. This schema pins local structure only; cross-referential rules (duplicate tool names, provider reachability, profile claims, event-type ownership) belong to assembly inspection.",
+  "type": "object",
+  "required": ["name", "version", "runtime", "entry"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Component name — the registry key"
+    },
+    "version": {
+      "type": "string"
+    },
+    "runtime": {
+      "enum": ["inproc", "process"],
+      "description": "Form: loaded in-process, or a separate process — an executable in any language, speaking one envelope JSON per line"
+    },
+    "entry": {
+      "type": "string",
+      "description": "Entry: module path or executable path"
+    },
+    "inputs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/inputPort" },
+      "description": "Where events arrive; a port's events declare which types it accepts, [\"*\"] means accept-all (e.g. audit observers)"
+    },
+    "outputs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/outputPort" },
+      "description": "Where events leave; a port's events declare which types it may emit — \"*\" is not allowed, you cannot promise everything"
+    },
+    "events": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/eventTypeDecl" },
+      "description": "Letter types this component brings, registered into the log at assembly time"
+    },
+    "defaultWiring": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/wireSuggestion" },
+      "description": "Wiring suggestions applied at install time; \"self\" refers to this component's future instance name"
+    },
+    "capabilities": {
+      "$ref": "#/$defs/effectSurface",
+      "description": "Declared effect surface of the whole component (trust model: a trust record = content fingerprint + the granted surface). Absent = declares nothing = treated as the most dangerous."
+    },
+    "implements": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Standard port profiles this component claims; inspection verifies claims structurally, conformance exams verify them behaviorally"
+    },
+    "handleTimeoutMs": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Per-delivery processing deadline in milliseconds; on expiry the kernel auto-cancels the delivery (the watchman trigger). Absent = no deadline; long-running components should set one."
+    },
+        "concurrency": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "How many deliveries this component may handle AT ONCE. Absent or 1 = the mailbox as a queue drained one at a time, so the component may keep state between deliveries and block inside its handler without thinking about anyone else. More than one turns the mailbox into a work queue with that many workers, each holding its own instance — what a tool provider wants, since a model asking for three commands in one turn means them to run together. Only for components that keep NO state between deliveries, and it gives up FIFO: results come back in whatever order they finish."
+    },
+    "prompt": {
+      "type": "string",
+      "description": "One passage merged into the system prompt whenever this component is assembled — the component telling the model how to use it; the assembly may override per instance"
+    },
+    "tools": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/toolDecl" },
+      "description": "Tools this component provides, as neutral declarations; the kernel stamps each with its provider instance and the loop offers the collected list to the model"
+    }
+  },
+  "$defs": {
+    "inputPort": {
+      "type": "object",
+      "required": ["name", "events"],
+      "properties": {
+        "name": { "type": "string" },
+        "events": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "outputPort": {
+      "type": "object",
+      "required": ["name", "events"],
+      "properties": {
+        "name": { "type": "string" },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "not": { "const": "*" }
+          }
+        }
+      }
+    },
+    "eventTypeDecl": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Namespaced type name"
+        },
+        "decision": {
+          "type": "boolean",
+          "description": "Decision-class events must carry a reason, enforced by the log at its entry point. Absent = false."
+        },
+        "description": {
+          "type": "string",
+          "description": "One-line description of what this event means"
+        },
+        "schema": {
+          "type": "object",
+          "description": "JSON Schema for this type's payload (the letter); when present the log validates payloads at the entry point — enforcement layer four"
+        }
+      }
+    },
+    "wireSuggestion": {
+      "type": "object",
+      "required": ["from", "to"],
+      "properties": {
+        "from": { "$ref": "#/$defs/endpoint" },
+        "to": { "$ref": "#/$defs/endpoint" }
+      }
+    },
+    "endpoint": {
+      "type": "string",
+      "pattern": "^[^.]+\\..+$",
+      "description": "\"instance.port\" — everything before the first dot is the instance"
+    },
+    "effectSurface": {
+      "type": "object",
+      "description": "The shared effect vocabulary: what a tool call or a whole component may touch. Policies reason over this, never over names. Absent dimensions default to empty/false.",
+      "properties": {
+        "reads": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Paths/scopes it may read"
+        },
+        "writes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Paths/scopes it may write"
+        },
+        "network": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Network hosts it may reach; \"*\" = any"
+        },
+        "executes": {
+          "type": "boolean",
+          "description": "Whether it runs external programs"
+        },
+        "reversible": {
+          "type": "boolean",
+          "description": "Whether its effects can be undone"
+        },
+        "admits": {
+          "type": "string",
+          "description": "Set on a tool call's surface when the call INTRODUCES new code or instructions into the runtime (e.g. \"components\", \"skills\"). The trust gate keys on this marker — never on tool names. Stripped before the declaration goes to a provider, like the rest of the surface."
+        }
+      }
+    },
+    "toolDecl": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "parameters": {
+          "type": "object",
+          "description": "JSON Schema of the tool's arguments, as offered to the provider"
+        },
+        "effects": {
+          "$ref": "#/$defs/effectSurface",
+          "description": "Per-call effect surface; undeclared = treated as the most dangerous"
+        },
+        "async": {
+          "enum": ["never", "optional", "always"],
+          "description": "Temporality — the fifth tool dimension: may this call run in the background. Metadata shaped like the effect surface, stripped before the declaration goes to a provider. Absent = never."
+        }
+      }
+    }
+  }
+}

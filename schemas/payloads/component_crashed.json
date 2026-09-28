@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "required": [
+    "component"
+  ],
+  "properties": {
+    "component": {
+      "type": "string"
+    },
+    "processing": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

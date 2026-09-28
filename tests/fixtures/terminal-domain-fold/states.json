@@ -1,0 +1,1680 @@
+[
+  {
+    "background": [],
+    "busy": true,
+    "composition": [],
+    "done": false,
+    "effective_window": 999,
+    "effort": {
+      "now": null,
+      "rungs": []
+    },
+    "models": {
+      "now": 0,
+      "rows": [
+        {
+          "accepts_images": false,
+          "dialect": "openai",
+          "endpoint": "",
+          "id": "first",
+          "key_env": "",
+          "key_present": false,
+          "model": "first",
+          "rungs": [],
+          "window": null
+        },
+        {
+          "accepts_images": false,
+          "dialect": "anthropic",
+          "endpoint": "",
+          "id": "second",
+          "key_env": "",
+          "key_present": false,
+          "model": "second",
+          "rungs": [],
+          "window": null
+        }
+      ]
+    },
+    "pending_auth": [],
+    "previous": {},
+    "running": {
+      "adapter": "openai",
+      "baseUrl": "",
+      "id": "first",
+      "keyEnv": "",
+      "model": "first",
+      "profile": null
+    },
+    "session_growth": {},
+    "session_usage": {
+      "cached": 0,
+      "calls": 0,
+      "millis": 0,
+      "output": 0,
+      "prompt": 0,
+      "reasoning": 0,
+      "written": 0
+    },
+    "skills": [],
+    "title": "first · fixture · suffix",
+    "turn": 1,
+    "turn_growth": {},
+    "turn_usage": {
+      "cached": 0,
+      "calls": 0,
+      "millis": 0,
+      "output": 0,
+      "prompt": 0,
+      "reasoning": 0,
+      "written": 0
+    },
+    "unseen": [
+      "question"
+    ],
+    "usage": null,
+    "waiting": false
+  },
+  {
+    "background": [],
+    "busy": true,
+    "composition": [],
+    "done": false,
+    "effective_window": 999,
+    "effort": {
+      "now": null,
+      "rungs": []
+    },
+    "models": {
+      "now": 0,
+      "rows": [
+        {
+          "accepts_images": false,
+          "dialect": "openai",
+          "endpoint": "",
+          "id": "first",
+          "key_env": "",
+          "key_present": false,
+          "model": "first",
+          "rungs": [],
+          "window": null
+        },
+        {
+          "accepts_images": false,
+          "dialect": "anthropic",
+          "endpoint": "",
+          "id": "second",
+          "key_env": "",
+          "key_present": false,
+          "model": "second",
+          "rungs": [],
+          "window": null
+        }
+      ]
+    },
+    "pending_auth": [],
+    "previous": {},
+    "running": {
+      "adapter": "openai",
+      "baseUrl": "",
+      "id": "first",
+      "keyEnv": "",
+      "model": "first",
+      "profile": null
+    },
+    "session_growth": {},
+    "session_usage": {
+      "cached": 0,
+      "calls": 0,
+      "millis": 0,
+      "output": 0,
+      "prompt": 0,
+      "reasoning": 0,
+      "written": 0
+    },
+    "skills": [
+      [
+        "alpha",
+        "A"
+      ],
+      [
+        "beta",
+        ""
+      ]
+    ],
+    "title": "first · fixture · suffix",
+    "turn": 1,
+    "turn_growth": {},
+    "turn_usage": {
+      "cached": 0,
+      "calls": 0,
+      "millis": 0,
+      "output": 0,
+      "prompt": 0,
+      "reasoning": 0,
+      "written": 0
+    },
+    "unseen": [
+      "question"
+    ],
+    "usage": null,
+    "waiting": false
+  },
+  {
+    "background": [],
+    "busy": true,
+    "composition": [
+      [
+        "what you said",
+        19
+      ],
+      [
+        "system prompt",
+        6
+      ],
+      [
+        "tool declarations",
+        2
+      ]
+    ],
+    "done": false,
+    "effective_window": 999,
+    "effort": {
+      "now": null,
+      "rungs": []
+    },
+    "models": {
+      "now": 0,
+      "rows": [
+        {
+          "accepts_images": false,
+          "dialect": "openai",
+          "endpoint": "",
+          "id": "first",
+          "key_env": "",
+          "key_present": false,
+          "model": "first",
+          "rungs": [],
+          "window": null
+        },
+        {
+          "accepts_images": false,
+          "dialect": "anthropic",
+          "endpoint": "",
+          "id": "second",
+          "key_env": "",
+          "key_present": false,
+          "model": "second",
+          "rungs": [],
+          "window": null
+        }
+      ]
+    },
+    "pending_auth": [],
+    "previous": {
+      "system prompt": 6,
+      "tool declarations": 2,
+      "what you said": 19
+    },
+    "running": {
+      "adapter": "openai",
+      "baseUrl": "",
+      "id": "first",
+      "keyEnv": "",
+      "model": "first",
+      "profile": null
+    },
+    "session_growth": {
+      "what you said": 19
+    },
+    "session_usage": {
+      "cached": 0,
+      "calls": 0,
+      "millis": 0,
+      "output": 0,
+      "prompt": 0,
+      "reasoning": 0,
+      "written": 0
+    },
+    "skills": [
+      [
+        "alpha",
+        "A"
+      ],
+      [
+        "beta",
+        ""
+      ]
+    ],
+    "title": "first · fixture · suffix",
+    "turn": 1,
+    "turn_growth": {
+      "what you said": 19
+    },
+    "turn_usage": {
+      "cached": 0,
+      "calls": 0,
+      "millis": 0,
+      "output": 0,
+      "prompt": 0,
+      "reasoning": 0,
+      "written": 0
+    },
+    "unseen": [],
+    "usage": null,
+    "waiting": false
+  },
+  {
+    "background": [],
+    "busy": true,
+    "composition": [
+      [
+        "what you said",
+        19
+      ],
+      [
+        "system prompt",
+        6
+      ],
+      [
+        "tool declarations",
+        2
+      ]
+    ],
+    "done": false,
+    "effective_window": 999,
+    "effort": {
+      "now": null,
+      "rungs": []
+    },
+    "models": {
+      "now": 0,
+      "rows": [
+        {
+          "accepts_images": false,
+          "dialect": "openai",
+          "endpoint": "",
+          "id": "first",
+          "key_env": "",
+          "key_present": false,
+          "model": "first",
+          "rungs": [],
+          "window": null
+        },
+        {
+          "accepts_images": false,
+          "dialect": "anthropic",
+          "endpoint": "",
+          "id": "second",
+          "key_env": "",
+          "key_present": false,
+          "model": "second",
+          "rungs": [],
+          "window": null
+        }
+      ]
+    },
+    "pending_auth": [],
+    "previous": {
+      "system prompt": 6,
+      "tool declarations": 2,
+      "what you said": 19
+    },
+    "running": {
+      "adapter": "openai",
+      "baseUrl": "",
+      "id": "first",
+      "keyEnv": "",
+      "model": "first",
+      "profile": null
+    },
+    "session_growth": {
+      "what you said": 19
+    },
+    "session_usage": {
+      "cached": 0,
+      "calls": 1,
+      "millis": 0,
+      "output": 3,
+      "prompt": 10,
+      "reasoning": 0,
+      "written": 0
+    },
+    "skills": [
+      [
+        "alpha",
+        "A"
+      ],
+      [
+        "beta",
+        ""
+      ]
+    ],
+    "title": "first · fixture · suffix",
+    "turn": 1,
+    "turn_growth": {
+      "what you said": 19
+    },
+    "turn_usage": {
+      "cached": 0,
+      "calls": 1,
+      "millis": 0,
+      "output": 3,
+      "prompt": 10,
+      "reasoning": 0,
+      "written": 0
+    },
+    "unseen": [],
+    "usage": {
+      "cached": 0,
+      "calls": 1,
+      "millis": 0,
+      "output": 3,
+      "prompt": 10,
+      "reasoning": 0,
+      "written": 0
+    },
+    "waiting": false
+  },
+  {
+    "background": [],
+    "busy": true,
+    "composition": [
+      [
+        "what you said",
+        19
+      ],
+      [
+        "system prompt",
+        6
+      ],
+      [
+        "tool declarations",
+        2
+      ]
+    ],
+    "done": false,
+    "effective_window": 999,
+    "effort": {
+      "now": null,
+      "rungs": []
+    },
+    "models": {
+      "now": 1,
+      "rows": [
+        {
+          "accepts_images": false,
+          "dialect": "openai",
+          "endpoint": "",
+          "id": "first",
+          "key_env": "",
+          "key_present": false,
+          "model": "first",
+          "rungs": [],
+          "window": null
+        },
+        {
+          "accepts_images": false,
+          "dialect": "anthropic",
+          "endpoint": "",
+          "id": "second",
+          "key_env": "",
+          "key_present": false,
+          "model": "second",
+          "rungs": [],
+          "window": null
+        }
+      ]
+    },
+    "pending_auth": [],
+    "previous": {
+      "system prompt": 6,
+      "tool declarations": 2,
+      "what you said": 19
+    },
+    "running": {
+      "adapter": "anthropic",
+      "baseUrl": "",
+      "id": "second",
+      "keyEnv": "",
+      "model": "second",
+      "profile": null
+    },
+    "session_growth": {
+      "what you said": 19
+    },
+    "session_usage": {
+      "cached": 0,
+      "calls": 1,
+      "millis": 0,
+      "output": 3,
+      "prompt": 10,
+      "reasoning": 0,
+      "written": 0
+    },
+    "skills": [
+      [
+        "alpha",
+        "A"
+      ],
+      [
+        "beta",
+        ""
+      ]
+    ],
+    "title": "second · fixture · suffix",
+    "turn": 1,
+    "turn_growth": {
+      "what you said": 19
+    },
+    "turn_usage": {
+      "cached": 0,
+      "calls": 1,
+      "millis": 0,
+      "output": 3,
+      "prompt": 10,
+      "reasoning": 0,
+      "written": 0
+    },
+    "unseen": [],
+    "usage": null,
+    "waiting": false
+  },
+  {
+    "background": [],
+    "busy": true,
+    "composition": [
+      [
+        "what you said",
+        19
+      ]
+    ],
+    "done": false,
+    "effective_window": 999,
+    "effort": {
+      "now": null,
+      "rungs": []
+    },
+    "models": {
+      "now": 1,
+      "rows": [
+        {
+          "accepts_images": false,
+          "dialect": "openai",
+          "endpoint": "",
+          "id": "first",
+          "key_env": "",
+          "key_present": false,
+          "model": "first",
+          "rungs": [],
+          "window": null
+        },
+        {
+          "accepts_images": false,
+          "dialect": "anthropic",
+          "endpoint": "",
+          "id": "second",
+          "key_env": "",
+          "key_present": false,
+          "model": "second",
+          "rungs": [],
+          "window": null
+        }
+      ]
+    },
+    "pending_auth": [],
+    "previous": {
+      "system prompt": 6,
+      "tool declarations": 2,
+      "what you said": 19
+    },
+    "running": {
+      "adapter": "anthropic",
+      "baseUrl": "",
+      "id": "second",
+      "keyEnv": "",
+      "model": "second",
+      "profile": null
+    },
+    "session_growth": {
+      "what you said": 19
+    },
+    "session_usage": {
+      "cached": 0,
+      "calls": 1,
+      "millis": 0,
+      "output": 3,
+      "prompt": 10,
+      "reasoning": 0,
+      "written": 0
+    },
+    "skills": [
+      [
+        "alpha",
+        "A"
+      ],
+      [
+        "beta",
+        ""
+      ]
+    ],
+    "title": "second · fixture · suffix",
+    "turn": 1,
+    "turn_growth": {
+      "what you said": 19
+    },
+    "turn_usage": {
+      "cached": 0,
+      "calls": 1,
+      "millis": 0,
+      "output": 3,
+      "prompt": 10,
+      "reasoning": 0,
+      "written": 0
+    },
+    "unseen": [],
+    "usage": null,
+    "waiting": false
+  },
+  {
+    "background": [],
+    "busy": true,
+    "composition": [
+      [
+        "what you said",
+        19
+      ]
+    ],
+    "done": false,
+    "effective_window": 999,
+    "effort": {
+      "now": null,
+      "rungs": []
+    },
+    "models": {
+      "now": 1,
+      "rows": [
+        {
+          "accepts_images": false,
+          "dialect": "openai",
+          "endpoint": "",
+          "id": "first",
+          "key_env": "",
+          "key_present": false,
+          "model": "first",
+          "rungs": [],
+          "window": null
+        },
+        {
+          "accepts_images": false,
+          "dialect": "anthropic",
+          "endpoint": "",
+          "id": "second",
+          "key_env": "",
+          "key_present": false,
+          "model": "second",
+          "rungs": [],
+          "window": null
+        }
+      ]
+    },
+    "pending_auth": [],
+    "previous": {
+      "system prompt": 6,
+      "tool declarations": 2,
+      "what you said": 19
+    },
+    "running": {
+      "adapter": "anthropic",
+      "baseUrl": "",
+      "id": "second",
+      "keyEnv": "",
+      "model": "second",
+      "profile": null
+    },
+    "session_growth": {
+      "what you said": 19
+    },
+    "session_usage": {
+      "cached": 20,
+      "calls": 2,
+      "millis": 0,
+      "output": 7,
+      "prompt": 133,
+      "reasoning": 0,
+      "written": 3
+    },
+    "skills": [
+      [
+        "alpha",
+        "A"
+      ],
+      [
+        "beta",
+        ""
+      ]
+    ],
+    "title": "second · fixture · suffix",
+    "turn": 1,
+    "turn_growth": {
+      "what you said": 19
+    },
+    "turn_usage": {
+      "cached": 20,
+      "calls": 2,
+      "millis": 0,
+      "output": 7,
+      "prompt": 133,
+      "reasoning": 0,
+      "written": 3
+    },
+    "unseen": [],
+    "usage": {
+      "cached": 20,
+      "calls": 1,
+      "millis": 0,
+      "output": 4,
+      "prompt": 123,
+      "reasoning": 0,
+      "written": 3
+    },
+    "waiting": false
+  },
+  {
+    "background": [],
+    "busy": true,
+    "composition": [
+      [
+        "what you said",
+        19
+      ]
+    ],
+    "done": false,
+    "effective_window": 12345,
+    "effort": {
+      "now": null,
+      "rungs": []
+    },
+    "models": {
+      "now": 1,
+      "rows": [
+        {
+          "accepts_images": false,
+          "dialect": "openai",
+          "endpoint": "",
+          "id": "first",
+          "key_env": "",
+          "key_present": false,
+          "model": "first",
+          "rungs": [],
+          "window": null
+        },
+        {
+          "accepts_images": false,
+          "dialect": "anthropic",
+          "endpoint": "",
+          "id": "second",
+          "key_env": "",
+          "key_present": false,
+          "model": "second",
+          "rungs": [],
+          "window": null
+        }
+      ]
+    },
+    "pending_auth": [],
+    "previous": {
+      "system prompt": 6,
+      "tool declarations": 2,
+      "what you said": 19
+    },
+    "running": {
+      "adapter": "anthropic",
+      "baseUrl": "",
+      "id": "second",
+      "keyEnv": "",
+      "model": "second",
+      "profile": null
+    },
+    "session_growth": {
+      "what you said": 19
+    },
+    "session_usage": {
+      "cached": 20,
+      "calls": 2,
+      "millis": 0,
+      "output": 7,
+      "prompt": 133,
+      "reasoning": 0,
+      "written": 3
+    },
+    "skills": [
+      [
+        "alpha",
+        "A"
+      ],
+      [
+        "beta",
+        ""
+      ]
+    ],
+    "title": "second · fixture · suffix",
+    "turn": 1,
+    "turn_growth": {
+      "what you said": 19
+    },
+    "turn_usage": {
+      "cached": 20,
+      "calls": 2,
+      "millis": 0,
+      "output": 7,
+      "prompt": 133,
+      "reasoning": 0,
+      "written": 3
+    },
+    "unseen": [],
+    "usage": {
+      "cached": 20,
+      "calls": 1,
+      "millis": 0,
+      "output": 4,
+      "prompt": 123,
+      "reasoning": 0,
+      "written": 3
+    },
+    "waiting": false
+  },
+  {
+    "background": [],
+    "busy": true,
+    "composition": [
+      [
+        "what you said",
+        19
+      ]
+    ],
+    "done": false,
+    "effective_window": 12345,
+    "effort": {
+      "now": null,
+      "rungs": []
+    },
+    "models": {
+      "now": 1,
+      "rows": [
+        {
+          "accepts_images": false,
+          "dialect": "openai",
+          "endpoint": "",
+          "id": "first",
+          "key_env": "",
+          "key_present": false,
+          "model": "first",
+          "rungs": [],
+          "window": null
+        },
+        {
+          "accepts_images": false,
+          "dialect": "anthropic",
+          "endpoint": "",
+          "id": "second",
+          "key_env": "",
+          "key_present": false,
+          "model": "second",
+          "rungs": [],
+          "window": null
+        }
+      ]
+    },
+    "pending_auth": [],
+    "previous": {
+      "system prompt": 6,
+      "tool declarations": 2,
+      "what you said": 19
+    },
+    "running": {
+      "adapter": "anthropic",
+      "baseUrl": "",
+      "id": "second",
+      "keyEnv": "",
+      "model": "second",
+      "profile": null
+    },
+    "session_growth": {
+      "what you said": 19
+    },
+    "session_usage": {
+      "cached": 20,
+      "calls": 2,
+      "millis": 0,
+      "output": 7,
+      "prompt": 133,
+      "reasoning": 0,
+      "written": 3
+    },
+    "skills": [
+      [
+        "alpha",
+        "A"
+      ],
+      [
+        "beta",
+        ""
+      ]
+    ],
+    "title": "second · fixture · suffix",
+    "turn": 1,
+    "turn_growth": {
+      "what you said": 19
+    },
+    "turn_usage": {
+      "cached": 20,
+      "calls": 2,
+      "millis": 0,
+      "output": 7,
+      "prompt": 133,
+      "reasoning": 0,
+      "written": 3
+    },
+    "unseen": [],
+    "usage": {
+      "cached": 20,
+      "calls": 1,
+      "millis": 0,
+      "output": 4,
+      "prompt": 123,
+      "reasoning": 0,
+      "written": 3
+    },
+    "waiting": false
+  },
+  {
+    "background": [
+      {
+        "fires": 0,
+        "key": "timer:1",
+        "kind": "timer",
+        "label": "every 0s",
+        "ledger": null,
+        "standing": true
+      }
+    ],
+    "busy": true,
+    "composition": [
+      [
+        "what you said",
+        19
+      ]
+    ],
+    "done": false,
+    "effective_window": 12345,
+    "effort": {
+      "now": null,
+      "rungs": []
+    },
+    "models": {
+      "now": 1,
+      "rows": [
+        {
+          "accepts_images": false,
+          "dialect": "openai",
+          "endpoint": "",
+          "id": "first",
+          "key_env": "",
+          "key_present": false,
+          "model": "first",
+          "rungs": [],
+          "window": null
+        },
+        {
+          "accepts_images": false,
+          "dialect": "anthropic",
+          "endpoint": "",
+          "id": "second",
+          "key_env": "",
+          "key_present": false,
+          "model": "second",
+          "rungs": [],
+          "window": null
+        }
+      ]
+    },
+    "pending_auth": [],
+    "previous": {
+      "system prompt": 6,
+      "tool declarations": 2,
+      "what you said": 19
+    },
+    "running": {
+      "adapter": "anthropic",
+      "baseUrl": "",
+      "id": "second",
+      "keyEnv": "",
+      "model": "second",
+      "profile": null
+    },
+    "session_growth": {
+      "what you said": 19
+    },
+    "session_usage": {
+      "cached": 20,
+      "calls": 2,
+      "millis": 0,
+      "output": 7,
+      "prompt": 133,
+      "reasoning": 0,
+      "written": 3
+    },
+    "skills": [
+      [
+        "alpha",
+        "A"
+      ],
+      [
+        "beta",
+        ""
+      ]
+    ],
+    "title": "second · fixture · suffix",
+    "turn": 1,
+    "turn_growth": {
+      "what you said": 19
+    },
+    "turn_usage": {
+      "cached": 20,
+      "calls": 2,
+      "millis": 0,
+      "output": 7,
+      "prompt": 133,
+      "reasoning": 0,
+      "written": 3
+    },
+    "unseen": [],
+    "usage": {
+      "cached": 20,
+      "calls": 1,
+      "millis": 0,
+      "output": 4,
+      "prompt": 123,
+      "reasoning": 0,
+      "written": 3
+    },
+    "waiting": false
+  },
+  {
+    "background": [
+      {
+        "fires": 1,
+        "key": "timer:1",
+        "kind": "timer",
+        "label": "every 0s",
+        "ledger": null,
+        "standing": true
+      }
+    ],
+    "busy": true,
+    "composition": [
+      [
+        "what you said",
+        19
+      ]
+    ],
+    "done": false,
+    "effective_window": 12345,
+    "effort": {
+      "now": null,
+      "rungs": []
+    },
+    "models": {
+      "now": 1,
+      "rows": [
+        {
+          "accepts_images": false,
+          "dialect": "openai",
+          "endpoint": "",
+          "id": "first",
+          "key_env": "",
+          "key_present": false,
+          "model": "first",
+          "rungs": [],
+          "window": null
+        },
+        {
+          "accepts_images": false,
+          "dialect": "anthropic",
+          "endpoint": "",
+          "id": "second",
+          "key_env": "",
+          "key_present": false,
+          "model": "second",
+          "rungs": [],
+          "window": null
+        }
+      ]
+    },
+    "pending_auth": [],
+    "previous": {
+      "system prompt": 6,
+      "tool declarations": 2,
+      "what you said": 19
+    },
+    "running": {
+      "adapter": "anthropic",
+      "baseUrl": "",
+      "id": "second",
+      "keyEnv": "",
+      "model": "second",
+      "profile": null
+    },
+    "session_growth": {
+      "what you said": 19
+    },
+    "session_usage": {
+      "cached": 20,
+      "calls": 2,
+      "millis": 0,
+      "output": 7,
+      "prompt": 133,
+      "reasoning": 0,
+      "written": 3
+    },
+    "skills": [
+      [
+        "alpha",
+        "A"
+      ],
+      [
+        "beta",
+        ""
+      ]
+    ],
+    "title": "second · fixture · suffix",
+    "turn": 2,
+    "turn_growth": {},
+    "turn_usage": {
+      "cached": 0,
+      "calls": 0,
+      "millis": 0,
+      "output": 0,
+      "prompt": 0,
+      "reasoning": 0,
+      "written": 0
+    },
+    "unseen": [
+      "timer:1 ↯"
+    ],
+    "usage": {
+      "cached": 20,
+      "calls": 1,
+      "millis": 0,
+      "output": 4,
+      "prompt": 123,
+      "reasoning": 0,
+      "written": 3
+    },
+    "waiting": false
+  },
+  {
+    "background": [
+      {
+        "fires": 1,
+        "key": "timer:1",
+        "kind": "timer",
+        "label": "every 0s",
+        "ledger": null,
+        "standing": true
+      }
+    ],
+    "busy": true,
+    "composition": [
+      [
+        "what you said",
+        19
+      ]
+    ],
+    "done": false,
+    "effective_window": 12345,
+    "effort": {
+      "now": null,
+      "rungs": []
+    },
+    "models": {
+      "now": 1,
+      "rows": [
+        {
+          "accepts_images": false,
+          "dialect": "openai",
+          "endpoint": "",
+          "id": "first",
+          "key_env": "",
+          "key_present": false,
+          "model": "first",
+          "rungs": [],
+          "window": null
+        },
+        {
+          "accepts_images": false,
+          "dialect": "anthropic",
+          "endpoint": "",
+          "id": "second",
+          "key_env": "",
+          "key_present": false,
+          "model": "second",
+          "rungs": [],
+          "window": null
+        }
+      ]
+    },
+    "pending_auth": [
+      [
+        "event-12",
+        "held-tool"
+      ]
+    ],
+    "previous": {
+      "system prompt": 6,
+      "tool declarations": 2,
+      "what you said": 19
+    },
+    "running": {
+      "adapter": "anthropic",
+      "baseUrl": "",
+      "id": "second",
+      "keyEnv": "",
+      "model": "second",
+      "profile": null
+    },
+    "session_growth": {
+      "what you said": 19
+    },
+    "session_usage": {
+      "cached": 20,
+      "calls": 2,
+      "millis": 0,
+      "output": 7,
+      "prompt": 133,
+      "reasoning": 0,
+      "written": 3
+    },
+    "skills": [
+      [
+        "alpha",
+        "A"
+      ],
+      [
+        "beta",
+        ""
+      ]
+    ],
+    "title": "second · fixture · suffix",
+    "turn": 2,
+    "turn_growth": {},
+    "turn_usage": {
+      "cached": 0,
+      "calls": 0,
+      "millis": 0,
+      "output": 0,
+      "prompt": 0,
+      "reasoning": 0,
+      "written": 0
+    },
+    "unseen": [
+      "timer:1 ↯"
+    ],
+    "usage": {
+      "cached": 20,
+      "calls": 1,
+      "millis": 0,
+      "output": 4,
+      "prompt": 123,
+      "reasoning": 0,
+      "written": 3
+    },
+    "waiting": false
+  },
+  {
+    "background": [
+      {
+        "fires": 1,
+        "key": "timer:1",
+        "kind": "timer",
+        "label": "every 0s",
+        "ledger": null,
+        "standing": true
+      }
+    ],
+    "busy": true,
+    "composition": [
+      [
+        "what you said",
+        19
+      ]
+    ],
+    "done": false,
+    "effective_window": 12345,
+    "effort": {
+      "now": null,
+      "rungs": []
+    },
+    "models": {
+      "now": 1,
+      "rows": [
+        {
+          "accepts_images": false,
+          "dialect": "openai",
+          "endpoint": "",
+          "id": "first",
+          "key_env": "",
+          "key_present": false,
+          "model": "first",
+          "rungs": [],
+          "window": null
+        },
+        {
+          "accepts_images": false,
+          "dialect": "anthropic",
+          "endpoint": "",
+          "id": "second",
+          "key_env": "",
+          "key_present": false,
+          "model": "second",
+          "rungs": [],
+          "window": null
+        }
+      ]
+    },
+    "pending_auth": [
+      [
+        "event-12",
+        "held-tool"
+      ]
+    ],
+    "previous": {
+      "system prompt": 6,
+      "tool declarations": 2,
+      "what you said": 19
+    },
+    "running": {
+      "adapter": "anthropic",
+      "baseUrl": "",
+      "id": "second",
+      "keyEnv": "",
+      "model": "second",
+      "profile": null
+    },
+    "session_growth": {
+      "what you said": 19
+    },
+    "session_usage": {
+      "cached": 20,
+      "calls": 2,
+      "millis": 0,
+      "output": 7,
+      "prompt": 133,
+      "reasoning": 0,
+      "written": 3
+    },
+    "skills": [
+      [
+        "alpha",
+        "A"
+      ],
+      [
+        "beta",
+        ""
+      ]
+    ],
+    "title": "second · fixture · suffix",
+    "turn": 2,
+    "turn_growth": {},
+    "turn_usage": {
+      "cached": 0,
+      "calls": 0,
+      "millis": 0,
+      "output": 0,
+      "prompt": 0,
+      "reasoning": 0,
+      "written": 0
+    },
+    "unseen": [],
+    "usage": {
+      "cached": 20,
+      "calls": 1,
+      "millis": 0,
+      "output": 4,
+      "prompt": 123,
+      "reasoning": 0,
+      "written": 3
+    },
+    "waiting": false
+  },
+  {
+    "background": [
+      {
+        "fires": 1,
+        "key": "timer:1",
+        "kind": "timer",
+        "label": "every 0s",
+        "ledger": null,
+        "standing": true
+      }
+    ],
+    "busy": true,
+    "composition": [
+      [
+        "what you said",
+        19
+      ]
+    ],
+    "done": false,
+    "effective_window": 12345,
+    "effort": {
+      "now": null,
+      "rungs": []
+    },
+    "models": {
+      "now": 1,
+      "rows": [
+        {
+          "accepts_images": false,
+          "dialect": "openai",
+          "endpoint": "",
+          "id": "first",
+          "key_env": "",
+          "key_present": false,
+          "model": "first",
+          "rungs": [],
+          "window": null
+        },
+        {
+          "accepts_images": false,
+          "dialect": "anthropic",
+          "endpoint": "",
+          "id": "second",
+          "key_env": "",
+          "key_present": false,
+          "model": "second",
+          "rungs": [],
+          "window": null
+        }
+      ]
+    },
+    "pending_auth": [
+      [
+        "event-12",
+        "held-tool"
+      ]
+    ],
+    "previous": {
+      "system prompt": 6,
+      "tool declarations": 2,
+      "what you said": 19
+    },
+    "running": {
+      "adapter": "anthropic",
+      "baseUrl": "",
+      "id": "second",
+      "keyEnv": "",
+      "model": "second",
+      "profile": null
+    },
+    "session_growth": {
+      "what you said": 19
+    },
+    "session_usage": {
+      "cached": 20,
+      "calls": 2,
+      "millis": 0,
+      "output": 7,
+      "prompt": 133,
+      "reasoning": 0,
+      "written": 3
+    },
+    "skills": [
+      [
+        "alpha",
+        "A"
+      ],
+      [
+        "beta",
+        ""
+      ]
+    ],
+    "title": "second · fixture · suffix",
+    "turn": 2,
+    "turn_growth": {},
+    "turn_usage": {
+      "cached": 0,
+      "calls": 0,
+      "millis": 0,
+      "output": 0,
+      "prompt": 0,
+      "reasoning": 0,
+      "written": 0
+    },
+    "unseen": [],
+    "usage": {
+      "cached": 20,
+      "calls": 1,
+      "millis": 0,
+      "output": 4,
+      "prompt": 123,
+      "reasoning": 0,
+      "written": 3
+    },
+    "waiting": false
+  },
+  {
+    "background": [
+      {
+        "fires": 1,
+        "key": "timer:1",
+        "kind": "timer",
+        "label": "every 0s",
+        "ledger": null,
+        "standing": true
+      }
+    ],
+    "busy": true,
+    "composition": [
+      [
+        "what you said",
+        19
+      ]
+    ],
+    "done": false,
+    "effective_window": 12345,
+    "effort": {
+      "now": null,
+      "rungs": []
+    },
+    "models": {
+      "now": 1,
+      "rows": [
+        {
+          "accepts_images": false,
+          "dialect": "openai",
+          "endpoint": "",
+          "id": "first",
+          "key_env": "",
+          "key_present": false,
+          "model": "first",
+          "rungs": [],
+          "window": null
+        },
+        {
+          "accepts_images": false,
+          "dialect": "anthropic",
+          "endpoint": "",
+          "id": "second",
+          "key_env": "",
+          "key_present": false,
+          "model": "second",
+          "rungs": [],
+          "window": null
+        }
+      ]
+    },
+    "pending_auth": [],
+    "previous": {
+      "system prompt": 6,
+      "tool declarations": 2,
+      "what you said": 19
+    },
+    "running": {
+      "adapter": "anthropic",
+      "baseUrl": "",
+      "id": "second",
+      "keyEnv": "",
+      "model": "second",
+      "profile": null
+    },
+    "session_growth": {
+      "what you said": 19
+    },
+    "session_usage": {
+      "cached": 20,
+      "calls": 2,
+      "millis": 0,
+      "output": 7,
+      "prompt": 133,
+      "reasoning": 0,
+      "written": 3
+    },
+    "skills": [
+      [
+        "alpha",
+        "A"
+      ],
+      [
+        "beta",
+        ""
+      ]
+    ],
+    "title": "second · fixture · suffix",
+    "turn": 2,
+    "turn_growth": {},
+    "turn_usage": {
+      "cached": 0,
+      "calls": 0,
+      "millis": 0,
+      "output": 0,
+      "prompt": 0,
+      "reasoning": 0,
+      "written": 0
+    },
+    "unseen": [],
+    "usage": {
+      "cached": 20,
+      "calls": 1,
+      "millis": 0,
+      "output": 4,
+      "prompt": 123,
+      "reasoning": 0,
+      "written": 3
+    },
+    "waiting": false
+  },
+  {
+    "background": [
+      {
+        "fires": 1,
+        "key": "timer:1",
+        "kind": "timer",
+        "label": "every 0s",
+        "ledger": null,
+        "standing": true
+      }
+    ],
+    "busy": true,
+    "composition": [
+      [
+        "what you said",
+        19
+      ]
+    ],
+    "done": false,
+    "effective_window": 12345,
+    "effort": {
+      "now": null,
+      "rungs": []
+    },
+    "models": {
+      "now": 1,
+      "rows": [
+        {
+          "accepts_images": false,
+          "dialect": "openai",
+          "endpoint": "",
+          "id": "first",
+          "key_env": "",
+          "key_present": false,
+          "model": "first",
+          "rungs": [],
+          "window": null
+        },
+        {
+          "accepts_images": false,
+          "dialect": "anthropic",
+          "endpoint": "",
+          "id": "second",
+          "key_env": "",
+          "key_present": false,
+          "model": "second",
+          "rungs": [],
+          "window": null
+        }
+      ]
+    },
+    "pending_auth": [],
+    "previous": {
+      "system prompt": 6,
+      "tool declarations": 2,
+      "what you said": 19
+    },
+    "running": {
+      "adapter": "anthropic",
+      "baseUrl": "",
+      "id": "second",
+      "keyEnv": "",
+      "model": "second",
+      "profile": null
+    },
+    "session_growth": {
+      "what you said": 19
+    },
+    "session_usage": {
+      "cached": 20,
+      "calls": 2,
+      "millis": 0,
+      "output": 7,
+      "prompt": 133,
+      "reasoning": 0,
+      "written": 3
+    },
+    "skills": [],
+    "title": "second · fixture · suffix",
+    "turn": 2,
+    "turn_growth": {},
+    "turn_usage": {
+      "cached": 0,
+      "calls": 0,
+      "millis": 0,
+      "output": 0,
+      "prompt": 0,
+      "reasoning": 0,
+      "written": 0
+    },
+    "unseen": [],
+    "usage": {
+      "cached": 20,
+      "calls": 1,
+      "millis": 0,
+      "output": 4,
+      "prompt": 123,
+      "reasoning": 0,
+      "written": 3
+    },
+    "waiting": false
+  }
+]

@@ -1,0 +1,4 @@
+{"v":1,"id":"ev_1_3a640368","seq":1,"stream":"v4-fixture","time":"2026-09-20T06:09:18.979Z","type":"core.input.user_message","source":"fixture","causes":[],"payload":{"text":"legacy question"}}
+{"v":1,"id":"ev_2_3aaf0688","seq":2,"stream":"v4-fixture","time":"2026-09-20T06:09:18.984Z","type":"core.model.call_started","source":"fixture","causes":[],"payload":{"input":{"parts":[{"event":"ev_1_3a640368"}]},"model":"fixture-model","system":"fixture instructions","tools":[]}}
+{"v":1,"id":"ev_3_3af78908","seq":3,"stream":"v4-fixture","time":"2026-09-20T06:09:18.989Z","type":"core.model.call_completed","source":"fixture","causes":["ev_2_3aaf0688"],"payload":{"text":"legacy answer","usage":{"completion_tokens":5,"prompt_tokens":17}}}
+{"v":1,"id":"ev_4_3b328698","seq":4,"stream":"v4-fixture","time":"2026-09-20T06:09:18.993Z","type":"core.control.turn_completed","source":"fixture","causes":["ev_3_3af78908"],"payload":{}}

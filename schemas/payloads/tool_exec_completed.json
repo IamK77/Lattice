@@ -1,0 +1,89 @@
+{
+  "type": "object",
+  "required": [
+    "status"
+  ],
+  "properties": {
+    "call": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "status": {
+      "enum": [
+        "ok",
+        "error",
+        "cancelled"
+      ]
+    },
+    "error": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": [
+            "code",
+            "message",
+            "blame"
+          ],
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "blame": {
+              "enum": [
+                "request",
+                "provider",
+                "environment"
+              ]
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "retryAfterMs": {
+              "type": "integer"
+            },
+            "transient": {
+              "type": "boolean"
+            }
+          }
+        }
+      ]
+    },
+    "result": {
+      "description": "Any JSON result. Object results may explicitly opt into PNG attachments with latticeImages; ordinary business fields named images remain untouched.",
+      "properties": {
+        "latticeImages": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "required": ["file", "mediaType"],
+            "properties": {
+              "file": {"type": "string", "pattern": "^[0-9a-f]{32}\\.png$"},
+              "mediaType": {"const": "image/png"},
+              "bytes": {"type": "integer", "minimum": 0, "maximum": 20971520}
+            }
+          }
+        }
+      }
+    },
+    "modelText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8192,
+      "description": "Optional concise receipt for successful results only. The full result remains authoritative in the ledger. Model adapters label omissions and include the event reference; errors and cancellations ignore this field."
+    },
+    "continuation": {
+      "enum": ["wait"],
+      "description": "Optional on successful receipts: no result is ready yet. A conversational loop may yield until new input rather than immediately querying the model again. The tool call is completed; later progress arrives as ordinary input. Errors and cancellations never defer continuation."
+    },
+    "details": {}
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "@lattice/ink",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A React/Ink frontend for the Lattice daemon — connects over the Unix socket, speaks only the wire protocol, touches no Rust.",
+  "bin": {
+    "lattice": "bin/lattice.js"
+  },
+  "scripts": {
+    "start": "node bin/lattice.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "htm": "^3.1.1",
+    "ink": "^5.0.1",
+    "react": "^18.3.1"
+  },
+  "devDependencies": {
+    "ink-testing-library": "^4.0.0"
+  }
+}

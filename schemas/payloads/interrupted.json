@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "required": [
+    "by"
+  ],
+  "properties": {
+    "by": {
+      "type": "string"
+    }
+  }
+}

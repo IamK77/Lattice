@@ -1,0 +1,25 @@
+{
+  "type": "object",
+  "required": [
+    "instance",
+    "from",
+    "to"
+  ],
+  "properties": {
+    "instance": {
+      "type": "string",
+      "description": "The instance whose implementation changed. Its name and every wire it sits on are unchanged — that is what makes this a replacement rather than a removal followed by an install."
+    },
+    "from": {
+      "type": "string",
+      "description": "The component that was behind it"
+    },
+    "to": {
+      "type": "string",
+      "description": "The component behind it now. May be the same as `from` when only the configuration changed."
+    },
+    "config": {
+      "description": "The configuration the new one was built with. Recorded because the same component with different config is a different thing to talk to, and reading the ledger later must not require guessing which."
+    }
+  }
+}

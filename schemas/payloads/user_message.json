@@ -1,0 +1,41 @@
+{
+  "type": "object",
+  "required": [
+    "text"
+  ],
+  "properties": {
+    "text": {
+      "type": "string"
+    },
+    "images": {
+      "type": "array",
+      "description": "Pictures attached to this message. Each is a REFERENCE to a file in the documents directory beside the ledger, never the bytes themselves: the ledger is one JSON object per line and read line by line, and an inlined image would put megabytes of base64 on a line that every reader has to walk past. Absent means none, which is what every record written before attachments existed says.",
+      "items": {
+        "type": "object",
+        "required": [
+          "file",
+          "mediaType"
+        ],
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Bare file name in the documents directory, content-addressed. Never a path — a reference that could name ../.. would make a ledger a way to read arbitrary files."
+          },
+          "mediaType": {
+            "type": "string",
+            "description": "IANA media type, e.g. image/png. What a dialect needs to declare the block to its provider."
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string",
+            "description": "What the person called it, for display only. The file name is the identity."
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

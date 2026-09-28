@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Skill frontmatter: the YAML header of a SKILL.md, per the open Agent Skills standard",
+  "description": "The machine-readable canon of the SKILL.md frontmatter as specified at agentskills.io (the specification itself ships no schema; this file is Lattice's canon of it). A skill is a folder whose SKILL.md carries this header followed by markdown instructions. Unknown fields are permitted — other implementations extend the format — but Lattice ignores them; in particular `allowed-tools` is accepted and deliberately not honored: tool policy is the policy gate's job, never a skill's self-declaration. The `name` must equal the skill's directory name; loaders may fill an absent name from the directory before validating.",
+  "type": "object",
+  "required": ["name", "description"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "maxLength": 64,
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "description": "Lowercase letters, digits and single hyphens; no leading/trailing/consecutive hyphens; must match the parent directory name"
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "description": "What the skill does and when to use it — the only part of a skill that is resident in context, and what the model matches requests against"
+    },
+    "license": {
+      "type": "string",
+      "description": "License name, or a pointer to a bundled license file"
+    },
+    "compatibility": {
+      "type": "string",
+      "maxLength": 500,
+      "description": "Environment requirements (target products, system packages, network access)"
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Free-form key/value pairs (the specification's own examples put author and version here)"
+    },
+    "allowed-tools": {
+      "type": "string",
+      "description": "Space-separated pre-approved tool list — experimental in the specification, accepted here for compatibility and deliberately ignored by Lattice"
+    }
+  }
+}

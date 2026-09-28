@@ -1,0 +1,44 @@
+{
+  "type": "object",
+  "required": [
+    "lattice",
+    "resumed",
+    "fromSeq"
+  ],
+  "properties": {
+    "lattice": {
+      "type": "string",
+      "description": "Runtime version that picked the stream up"
+    },
+    "resumed": {
+      "type": "string",
+      "description": "When it was picked up, ISO 8601"
+    },
+    "fromSeq": {
+      "type": "integer",
+      "description": "The last sequence number already on the ledger when this process arrived, so a reader can tell one life from the next"
+    },
+    "instances": {
+      "type": "object",
+      "description": "The assembly this life runs under. Present because it may differ from the one the stream opened with — a component installed in the previous life, a model swapped.",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "host": {
+      "type": "string"
+    },
+    "model": {
+      "type": "string"
+    },
+    "adapter": {
+      "type": "string"
+    },
+    "workspace": {
+      "type": "string"
+    },
+    "cwd": {
+      "type": "string"
+    }
+  }
+}

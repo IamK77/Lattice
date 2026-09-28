@@ -1,0 +1,18 @@
+{
+  "type": "object",
+  "required": [
+    "instance"
+  ],
+  "properties": {
+    "component": {
+      "type": "string"
+    },
+    "instance": {
+      "type": "string"
+    },
+    "wires": {
+      "type": "array",
+      "description": "The wires taken out with it — everything that touched this instance"
+    }
+  }
+}

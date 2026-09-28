@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "required": [
+    "source"
+  ],
+  "properties": {
+    "source": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "body": {}
+  }
+}

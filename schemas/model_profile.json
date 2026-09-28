@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Model profile: one model's temperament, as pure data",
+  "description": "The third axis of a model call (dialect / endpoint / PROFILE). Describes a specific model, independent of which wire format speaks to it and which endpoint serves it. Data, not code: no exam needed, schema validation is its inspection.",
+  "type": "object",
+  "required": [
+    "model"
+  ],
+  "properties": {
+    "model": {
+      "type": "string",
+      "description": "The model identifier this profile describes, e.g. deepseek-v4-flash"
+    },
+    "contextWindow": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Total context window in tokens; proportional context budgeting derives from this"
+    },
+    "maxOutputTokens": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The largest output the model can produce in one call"
+    },
+    "acceptsImages": {
+      "type": "boolean",
+      "description": "Whether this model can be sent images alongside text. A CAPABILITY of the model, so it lives here and not in the endpoint config or the dialect: the same dialect speaks to models that can and cannot, and swapping the model is what changes the answer. Omit when unknown; a consumer then treats it as no, because offering to send an image the model cannot read produces a failed call rather than a degraded one."
+    },
+    "nativeWebSearch": {
+      "type": "boolean",
+      "description": "Offer provider-hosted web search on normal Responses calls. Absent or false disables it. The serving endpoint must also support this capability."
+    },
+    "nativeImageGeneration": {
+      "type": "boolean",
+      "description": "Offer provider-hosted image generation on normal Responses calls. Absent or false disables it; generated pixels are saved beside the ledger."
+    },
+    "effort": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "This model's OWN effort rungs, weakest first, in the provider's own words. Lattice keeps one wide ruler (minimal, low, medium, high, xhigh, max) and places a request on the nearest rung this model declares, so the same word means the same POSITION across providers rather than the same spelling. That distinction is load-bearing: DeepSeek's ladder is high, max — where high is its FLOOR — while on Anthropic and OpenAI high sits well up the scale, so matching by name would send the least thinking to someone asking for a lot. `none` may appear here and is never chosen by nearest-matching: it is how some wires express 'do not think', which is the absence of thinking rather than the bottom of the scale. Omit when unknown; each dialect then falls back to its own defaults rather than a guess."
+    },
+    "usageFields": {
+      "type": "object",
+      "description": "Maps this model's NATIVE usage field names onto canonical roles, so ledger observers can aggregate cache statistics across providers without knowing each dialect",
+      "properties": {
+        "input": {
+          "type": "string"
+        },
+        "output": {
+          "type": "string"
+        },
+        "cacheRead": {
+          "type": "string"
+        },
+        "cacheWrite": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "quirks": {
+      "type": "object",
+      "description": "Open extension point for model-specific temperament (e.g. parallel tool call support, reasoning-content handling). Consumers ignore keys they do not know."
+    }
+  },
+  "additionalProperties": false
+}

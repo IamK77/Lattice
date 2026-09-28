@@ -1,0 +1,53 @@
+{
+  "type": "object",
+  "properties": {
+    "text": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "cancelled": {
+      "type": "boolean"
+    },
+    "error": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": [
+            "code",
+            "message",
+            "blame"
+          ],
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "blame": {
+              "enum": [
+                "request",
+                "provider",
+                "environment"
+              ]
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "retryAfterMs": {
+              "type": "integer"
+            },
+            "transient": {
+              "type": "boolean"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

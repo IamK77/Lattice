@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "User preferences: the person's standing choices",
+  "description": "Lives in the user directory (default ~/.lattice/preferences.json, LATTICE_PREFERENCES to move it). Distinct from the assembly overlay beside it: an overlay says what is ASSEMBLED and is written by installs; this says how the person likes it SET. The difference is why it exists — a setting recovered from a conversation's ledger would only come back in that conversation, and a standing choice has to hold in a conversation that did not exist yet when it was made. Precedence, strongest first: an environment variable typed on THIS launch, then this file, then the built-in default; something said a second ago outranks something chosen last week. Nothing here is load-bearing: a missing, unreadable or malformed document reads as empty rather than stopping startup.",
+  "type": "object",
+  "properties": {
+    "thinking": {
+      "description": "How hard the main model thinks. A rung of Lattice's neutral ladder, which each dialect translates to its own wire (a word on one, a token budget on another) so the same setting means the same thing across providers. `false` = off. A string off the ladder is passed to the provider untouched — the escape hatch for a provider-specific value. Omitted entirely = say nothing at all in the request, which is not the same as off, and is the only safe setting for an endpoint that rejects unknown parameters.",
+      "anyOf": [
+        { "const": false },
+        { "enum": ["minimal", "low", "medium", "high", "xhigh", "max"] },
+        { "type": "string" }
+      ]
+    },
+    "model": {
+      "type": "string",
+      "description": "Which entry of the model catalog (schemas/model_catalog.json) to run, by its short name — the name rather than the model id, so the choice survives an entry being pointed at a newer model. A name the catalog no longer has is ignored rather than fatal: deleting an entry gets the default back, not a program that will not start."
+    }
+  },
+  "additionalProperties": {
+    "description": "Preferences this version does not know. Kept on write rather than dropped: one document, and a command that sets one key must not delete a choice it knows nothing about."
+  }
+}

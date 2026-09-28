@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Trust grants: what the user has admitted, as pure data",
+  "description": "The durable half of the trust model (a trust record = content fingerprint + the surface granted at the time). Lives in the user directory (default ~/.lattice/trust.json) because a grant is a user-level, cross-session fact — one ledger is one conversation, but 'I trusted this' is not per-conversation. The trust gate consults this file; the granting itself is also recorded as a decision event on the ledger of the conversation where it happened.",
+  "type": "object",
+  "required": ["grants"],
+  "properties": {
+    "grants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["key", "admits", "effects"],
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "The canonical fingerprint of the admitting call's arguments (sha256 of key-sorted JSON, reason excluded) — content-addressed: the same source string or the same inline code, nothing else"
+          },
+          "admits": {
+            "type": "string",
+            "description": "What kind of thing the granted call introduces (components, skills, ...) — from the tool's declared surface"
+          },
+          "effects": {
+            "type": "object",
+            "description": "The full effect surface the tool declared WHEN GRANTED. A later call whose declaration differs does not match — changed appetite means re-confirmation."
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable note of what was granted (a source URL, a tool name)"
+          },
+          "granted_by": {
+            "type": "string",
+            "description": "The ledger event id of the authorization answer (or 'manual' for a hand-added grant)"
+          }
+        }
+      }
+    }
+  }
+}

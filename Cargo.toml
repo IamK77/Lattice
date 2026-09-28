@@ -1,0 +1,62 @@
+[package]
+name = "lattice"
+version = "0.1.0"
+edition = "2021"
+description = "A composable, auditable agent runtime: loosely-coupled components wired by a data manifest, one event ledger as the source of truth"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["clock", "serde"] }
+sha2 = "0.10"
+tokio-util = { version = "0.7", default-features = false }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "macros", "io-util", "process", "sync"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
+futures-util = "0.3"
+jsonschema = { version = "0.49", default-features = false }
+serde_yaml = "0.9"
+# On macOS use kernel notifications without registering with fseventsd.
+notify = { version = "8", default-features = false, features = ["macos_kqueue"] }
+unicode-width = "0.2"
+unicode-segmentation = "1"
+similar = "2.7"
+# The product binary's terminal frontend; optional so a pure-library consumer
+# can drop it with default-features = false. The lib core never uses them.
+ratatui = { version = "0.29", optional = true }
+ctrlc = { version = "3", optional = true }
+ignore = "0.4.31"
+grep-searcher = "0.1.17"
+grep-regex = "0.1.14"
+grep-matcher = "0.1"
+globset = "0.4.19"
+html2text = "0.17.1"
+html5ever = "0.39.0"
+syntect = { version = "5.3.0", default-features = false, features = ["default-onig"] }
+base64 = "0.22"
+png = "0.18"
+tungstenite = "0.28"
+tempfile = "3"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[features]
+default = ["cli"]
+# The `lattice` binary (in-process TUI + `serve` daemon)
+cli = ["dep:ratatui", "dep:ctrlc"]
+
+[[bin]]
+name = "lattice"
+path = "src/bin/lattice.rs"
+required-features = ["cli"]
+
+# The chat example (workshop demo) uses the optional cli deps
+[[example]]
+name = "chat"
+required-features = ["cli"]
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
+tempfile = "3"
+sha2 = "0.10"
+jsonschema = { version = "0.49", default-features = false }

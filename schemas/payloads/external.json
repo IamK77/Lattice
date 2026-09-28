@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "required": [
+    "channel"
+  ],
+  "properties": {
+    "channel": {
+      "type": "string"
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "type": "object",
+  "required": [
+    "component",
+    "instance"
+  ],
+  "properties": {
+    "component": {
+      "type": "string"
+    },
+    "instance": {
+      "type": "string"
+    },
+    "wires": {
+      "type": "array"
+    }
+  }
+}
