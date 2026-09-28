@@ -24,5 +24,8 @@ release. Published artifacts and their publication dates are recorded in
 
 ### Security
 
+- Update the locked h2 dependency to 0.4.16 for RUSTSEC-2026-0258.
+- Add dependency/source/license checks, pinned CI actions, and time-limited
+  review records for existing transitive maintenance advisories.
 - Document that tool execution is not a sandbox, interruption is not rollback,
   and retained or model-bound data can contain secrets.

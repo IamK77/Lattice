@@ -49,10 +49,10 @@ Follow the [Git Flow workflow](docs/workflow.md) ([中文](docs/协作流程.md)
 
 Use merge commits, not squash or rebase merges. A pull request's English Conventional Commit title and body become its default merge message. Classify the actual change; merge commits are excluded from release change classification. Both protected branches require the `workflow`, `check`, and `frontend` checks. See the workflow for release authorization and the single-maintainer review limitation.
 
-Run the workflow regression tests when changing these checks:
+Workflow and release maintenance scripts use Python 3.12. Run their regression tests when changing these checks:
 
 ```sh
-python3 -m unittest discover -s scripts -p 'test_*.py' -v
+python3.12 -m unittest discover -s scripts -p 'test_*.py' -v
 ```
 
 ## Language and commits

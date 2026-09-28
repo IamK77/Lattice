@@ -11,9 +11,11 @@ import sys
 from conventional import TYPES, parse
 
 
-def branch_error(base, head, same_repository=True):
+def branch_error(base, head, same_repository=True, author=None):
     if base == "develop":
         if head == "main" and same_repository:
+            return None
+        if same_repository and author == "dependabot[bot]" and head.startswith("dependabot/") and len(head) > len("dependabot/"):
             return None
         prefixes = ("feature/", "release/", "hotfix/")
     elif base == "main":
@@ -55,7 +57,10 @@ def check_event(event_name, event):
     if event_name == "pull_request":
         pr = event["pull_request"]
         base, head = pr["base"], pr["head"]
-        error = branch_error(base["ref"], head["ref"], base["repo"]["id"] == head["repo"]["id"])
+        error = branch_error(
+            base["ref"], head["ref"], base["repo"]["id"] == head["repo"]["id"],
+            pr.get("user", {}).get("login"),
+        )
         if error:
             errors.append(error)
         merge_message = pr["title"] + "\n\n" + (pr.get("body") or "")

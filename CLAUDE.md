@@ -39,7 +39,7 @@ Lattice 是可组装、可审计的 agent runtime。系统心智模型见 `docs/
 
 ## 提交与发布
 
-采用 [Git Flow 协作流程](docs/协作流程.md)：普通改动从 `develop` 创建 `feature/` 分支，经合并请求回到 `develop`；只有 `release/`、`hotfix/` 进入 `main`，随后同步回开发线。两条长期分支禁止直接推送、强推和删除。使用保留原提交的合并，不使用压缩或变基合并；发布整理不重复计算合并提交。合并请求使用英文 Conventional Commit 标题与英文正文，作为默认合并消息，按实际改动分类。必需检查为 `workflow`、`check`、`frontend`，管理员也不得绕过；单维护者不强制第二人批准，不得将其宣称为独立审查。
+采用 [Git Flow 协作流程](docs/协作流程.md)：普通改动从 `develop` 创建 `feature/` 分支，经合并请求回到 `develop`；只有 `release/`、`hotfix/` 进入 `main`，随后同步回开发线。Dependabot 的同仓库机器人 PR 可由 `dependabot/` 进入 develop，但不减免检查或审阅。两条长期分支禁止直接推送、强推和删除。使用保留原提交的合并，不使用压缩或变基合并；发布整理不重复计算合并提交。合并请求使用英文 Conventional Commit 标题与英文正文，作为默认合并消息，按实际改动分类。必需检查为 `workflow`、`check`、`frontend`，管理员也不得绕过；单维护者不强制第二人批准，不得将其宣称为独立审查。
 
 提交标题和正文一律使用英文，标题遵循 Conventional Commits：`type: description` 或 `type(scope): description`，例如 `feat: add model switching`、`fix(cli): handle missing credentials`。类型取 feat、fix、perf、refactor、docs、test、style、chore、ci、build、revert 之一。不再要求自定义 `Type:` 尾注；历史尾注不参与版本计算。新能力用 feat，纠错用 fix，同样行为更省用 perf，仅改变结构用 refactor；不兼容改动用 `!` 或 `BREAKING CHANGE:` 标记并说明迁移。
 
