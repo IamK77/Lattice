@@ -429,6 +429,12 @@ fn public_entry_documents_have_resolvable_local_links() {
         "README.md",
         "README.zh-CN.md",
         "CONTRIBUTING.md",
+        "SECURITY.md",
+        "SUPPORT.md",
+        "CODE_OF_CONDUCT.md",
+        "MAINTAINERS.md",
+        "docs/workflow.md",
+        "docs/协作流程.md",
         "docs/getting-started.md",
         "docs/快速开始.md",
     ] {

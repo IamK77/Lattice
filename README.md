@@ -71,4 +71,6 @@ The English entry path is available here; deeper architecture and integration do
 
 ## License
 
-A project-wide license has not yet been selected. Public source availability should not be read as an open-source license grant. Third-party attribution remains in the relevant files, including [assets](assets/README.md).
+Licensed under the [Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for project notices and [assets](assets/README.md) for third-party asset attribution. Dependencies and optional external components retain their own licenses.
+
+For help, see [Support](SUPPORT.md). Report vulnerabilities through the private channel in [Security](SECURITY.md). Participation follows the [Code of Conduct](CODE_OF_CONDUCT.md); project stewardship is documented in [Maintainers](MAINTAINERS.md).

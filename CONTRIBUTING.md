@@ -63,6 +63,8 @@ Write commit subjects and bodies in English. Follow Conventional Commits: `type:
 
 Repository instructions do not authorize a push, release, program installation, service restart, or destructive action on a maintainer's behalf.
 
-## License status
+## License and community
 
-A project-wide license has not yet been selected. Do not assume a license grant from public visibility. Third-party sources and attribution remain in their own files, including [assets](assets/README.md).
+Lattice is licensed under [Apache-2.0](LICENSE). Contributions are accepted under the project license; do not contribute material you cannot license accordingly. Preserve [NOTICE](NOTICE) and third-party sources and attribution, including [assets](assets/README.md). Dependencies and external components retain their own licenses.
+
+Follow the [Code of Conduct](CODE_OF_CONDUCT.md). See [Support](SUPPORT.md) for usage questions, [Security](SECURITY.md) for private vulnerability reports, and [Maintainers](MAINTAINERS.md) for project responsibility.
