@@ -39,6 +39,8 @@ Lattice 是可组装、可审计的 agent runtime。系统心智模型见 `docs/
 
 ## 提交与发布
 
+采用 [Git Flow 协作流程](docs/协作流程.md)：普通改动从 `develop` 创建 `feature/` 分支，经合并请求回到 `develop`；只有 `release/`、`hotfix/` 进入 `main`，随后同步回开发线。两条长期分支禁止直接推送、强推和删除。使用保留原提交的合并，不使用压缩或变基合并；合并提交固定 `Type: chore`，避免重复计算版本。合并请求的中文标题和正文作为默认合并消息，正文末行也必须为 `Type: chore`。必需检查为 `workflow`、`check`、`frontend`，管理员也不得绕过；单维护者不强制第二人批准，不得将其宣称为独立审查。
+
 提交标题用完整中文句子，不加类型前缀。消息最后一行使用 `Type: feat/fix/perf/refactor/docs/test/style/chore` 中的一种。新能力用 feat，纠错用 fix，同样行为更省用 perf，仅改变结构用 refactor；类型参与版本计算。
 
 本文件不授予向任何账户推送、更改可见性、安装程序、重启服务或执行破坏性操作的权限。发布与外部副作用须取得维护者授权。
