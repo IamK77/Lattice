@@ -30,22 +30,22 @@ git push -u origin feature/short-description
 gh pr create --base develop
 ```
 
-Use a descriptive Chinese commit subject with no `feat:`-style prefix. End each commit message with exactly one `Type: feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `style`, or `chore` trailer (always include the `Type: ` prefix). Choose the type by the change, not by the branch name.
+Write commit subjects and bodies in English. Use Conventional Commits: `type: description` or `type(scope): description`, such as `feat: add model switching` or `fix(cli): handle missing credentials`. Types are `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `style`, and `chore`. Keep exactly one matching final `Type: <type>` trailer, separated from the body by a blank line, for the existing version calculator. CI rejects a mismatch between the prefix and trailer. Choose the type by the change, not by the branch name.
 
 ## Merge without corrupting version history
 
 Use **merge commits**, not squash or rebase merges. Feature commits retain their identity when the same work reaches both long-lived branches. `build.rs` counts `Type:` trailers across reachable history; duplicating or reclassifying the same change can affect version calculation.
 
-Every merge commit must have a Chinese subject and end in **`Type: chore`**. The actual feature or fix is classified on its original commit, not again on the merge. This also applies to local branch-sync merges before pushing a working branch.
+Every merge commit must use an English **`chore: ...`** or **`chore(scope): ...`** subject and end in **`Type: chore`**. The actual feature or fix is classified on its original commit, not again on the merge. This also applies to local branch-sync merges before pushing a working branch.
 
 The pull request title and body become the default merge subject and body. Therefore:
 
-- Give the pull request a Chinese title without a type prefix.
+- Give the pull request an English Conventional Commit title with type `chore`; write the body in English.
 - Describe the change, evidence, and unverified parts; leave `Type: chore` as the final line of the description.
-- Do not replace the prepared merge message with GitHub's generic English message or another feature/fix trailer.
+- Do not replace the prepared merge message with GitHub's generic non-conventional subject or another feature/fix trailer.
 - Merge only after required checks pass and the branch is current with its target. If an update introduces a merge commit, give it the same compliant subject and trailer.
 
-The `workflow` check validates branch routing, pull request merge-message defaults, and every incoming commit. It does not validate the meaning of a Chinese sentence or decide whether a change deserves `feat` versus `fix`; that remains a review responsibility. It checks the real PR head, not GitHub's temporary test merge. Post-push checks also inspect the actual merge message.
+The `workflow` check validates branch routing, pull request merge-message defaults, and every incoming commit. It checks the subject format, rejects Chinese subjects, and checks that the prefix and trailer agree. It does not judge prose quality or decide whether a change deserves `feat` versus `fix`; that remains a review responsibility. It checks the real PR head, not GitHub's temporary test merge. Post-push checks also inspect the actual merge message.
 
 ## Protected branches
 
