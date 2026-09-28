@@ -43,6 +43,18 @@ Each call has one outcome. An interruption is an unknown-effect ending, not proo
 
 Detailed architecture constraints and rationale are currently in Chinese: [contribution rules](CLAUDE.md), [overview](docs/架构总览.md), [design decisions](docs/架构决策.md), and [contracts](docs/contracts/). Machine-readable interfaces are in [schemas](schemas/).
 
+## Branches and pull requests
+
+Follow the [Git Flow workflow](docs/workflow.md) ([中文](docs/协作流程.md)): ordinary work starts on `feature/<name>` from `develop` and returns through a pull request. Only release and hotfix branches enter `main`; synchronize published work back into `develop`. Do not push directly to either long-lived branch.
+
+Use merge commits, not squash or rebase merges. A pull request's Chinese title and body become its default merge message; end the body with `Type: chore` so merging does not count the original changes twice. Both protected branches require the `workflow`, `check`, and `frontend` checks. See the workflow for release authorization and the single-maintainer review limitation.
+
+Run the workflow regression tests when changing these checks:
+
+```sh
+python3 -m unittest discover -s scripts -p 'test_*.py' -v
+```
+
 ## Language and commits
 
 Code comments, assertions, and diagnostics are in English. The public README and getting-started path have English and Simplified Chinese versions; keep paired instructions and examples aligned. Deeper documentation may remain in Chinese, with language labels on English entry links.
