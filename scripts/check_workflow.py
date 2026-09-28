@@ -30,14 +30,20 @@ def message_errors(message, merge=False):
     if not lines:
         return ["Commit message is empty."]
     errors = []
-    if not re.search(r"[\u3400-\u9fff]", lines[0]):
-        errors.append("Use a descriptive Chinese subject.")
-    if re.match(r"^(feat|fix|perf|refactor|docs|test|style|chore)(\([^)]*\))?!?:", lines[0]):
-        errors.append("Put the type in the final trailer, not in the subject.")
+    subject = re.fullmatch(
+        r"(?P<type>feat|fix|perf|refactor|docs|test|style|chore)"
+        r"(?:\([^()\s]+\))?!?: (?P<description>\S.*)", lines[0],
+    )
+    if not subject:
+        errors.append("Use an English Conventional Commit subject: type(scope): description.")
+    if re.search(r"[\u3400-\u9fff]", lines[0]):
+        errors.append("Write the commit subject in English.")
     trailers = [line for line in lines if line.startswith("Type:")]
     if len(trailers) != 1 or lines[-1] not in {f"Type: {kind}" for kind in TYPES}:
         errors.append("End with exactly one Type: trailer using an allowed value.")
     else:
+        if subject and lines[-1] != f"Type: {subject.group('type')}":
+            errors.append("The Type: trailer must match the Conventional Commit prefix.")
         parsed = subprocess.check_output(
             ["git", "interpret-trailers", "--parse"], input=message, text=True,
         ).splitlines()
@@ -76,7 +82,10 @@ def check_event(event_name, event):
     elif event_name == "push":
         # Branch deletion has no commit to validate.
         if not event.get("deleted", False):
-            errors.extend(check_range(event["before"], event["after"]))
+            # A deliberately rewritten history may no longer contain the old
+            # tip in a fresh checkout. Validate the entire new history instead.
+            base = None if event.get("forced", False) else event["before"]
+            errors.extend(check_range(base, event["after"]))
     else:
         errors.append(f"Unsupported event: {event_name}")
     return errors
