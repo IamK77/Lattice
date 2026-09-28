@@ -19,9 +19,9 @@ pub mod profile;
 pub mod prompts;
 pub mod recovery;
 
-/// This build's version: `v{major}.{feat}.{fix}-{hash}`, worked out from the
-/// history when it was compiled (see `build.rs`). The hash is the part that
-/// answers "which build is this" when somebody reports a problem.
+/// The Cargo package version, prefixed with `v`. Ordinary builds add a `dev`
+/// prerelease identifier and, when available, the source commit as metadata.
+/// Official release builds explicitly confirm the version through `build.rs`.
 pub const VERSION: &str = env!("LATTICE_VERSION");
 pub mod richtext;
 pub mod session;

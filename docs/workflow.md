@@ -30,22 +30,20 @@ git push -u origin feature/short-description
 gh pr create --base develop
 ```
 
-Write commit subjects and bodies in English. Use Conventional Commits: `type: description` or `type(scope): description`, such as `feat: add model switching` or `fix(cli): handle missing credentials`. Types are `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `style`, and `chore`. Keep exactly one matching final `Type: <type>` trailer, separated from the body by a blank line, for the existing version calculator. CI rejects a mismatch between the prefix and trailer. Choose the type by the change, not by the branch name.
+Write commit subjects and bodies in English. Use Conventional Commits: `type: description` or `type(scope): description`, such as `feat: add model switching` or `fix(cli): handle missing credentials`. Types are `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `style`, `chore`, `ci`, `build`, and `revert`. No custom `Type:` trailer is required. Choose the type by the change, not by the branch name. Mark incompatible changes with `!` or `BREAKING CHANGE:` and explain migration. See [versioning](versioning.md).
 
-## Merge without corrupting version history
+## Preserve change identity when merging
 
-Use **merge commits**, not squash or rebase merges. Feature commits retain their identity when the same work reaches both long-lived branches. `build.rs` counts `Type:` trailers across reachable history; duplicating or reclassifying the same change can affect version calculation.
-
-Every merge commit must use an English **`chore: ...`** or **`chore(scope): ...`** subject and end in **`Type: chore`**. The actual feature or fix is classified on its original commit, not again on the merge. This also applies to local branch-sync merges before pushing a working branch.
+Use **merge commits**, not squash or rebase merges. Feature commits retain their identity when the same work reaches both long-lived branches. `Cargo.toml` determines the formal version; release change classification excludes merge commits rather than counting the same work twice.
 
 The pull request title and body become the default merge subject and body. Therefore:
 
-- Give the pull request an English Conventional Commit title with type `chore`; write the body in English.
-- Describe the change, evidence, and unverified parts; leave `Type: chore` as the final line of the description.
-- Do not replace the prepared merge message with GitHub's generic non-conventional subject or another feature/fix trailer.
-- Merge only after required checks pass and the branch is current with its target. If an update introduces a merge commit, give it the same compliant subject and trailer.
+- Give the pull request an English Conventional Commit title describing the actual change; write the body in English.
+- Describe the change, evidence, and unverified parts. No custom trailer is needed.
+- Do not replace the prepared merge message with GitHub's generic non-conventional subject.
+- Merge only after required checks pass and the branch is current with its target. Local branch-sync merges follow the same subject convention, normally `chore: ...`.
 
-The `workflow` check validates branch routing, pull request merge-message defaults, and every incoming commit. It checks the subject format, rejects Chinese subjects, and checks that the prefix and trailer agree. It does not judge prose quality or decide whether a change deserves `feat` versus `fix`; that remains a review responsibility. It checks the real PR head, not GitHub's temporary test merge. Post-push checks also inspect the actual merge message.
+The `workflow` check validates branch routing, pull request merge-message defaults, and every incoming commit. It checks the subject format and rejects Chinese subjects. It does not judge prose quality or decide whether a change deserves `feat` versus `fix`; that remains a review responsibility. It checks the real PR head, not GitHub's temporary test merge. Post-push checks also inspect the actual merge message.
 
 ## Protected branches
 
@@ -55,11 +53,11 @@ GitHub branch protection and merge settings live on GitHub, not in a clone. A fo
 
 ## Releases and hotfixes
 
-Release timing, version/tag names, and publication require explicit maintainer approval. This workflow does not create releases or alter the current version scheme automatically.
+The maintainer approves a release by merging its release PR into `main`; preparation alone is not publication. `Cargo.toml` owns the version and [CHANGELOG.md](../CHANGELOG.md) records notable changes. Never publish merely because development checks passed.
 
 1. Branch `release/<name>` from `develop`, or `hotfix/<name>` from `main`.
 2. Make and test only the intended stabilization/fix changes; open a PR to `main`.
-3. After all checks pass, merge with `Type: chore`. Verify the resulting stable commit before tagging or publishing an approved release.
+3. After all checks pass and the release scope is approved, merge using the prepared Conventional Commit message. Any published tag and artifact must identify that approved stable commit.
 4. Open a `main` → `develop` PR to retain the stable merge history and any fixes. If `develop` has advanced, do not update `main` with unfinished development merely to satisfy the up-to-date requirement. Instead, create a working `release/` or `hotfix/` branch from `main`, merge the current `develop` into that branch with a compliant merge message, resolve any conflicts, and PR it into `develop`. Do not push to a protected branch.
 5. Delete a short-lived branch only after both lines contain the needed changes. Branch deletion is not automatic, because release/hotfix work must reach both lines.
 

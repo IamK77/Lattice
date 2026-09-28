@@ -1,6 +1,6 @@
 ## Change
 
-<!-- Use an English Conventional Commit title with type chore, because the PR title/body become the merge message. Classify the actual changes on their original commits. -->
+<!-- Use an English Conventional Commit title describing the actual change. The title/body become the merge message. -->
 
 ## Verification
 
@@ -13,10 +13,7 @@
 ## Workflow
 
 - [ ] The source and target follow docs/workflow.md.
-- [ ] Original commits use English Conventional Commits with matching final Type: trailers.
+- [ ] Commit and PR subjects use English Conventional Commits.
+- [ ] User-facing changes and migration requirements are documented where applicable.
 - [ ] No credentials, personal records, or unrelated changes are included.
 - [ ] Required checks pass; review discussions are resolved before merging.
-
-<!-- Keep the final line below: the original commits already classify the actual changes. -->
-
-Type: chore
