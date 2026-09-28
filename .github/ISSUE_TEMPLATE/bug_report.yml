@@ -1,0 +1,55 @@
+name: Bug report
+description: Report a reproducible defect using a minimal, sanitized example.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For vulnerabilities, use the private security reporting link instead.
+        Do not include API keys, complete conversation histories, or private screenshots.
+  - type: input
+    id: version
+    attributes:
+      label: Lattice version
+      description: Paste the output of lattice --version, or the exact source commit.
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system and architecture
+      placeholder: "For example: Ubuntu 24.04 x86_64 or macOS 15 arm64"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Provide a minimal synthetic example. Name relevant optional components.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include sanitized error messages, not an entire ledger or environment dump.
+    validations:
+      required: true
+  - type: textarea
+    id: checks
+    attributes:
+      label: Additional checks
+      description: What have you tried? Does it happen without optional integrations?
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing reports and reviewed all attached material for secrets and personal data.
+          required: true

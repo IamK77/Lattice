@@ -2,6 +2,8 @@
   "name": "@lattice/ink",
   "version": "0.1.0",
   "private": true,
+  "license": "Apache-2.0",
+  "repository": "github:IamK77/Lattice",
   "type": "module",
   "description": "A React/Ink frontend for the Lattice daemon — connects over the Unix socket, speaks only the wire protocol, touches no Rust.",
   "bin": {

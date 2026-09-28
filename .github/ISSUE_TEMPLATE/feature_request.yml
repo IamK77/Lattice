@@ -1,0 +1,28 @@
+name: Feature request
+description: Describe the user problem and the result you want to achieve.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: Explain the user workflow and why the current behavior gets in the way.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired behavior
+      description: Describe an observable outcome, not just a preferred implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Existing features, external components, or workarounds you considered.
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: Compatibility and permission considerations
+      description: Mention impacts on existing workflows, stored data, or tool permissions.

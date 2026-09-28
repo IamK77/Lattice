@@ -71,4 +71,6 @@ cargo build --release --bin lattice
 
 ## 许可证
 
-项目级许可证尚未选定。公开源码不等于已经授予开源许可证。第三方来源说明保留在对应文件中，例如[资源署名](assets/README.md)。
+采用 [Apache License 2.0](LICENSE)。项目声明见 [NOTICE](NOTICE)，第三方资源来源见[资源署名](assets/README.md)。依赖和可选外部部件保留各自的许可证。
+
+使用问题见[支持说明（英文）](SUPPORT.md)，漏洞请通过[安全政策（英文）](SECURITY.md)中的私密渠道报告。参与社区须遵守[行为准则（英文）](CODE_OF_CONDUCT.md)，项目职责见[维护者说明（英文）](MAINTAINERS.md)。
