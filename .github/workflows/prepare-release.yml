@@ -1,0 +1,52 @@
+name: Prepare release
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    types: [closed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      source:
+        description: Source branch (main prepares a hotfix release without unreleased development)
+        type: choice
+        options: [develop, main]
+        default: develop
+        required: true
+
+permissions: {}
+
+concurrency:
+  group: release-management
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: >-
+      vars.RELEASE_AUTOMATION_ENABLED == 'true' &&
+      (github.event_name != 'pull_request' ||
+       (github.event.pull_request.merged == true &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        startsWith(github.event.pull_request.head.ref, 'hotfix/')))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      RELEASE_SOURCE: ${{ github.event_name == 'pull_request' && 'main' || inputs.source || 'develop' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.RELEASE_SOURCE }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Prepare version, change notes, and review PR
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/prepare_release.py --source "$RELEASE_SOURCE"

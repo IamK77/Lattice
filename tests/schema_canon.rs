@@ -436,6 +436,8 @@ fn public_entry_documents_have_resolvable_local_links() {
         "CHANGELOG.md",
         "docs/versioning.md",
         "docs/版本与变更记录.md",
+        "docs/release-preparation.md",
+        "docs/发布准备.md",
         "docs/supply-chain.md",
         "docs/依赖与持续集成.md",
         "docs/workflow.md",
