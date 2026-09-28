@@ -1,22 +1,22 @@
-## Change / 改动
+## Change
 
-<!-- Use a Chinese PR title without a type prefix. Describe the user-visible change and why it is needed. -->
+<!-- Use an English Conventional Commit title with type chore, because the PR title/body become the merge message. Classify the actual changes on their original commits. -->
 
-## Verification / 验证
+## Verification
 
 <!-- List commands and observed results, including negative checks when relevant. -->
 
-## Limits / 未验证部分
+## Limits
 
 <!-- State unverified behavior, external integrations, or remaining risks. -->
 
-## Workflow / 流程
+## Workflow
 
 - [ ] The source and target follow docs/workflow.md.
-- [ ] Original commits have Chinese subjects and correct final Type: trailers.
+- [ ] Original commits use English Conventional Commits with matching final Type: trailers.
 - [ ] No credentials, personal records, or unrelated changes are included.
 - [ ] Required checks pass; review discussions are resolved before merging.
 
-<!-- The PR title/body become the merge message. Keep the final line below: the original commits already classify the actual changes. -->
+<!-- Keep the final line below: the original commits already classify the actual changes. -->
 
 Type: chore

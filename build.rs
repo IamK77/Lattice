@@ -10,10 +10,10 @@
 //! - `hash` says exactly which commit this binary is, which is the part that
 //!   matters when someone reports a problem.
 //!
-//! WHAT A COMMIT IS is read from a `Type:` trailer at the end of its message,
-//! not from a prefix on its subject line. The subject lines here are Chinese
-//! sentences written for a person to read, and `feat: ` in front of one would
-//! cost that to save a parser some work.
+//! Commit subjects use English Conventional Commits. Version calculation
+//! continues to read the final `Type:` trailer for compatibility; CI requires
+//! that trailer to match the subject prefix. Merge commits use `chore` so the
+//! original changes are not counted twice.
 //!
 //! Without git — from a published archive, say — the version falls back to
 //! what `Cargo.toml` says. A build that cannot see the history is not a build
