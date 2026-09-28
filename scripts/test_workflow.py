@@ -34,6 +34,27 @@ class BranchTests(unittest.TestCase):
         self.assertIsNone(policy.branch_error("develop", "feature/fork", False))
 
 
+class DependencyUpdateTests(unittest.TestCase):
+    @patch.object(policy, "check_range", return_value=[])
+    def test_only_the_repository_bot_gets_the_dependency_branch_route(self, check):
+        event = {"pull_request": {
+            "title": "fix(deps): update locked dependencies", "body": None,
+            "user": {"login": "dependabot[bot]"},
+            "base": {"ref": "develop", "sha": "base", "repo": {"id": 1}},
+            "head": {"ref": "dependabot/cargo/dependencies", "sha": "head", "repo": {"id": 1}},
+        }}
+        self.assertEqual(policy.check_event("pull_request", event), [])
+        event["pull_request"]["user"]["login"] = "contributor"
+        self.assertTrue(policy.check_event("pull_request", event))
+        event["pull_request"]["user"]["login"] = "dependabot[bot]"
+        event["pull_request"]["head"]["repo"]["id"] = 2
+        self.assertTrue(policy.check_event("pull_request", event))
+        event["pull_request"]["head"]["repo"]["id"] = 1
+        event["pull_request"]["base"]["ref"] = "main"
+        self.assertTrue(policy.check_event("pull_request", event))
+        self.assertTrue(policy.branch_error("develop", "dependabot/", True, "dependabot[bot]"))
+
+
 class MessageTests(unittest.TestCase):
     def test_types_without_custom_trailers_and_legacy_messages(self):
         for kind in policy.TYPES:

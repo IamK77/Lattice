@@ -15,6 +15,8 @@
 
 Do not push changes directly to `main` or `develop`. Do not force-push or delete either long-lived branch. A branch name is a routing convention, not proof of where its code originated: review the diff and ancestry as well.
 
+Dependabot has one narrow exception: same-repository PRs authored by `dependabot[bot]` may use `dependabot/` branches into `develop`, never `main`. All checks and human review still apply. See [dependency maintenance](supply-chain.md).
+
 For ordinary work:
 
 ```sh

@@ -13,5 +13,7 @@ Contributors should discuss substantial product or architecture changes before
 implementing them. Technical review should preserve the project's serializable
 component contracts, auditability, and explicit permission boundaries.
 
-For contribution details, see [CONTRIBUTING.md](CONTRIBUTING.md). For questions,
+For contribution details, see [CONTRIBUTING.md](CONTRIBUTING.md). For dependency
+and check maintenance, see [supply-chain maintenance](docs/supply-chain.md)
+([中文](docs/依赖与持续集成.md)). For questions,
 see [SUPPORT.md](SUPPORT.md); for vulnerabilities, see [SECURITY.md](SECURITY.md).
