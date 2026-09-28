@@ -1,0 +1,18 @@
+{"label":"history","message":{"history":{"cursor":{"before":73,"generation":1,"stream":"main","through":200},"stream":"main"}}}
+{"label":"history-page","message":{"history_page":{"cursor":{"before":73,"generation":1,"stream":"main","through":200},"older":null,"replay":[{"causes":["ev_5_cafe0001","ev_6_cafe0002"],"id":"ev_7_a1b2c3d4","origin":{"event":"ev_3_beef0003","stream":"parent"},"payload":{"text":"hello wire"},"reason":"a decision needs a reason","seq":7,"source":"ui","stream":"main","time":"2026-07-21T00:00:00Z","type":"core.input.user_message","v":1}],"stream":"main"}}}
+{"label":"history-error","message":{"history_error":{"cursor":{"before":73,"generation":1,"stream":"main","through":200},"message":"stale cursor","stream":"main"}}}
+{"label":"attached-paged","message":{"attached":{"history":{"older":{"before":73,"generation":1,"stream":"main","through":200},"state":{"busy":false,"pending_auth":[],"skills":[],"waiting":false},"through":200},"replay":[{"causes":["ev_5_cafe0001","ev_6_cafe0002"],"id":"ev_7_a1b2c3d4","origin":{"event":"ev_3_beef0003","stream":"parent"},"payload":{"text":"hello wire"},"reason":"a decision needs a reason","seq":7,"source":"ui","stream":"main","time":"2026-07-21T00:00:00Z","type":"core.input.user_message","v":1}],"stream":"main"}}}
+{"label":"attach-basic","message":{"attach":{"derive_from":null,"stream":"main","template":null}}}
+{"label":"attach-derived","message":{"attach":{"derive_from":"main","stream":"btw-1","template":"chat"}}}
+{"label":"attach-with-capabilities","message":{"attach":{"capabilities":["authorize"],"derive_from":null,"stream":"main","template":null}}}
+{"label":"send-text","message":{"send_text":{"stream":"main","text":"add 4 and 7"}}}
+{"label":"authorize","message":{"authorize":{"approve":true,"request":"ev_9_feed0004","stream":"main"}}}
+{"label":"detach","message":{"detach":{"stream":"main"}}}
+{"label":"interrupt","message":{"interrupt":{"stream":"main"}}}
+{"label":"attached-with-replay","message":{"attached":{"replay":[{"causes":["ev_5_cafe0001","ev_6_cafe0002"],"id":"ev_7_a1b2c3d4","origin":{"event":"ev_3_beef0003","stream":"parent"},"payload":{"text":"hello wire"},"reason":"a decision needs a reason","seq":7,"source":"ui","stream":"main","time":"2026-07-21T00:00:00Z","type":"core.input.user_message","v":1}],"stream":"main"}}}
+{"label":"attached-with-warnings","message":{"attached":{"replay":[],"stream":"main","warnings":["this client declared no \"authorize\" capability"]}}}
+{"label":"appended","message":{"appended":{"event":{"causes":["ev_5_cafe0001","ev_6_cafe0002"],"id":"ev_7_a1b2c3d4","origin":{"event":"ev_3_beef0003","stream":"parent"},"payload":{"text":"hello wire"},"reason":"a decision needs a reason","seq":7,"source":"ui","stream":"main","time":"2026-07-21T00:00:00Z","type":"core.input.user_message","v":1},"stream":"main"}}}
+{"label":"notice","message":{"notice":{"payload":{"chunk":"strea"},"source":"model","stream":"main"}}}
+{"label":"quiescent","message":{"quiescent":{"stream":"main"}}}
+{"label":"error-with-stream","message":{"error":{"message":"unknown stream - attach first","stream":"main"}}}
+{"label":"error-connection-level","message":{"error":{"message":"unparseable client message","stream":null}}}

@@ -1,0 +1,84 @@
+{
+  "title": "fixture-model · /fixture-workspace",
+  "busy": false,
+  "waiting": false,
+  "done": false,
+  "turn": 0,
+  "pending_auth": [],
+  "unseen": [],
+  "skills": [],
+  "usage": null,
+  "turn_usage": {
+    "prompt": 0,
+    "cached": 0,
+    "written": 0,
+    "output": 0,
+    "reasoning": 0,
+    "millis": 0,
+    "calls": 0
+  },
+  "session_usage": {
+    "prompt": 0,
+    "cached": 0,
+    "written": 0,
+    "output": 0,
+    "reasoning": 0,
+    "millis": 0,
+    "calls": 0
+  },
+  "composition": [],
+  "previous": {},
+  "turn_growth": {},
+  "session_growth": {},
+  "background": [],
+  "models": {
+    "rows": [
+      {
+        "id": "other",
+        "model": "other-model",
+        "endpoint": "other.example.invalid",
+        "dialect": "anthropic",
+        "window": 222222,
+        "rungs": [
+          "other-rung"
+        ],
+        "key_env": "FIXTURE_OTHER_KEY",
+        "key_present": false,
+        "accepts_images": false
+      },
+      {
+        "id": "active",
+        "model": "fixture-model",
+        "endpoint": "active.example.invalid",
+        "dialect": "openai",
+        "window": 111111,
+        "rungs": [
+          "quiet",
+          "deep"
+        ],
+        "key_env": "FIXTURE_ACTIVE_KEY",
+        "key_present": true,
+        "accepts_images": true
+      }
+    ],
+    "now": 1
+  },
+  "running": {
+    "id": "active",
+    "adapter": "openai",
+    "model": "fixture-model",
+    "baseUrl": "https://active.example.invalid/v1",
+    "keyEnv": "FIXTURE_ACTIVE_KEY",
+    "profile": {
+      "contextWindow": 111111
+    }
+  },
+  "effort": {
+    "rungs": [
+      "quiet",
+      "deep"
+    ],
+    "now": "deep"
+  },
+  "effective_window": 99999
+}

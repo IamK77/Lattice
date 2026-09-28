@@ -1,0 +1,19 @@
+{
+  "model": "deepseek-v4-flash",
+  "contextWindow": 1000000,
+  "maxOutputTokens": 384000,
+  "acceptsImages": false,
+  "effort": [
+    "high",
+    "max"
+  ],
+  "usageFields": {
+    "input": "prompt_tokens",
+    "output": "completion_tokens",
+    "cacheRead": "prompt_cache_hit_tokens"
+  },
+  "quirks": {
+    "cacheMissField": "prompt_cache_miss_tokens",
+    "reasoningContent": "present"
+  }
+}

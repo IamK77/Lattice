@@ -1,0 +1,26 @@
+{
+  "type": "object",
+  "required": [
+    "tool",
+    "arguments"
+  ],
+  "properties": {
+    "call": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "tool": {
+      "type": "string"
+    },
+    "arguments": {
+      "type": [
+        "object",
+        "array",
+        "string",
+        "null"
+      ]
+    }
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "title": "replay",
+  "busy": false,
+  "waiting": false,
+  "done": false,
+  "turn": 0,
+  "pending_auth": [],
+  "unseen": [],
+  "skills": [],
+  "usage": null,
+  "turn_usage": {
+    "prompt": 0,
+    "cached": 0,
+    "written": 0,
+    "output": 0,
+    "reasoning": 0,
+    "millis": 0,
+    "calls": 0
+  },
+  "session_usage": {
+    "prompt": 0,
+    "cached": 0,
+    "written": 0,
+    "output": 0,
+    "reasoning": 0,
+    "millis": 0,
+    "calls": 0
+  },
+  "composition": [],
+  "previous": {},
+  "turn_growth": {},
+  "session_growth": {},
+  "background": [
+    {
+      "kind": "expert",
+      "key": "expert:fixture",
+      "label": "fixture expert",
+      "standing": false,
+      "fires": 3,
+      "ledger": "/fixture/background/expert.ledger"
+    },
+    {
+      "kind": "command",
+      "key": "command:fixture",
+      "label": "fixture command",
+      "standing": false,
+      "fires": 4,
+      "ledger": null
+    },
+    {
+      "kind": "timer",
+      "key": "timer:fixture",
+      "label": "fixture timer",
+      "standing": true,
+      "fires": 5,
+      "ledger": null
+    },
+    {
+      "kind": "watch",
+      "key": "watch:fixture",
+      "label": "fixture watch",
+      "standing": true,
+      "fires": 6,
+      "ledger": null
+    }
+  ],
+  "models": {
+    "rows": [],
+    "now": null
+  },
+  "running": {
+    "id": "",
+    "adapter": "",
+    "model": "",
+    "baseUrl": "",
+    "keyEnv": "",
+    "profile": null
+  },
+  "effort": {
+    "rungs": [],
+    "now": null
+  },
+  "effective_window": null
+}

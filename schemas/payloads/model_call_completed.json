@@ -1,0 +1,113 @@
+{
+  "type": "object",
+  "required": [
+    "status"
+  ],
+  "properties": {
+    "status": {
+      "enum": [
+        "ok",
+        "error",
+        "cancelled"
+      ]
+    },
+    "text": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "stopReason": {
+      "type": "string"
+    },
+    "purpose": {
+      "type": "string",
+      "description": "Echoed from the request when this call served a background purpose (e.g. context.condense) rather than the conversation. Present so an observer holding this event alone — with no ledger to trace its cause through — can tell the two apart."
+    },
+    "reasoning": {
+      "type": "array",
+      "description": "The model's chain of thought, one part per provider block, in order. `text` parts are readable; `hidden` parts were sealed by the provider and can only be carried. `opaque` is dialect-owned baggage (e.g. Anthropic's per-block signature) that the core never interprets; it stays inside its own part so it can never be paired with the wrong block.",
+      "items": {
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "text",
+              "hidden"
+            ]
+          },
+          "text": {
+            "type": "string"
+          },
+          "opaque": {}
+        },
+        "additionalProperties": false
+      }
+    },
+    "toolCalls": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "tool"
+        ],
+        "properties": {
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tool": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "error": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": [
+            "code",
+            "message",
+            "blame"
+          ],
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "blame": {
+              "enum": [
+                "request",
+                "provider",
+                "environment"
+              ]
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "retryAfterMs": {
+              "type": "integer"
+            },
+            "transient": {
+              "type": "boolean"
+            }
+          }
+        }
+      ]
+    },
+    "usage": {
+      "type": "object"
+    }
+  }
+}

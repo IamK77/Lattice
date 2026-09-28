@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Assembly overlay: the user's additions to a generated baseline assembly",
+  "description": "The persistence half of hot installation. The product's baseline assembly is generated at startup; this document — living in the user directory (default ~/.lattice/assembly.json) — carries what the user had installed on top: extra components, extra instances, extra wires. Installs write it, startup merges it, so an installed component survives a restart. One document, many pens: installers append programmatically, the user may edit by hand. Each carried component manifest is additionally validated against schemas/component_manifest.json; the instances/wires shape against schemas/assembly_manifest.json. The merge is atomic: an overlay with any problem is skipped whole (with an explanation) rather than half-applied.",
+  "type": "object",
+  "properties": {
+    "components": {
+      "type": "array",
+      "items": { "type": "object" },
+      "description": "Component manifests (self-descriptions) the baseline registry does not have; each must satisfy the component-manifest canon"
+    },
+    "instances": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["component"],
+        "properties": {
+          "component": { "type": "string" },
+          "config": { "description": "Component-private config, any JSON value" },
+          "requires": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Optional slot bound, same meaning as in the assembly manifest canon"
+          }
+        }
+      },
+      "description": "Instance name → which component, with what config; names must not collide with the baseline"
+    },
+    "wires": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["from", "to"],
+        "properties": {
+          "from": { "type": "string", "pattern": "^[^.]+\\..+$" },
+          "to": { "type": "string", "pattern": "^[^.]+\\..+$" }
+        }
+      },
+      "description": "Extra wires; exact duplicates of baseline wires are dropped on merge (a doubled wire would mean doubled delivery)"
+    }
+  }
+}

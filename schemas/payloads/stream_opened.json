@@ -1,0 +1,42 @@
+{
+  "type": "object",
+  "required": [
+    "lattice",
+    "started",
+    "instances"
+  ],
+  "properties": {
+    "lattice": {
+      "type": "string",
+      "description": "Runtime version that opened this stream"
+    },
+    "started": {
+      "type": "string",
+      "description": "When it was opened, ISO 8601"
+    },
+    "instances": {
+      "type": "object",
+      "description": "The assembly it opened under: instance name -> component name. Recorded because behaviour a reader is trying to explain often comes from which components were in play, and nothing else on the ledger says.",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "host": {
+      "type": "string",
+      "description": "The program that opened it, in its own words (e.g. \"tui\", \"daemon\"). Supplied by the host; the kernel has no notion of hosts."
+    },
+    "model": {
+      "type": "string"
+    },
+    "adapter": {
+      "type": "string"
+    },
+    "workspace": {
+      "type": "string"
+    },
+    "cwd": {
+      "type": "string",
+      "description": "The directory the host was started in — what tells one project's conversations from another's. Distinct from `workspace`, which is the confinement setting."
+    }
+  }
+}

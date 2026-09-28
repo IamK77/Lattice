@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Event envelope: the outer structure shared by every event",
+  "description": "The language-neutral canon of the envelope, v1. The payload (the letter) is defined per event type and validated separately (schemas/payloads/); the kernel never interprets it. Wire transport v1 is one envelope JSON per line. Optional fields are absent when unused — writers never emit null. Readers ignore unknown fields, migrate older versions on load, and refuse newer ones.",
+  "type": "object",
+  "required": ["id", "seq", "stream", "time", "type", "source", "causes", "payload"],
+  "properties": {
+    "v": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Envelope format version; absent means 1"
+    },
+    "id": {
+      "type": "string",
+      "description": "Unique id, assigned by the kernel at append time"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Stream-local sequence number, assigned at append time, starting at 1"
+    },
+    "stream": {
+      "type": "string",
+      "description": "The stream this event belongs to, stamped by the log. The stream is the top-level container — a causally self-contained sequence with its own numbering; \"conversation\" and \"task\" are labels other layers put on streams, the kernel knows neither word."
+    },
+    "time": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Append timestamp, ISO 8601"
+    },
+    "type": {
+      "type": "string",
+      "description": "Namespaced event type, e.g. core.model.call_completed"
+    },
+    "source": {
+      "type": "string",
+      "description": "The component instance that produced this event; \"core\" is reserved for kernel-recorded events"
+    },
+    "causes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Ids of the events that jointly triggered this one, within the same stream. Empty for root events (e.g. user input). Usually one; several when results converge into one consequence (a join). A cause may only point at an event its emitter has witnessed — enforcement layer three."
+    },
+    "origin": {
+      "type": "object",
+      "required": ["stream", "event"],
+      "properties": {
+        "stream": { "type": "string" },
+        "event": { "type": "string" }
+      },
+      "description": "Weak cross-stream reference, meaningful on root events: which event in which other stream provoked this stream's work. Unverified by construction — the kernel does not check it against the other stream."
+    },
+    "reason": {
+      "type": "string",
+      "description": "Required for decision-class events (enforced by the log per the type's registration): one sentence explaining why"
+    },
+    "payload": {
+      "description": "The letter — any JSON value; its schema belongs to the event type (enforcement layer four), not the envelope"
+    }
+  }
+}

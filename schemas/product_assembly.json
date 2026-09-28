@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Complete product baseline, separate from installation additions",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["assembly", "runtimeSlots"],
+  "properties": {
+    "runtimeSlots": {
+      "const": ["model", "cmodel", "ctx"],
+      "description": "The stock chat host fills these three instance declarations from current model, thinking and context settings. They must be present in assembly.instances. Wires are never inherited. Use the core AssemblyManifest API for a host without these chat roles."
+    },
+    "components": {
+      "type": "array",
+      "description": "Additional component manifests, each separately validated against component_manifest.json. Built-in names cannot be redefined.",
+      "items": {"type": "object"}
+    },
+    "assembly": {
+      "type": "object",
+      "description": "The entire baseline, separately validated against assembly_manifest.json. No wires or unlisted instances are inherited. Only the explicitly declared runtimeSlots are filled by the stock chat host."
+    }
+  }
+}

@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Model catalog: which models this installation can reach",
+  "description": "The models a person has configured, keyed by a short name they choose. An entry names the first two axes of a model call — the DIALECT (which adapter speaks to it) and the ADDRESS (which endpoint, which model id, which environment variable holds the key). It deliberately says nothing about the model's temperament: context window, effort rungs and usage-field names live in that model's profile (schemas/model_profile.json) and are looked up by `model`. One file says where to reach it, the other says what it is like, and neither has to repeat the other. This file is the WHOLE catalog: no entries ship with the binary, so a model deleted from here is gone rather than back at the next start, and an installation that has configured nothing is offered nothing rather than models it has no key for. Profiles do ship — what a model is like stays true whether or not you can reach it.",
+  "type": "object",
+  "required": [
+    "models"
+  ],
+  "properties": {
+    "models": {
+      "type": "object",
+      "description": "Short name → entry. The short name is what a person picks with /model and what the preference records, so it should stay stable even when the underlying model id changes.",
+      "propertyNames": {
+        "pattern": "^[a-z0-9][a-z0-9._-]*$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "adapter",
+          "model"
+        ],
+        "properties": {
+          "adapter": {
+            "type": "string",
+            "description": "Model dialect: openai for Chat Completions, responses for Responses, anthropic for Messages, or scripted for offline scripts. The bundled catalog loader accepts these short names.",
+            "examples": [
+              "openai",
+              "anthropic",
+              "responses"
+            ]
+          },
+          "model": {
+            "type": "string",
+            "description": "The model identifier this endpoint expects, and the key its profile is looked up by"
+          },
+          "baseUrl": {
+            "type": "string",
+            "description": "The endpoint root. Omit to take the adapter's own default."
+          },
+          "apiKey": {
+            "type": "string",
+            "description": "The key itself. Convenient, and it has a cost worth understanding before you use it: this file sits in the user directory, and the agent this runtime runs can read files. If it ever reads this one, the key becomes part of a tool result — and a tool result is on the ledger, which is permanent and is re-sent to the model every turn afterwards. `apiKeyEnv` has no such property, because a variable NAME is not worth anything to whoever reads it. Prefer `apiKeyEnv` where you have somewhere to put the variable; use this where you do not. Either way the value never reaches an adapter's configuration: a key written here is staged into the process's own environment at load, so what travels onward — and what a model swap records on the ledger — is only ever a name."
+          },
+          "apiKeyEnv": {
+            "type": "string",
+            "description": "The NAME of the environment variable holding the key. The safer of the two: a name is worth nothing to whoever reads this file, and this file is one the agent can read."
+          },
+          "profile": {
+            "type": "object",
+            "description": "This model's temperament, written here for a model no Lattice binary ships a profile for. The same fields as schemas/model_profile.json minus `model`, which the entry already names. Merged FIELD BY FIELD over any shipped profile of the same model: what you write wins, what you leave out is inherited. Without this, a hand-added model has no context window (so it is budgeted against the startup fallback of a million tokens), no effort rungs, and the wrong usage-field names.",
+            "properties": {
+              "contextWindow": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "maxOutputTokens": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "effort": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "This model's own rungs, weakest first, in the provider's own words. A word Lattice's ruler does not know (minimal, low, medium, high, xhigh, max, plus `none`) is never chosen, so it reads as a model with fewer settings than it has; startup says so out loud."
+              },
+              "usageFields": {
+                "type": "object",
+                "properties": {
+                  "input": {
+                    "type": "string"
+                  },
+                  "output": {
+                    "type": "string"
+                  },
+                  "cacheRead": {
+                    "type": "string"
+                  },
+                  "cacheWrite": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "quirks": {
+                "type": "object"
+              }
+            },
+            "additionalProperties": false
+          },
+          "note": {
+            "type": "string",
+            "description": "A line for the person reading the file. Nothing reads it."
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

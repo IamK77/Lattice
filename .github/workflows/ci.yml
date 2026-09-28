@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      # Bound debug-symbol growth across the many test executables.
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Runner resources before build
+        run: |
+          df -h .
+          free -h
+          nproc
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test --no-fail-fast
+      - run: cargo run --example heartbeat
+      - name: Runner resources after build
+        if: always()
+        run: |
+          df -h .
+          free -h
+          if [ -d target ]; then du -sh target; fi
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Node unit + wire-contract tests (golden file)
+        working-directory: clients/ink
+        run: |
+          npm ci || npm install
+          node --test
+      - name: Cross-language smoke — real Node client, real lattice daemon
+        run: |
+          cargo build --bin lattice
+          LATTICE_SCRIPTED=1 LATTICE_SOCKET=/tmp/lattice-ci.sock ./target/debug/lattice serve &
+          DAEMON_PID=$!
+          cd clients/ink
+          node scripts/xlang-smoke.js /tmp/lattice-ci.sock
+          kill $DAEMON_PID

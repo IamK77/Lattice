@@ -1,0 +1,93 @@
+{
+  "type": "object",
+  "required": [
+    "model",
+    "input"
+  ],
+  "properties": {
+    "model": {
+      "type": "string"
+    },
+    "system": {
+      "oneOf": [
+        {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        {
+          "type": "object",
+          "required": [
+            "file",
+            "bytes"
+          ],
+          "properties": {
+            "file": {
+              "type": "string",
+              "description": "Bare file name in the directory beside this ledger — never a path"
+            },
+            "bytes": {
+              "type": "integer"
+            },
+            "lines": {
+              "type": "integer"
+            },
+            "preview": {
+              "type": "string"
+            }
+          },
+          "description": "The field was moved out to a file beside the ledger (see contracts::document): documents keep their lines, which a JSON string does not."
+        }
+      ]
+    },
+    "input": {
+      "type": "object",
+      "required": [
+        "parts",
+        "fingerprint"
+      ],
+      "properties": {
+        "parts": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "fingerprint": {
+          "type": "string"
+        }
+      }
+    },
+    "tools": {
+      "oneOf": [
+        {
+          "type": "array"
+        },
+        {
+          "type": "object",
+          "required": [
+            "file",
+            "bytes"
+          ],
+          "properties": {
+            "file": {
+              "type": "string",
+              "description": "Bare file name in the directory beside this ledger — never a path"
+            },
+            "bytes": {
+              "type": "integer"
+            },
+            "lines": {
+              "type": "integer"
+            },
+            "preview": {
+              "type": "string"
+            }
+          },
+          "description": "The field was moved out to a file beside the ledger (see contracts::document): documents keep their lines, which a JSON string does not."
+        }
+      ]
+    }
+  }
+}
