@@ -43,3 +43,6 @@ The initial release uses the version already selected in `Cargo.toml`.
 The maintainer confirms timing and scope by merging the release PR into `main`.
 Preparation is not publication. Do not invent historical releases, silently
 retag a published version, or treat a source commit count as a release number.
+
+See [release preparation](release-preparation.md) for activation, version
+overrides, hotfix isolation, and recovery without force-pushing.
