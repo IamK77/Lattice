@@ -34,6 +34,65 @@ fn ci_pins_actions_and_keeps_candidate_jobs_read_only() {
 }
 
 #[test]
+fn native_artifacts_use_read_only_hosts_and_non_cached_distribution_paths() {
+    let workflow: Value =
+        serde_yaml::from_str(include_str!("../.github/workflows/artifacts.yml")).unwrap();
+    assert_eq!(
+        workflow["permissions"],
+        serde_json::json!({"contents": "read"})
+    );
+    let job = &workflow["jobs"]["build"];
+    assert!(job.get("permissions").is_none());
+    assert_eq!(job["strategy"]["fail-fast"], false);
+    assert_eq!(
+        job["strategy"]["matrix"]["include"],
+        serde_json::json!([
+            {"runner": "ubuntu-24.04", "target": "x86_64-unknown-linux-gnu"},
+            {"runner": "macos-15", "target": "aarch64-apple-darwin"}
+        ])
+    );
+    assert!(job["env"]["PREVIEW"]
+        .as_str()
+        .unwrap()
+        .contains("workflow_dispatch"));
+    let steps = job["steps"].as_array().unwrap();
+    for step in steps {
+        if let Some(action) = step["uses"].as_str() {
+            let (_, revision) = action.split_once('@').expect("action revision");
+            assert_eq!(revision.len(), 40, "unpinned action: {action}");
+            assert!(revision.bytes().all(|byte| byte.is_ascii_hexdigit()));
+            if action.starts_with("actions/checkout@") {
+                assert_eq!(step["with"]["persist-credentials"], false);
+                assert_eq!(step["with"]["ref"], "${{ env.EXPECTED_COMMIT }}");
+            }
+        }
+    }
+    let upload = steps
+        .iter()
+        .find(|step| {
+            step["uses"]
+                .as_str()
+                .is_some_and(|name| name.starts_with("actions/upload-artifact@"))
+        })
+        .unwrap();
+    assert_eq!(
+        upload["with"]["path"],
+        "${{ runner.temp }}/release-artifacts/*.tar.gz"
+    );
+    assert_eq!(upload["with"]["if-no-files-found"], "error");
+    let recipe = steps
+        .iter()
+        .find_map(|step| {
+            step["run"]
+                .as_str()
+                .filter(|script| script.contains("scripts/build_release.py"))
+        })
+        .unwrap();
+    assert!(recipe.contains("$RUNNER_TEMP/release-artifacts"));
+    assert!(recipe.contains("$EXPECTED_COMMIT"));
+}
+
+#[test]
 fn frontend_lock_is_complete_and_matches_the_private_package() {
     let package: Value = serde_json::from_str(include_str!("../clients/ink/package.json")).unwrap();
     let lock: Value =

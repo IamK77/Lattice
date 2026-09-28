@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Lattice third-party attribution</title></head>
+<body>
+<h1>Third-party attribution</h1>
+<p>This report covers the configured Cargo dependency graph, including build
+and transitive dependencies for the distributed targets. It may contain
+additional dependencies not linked into a particular executable. Asset
+attribution is supplied separately in NOTICE and ASSET-ATTRIBUTION.md.</p>
+{{#each licenses}}
+<section>
+<h2>{{name}} ({{id}})</h2>
+<ul>
+{{#each used_by}}
+<li>{{crate.name}} — {{crate.version}}</li>
+{{/each}}
+</ul>
+<pre style="white-space: pre-wrap">{{text}}</pre>
+</section>
+{{/each}}
+</body>
+</html>
