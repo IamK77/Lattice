@@ -403,6 +403,53 @@ fn what_the_preferences_writer_produces_satisfies_its_canon() {
 }
 
 #[test]
+fn getting_started_catalog_examples_match_the_canon_and_each_other() {
+    let canon = validator(include_str!("../schemas/model_catalog.json"));
+    let guides = [
+        include_str!("../docs/getting-started.md"),
+        include_str!("../docs/快速开始.md"),
+    ];
+    let examples: Vec<Value> = guides
+        .iter()
+        .map(|guide| {
+            let (_, block) = guide.split_once("```json\n").expect("catalog example");
+            let (body, _) = block.split_once("\n```").expect("closed JSON fence");
+            let example: Value = serde_json::from_str(body).expect("valid example JSON");
+            assert_valid(&canon, &example, "getting-started catalog example");
+            example
+        })
+        .collect();
+    assert_eq!(examples[0], examples[1], "translated examples must agree");
+}
+
+#[test]
+fn public_entry_documents_have_resolvable_local_links() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    for name in [
+        "README.md",
+        "README.zh-CN.md",
+        "CONTRIBUTING.md",
+        "docs/getting-started.md",
+        "docs/快速开始.md",
+    ] {
+        let path = root.join(name);
+        let text = std::fs::read_to_string(&path).expect("public entry document");
+        // These entry documents use explicit inline links, without link titles.
+        for suffix in text.split("](").skip(1) {
+            let (link, _) = suffix.split_once(')').expect("closed inline link");
+            let target = link.split('#').next().unwrap();
+            if target.is_empty() || target.contains("://") {
+                continue;
+            }
+            assert!(
+                path.parent().unwrap().join(target).exists(),
+                "broken local link in {name}: {target}"
+            );
+        }
+    }
+}
+
+#[test]
 fn the_model_catalog_canon_matches_what_the_loader_accepts() {
     let canon = validator(include_str!("../schemas/model_catalog.json"));
 
