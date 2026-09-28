@@ -2,10 +2,25 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions:
+  contents: read
 
 jobs:
+  workflow:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Workflow regression tests
+        run: python3 -m unittest discover -s scripts -p 'test_*.py' -v
+      - name: Branch routing and commit messages
+        run: python3 scripts/check_workflow.py
+
   check:
     runs-on: ubuntu-latest
     env:
