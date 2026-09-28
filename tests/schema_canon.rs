@@ -440,6 +440,8 @@ fn public_entry_documents_have_resolvable_local_links() {
         "docs/发布准备.md",
         "docs/release-artifacts.md",
         "docs/发布产物.md",
+        "docs/release-publication.md",
+        "docs/发布执行.md",
         "docs/supply-chain.md",
         "docs/依赖与持续集成.md",
         "docs/workflow.md",

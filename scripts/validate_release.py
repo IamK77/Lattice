@@ -4,9 +4,10 @@ import json
 import os
 from pathlib import Path
 
-from github_release import GitHub, latest_published
+from github_release import GitHub, latest_published, release_for_version
 from release_git import BRANCHES, git, sha, verify_candidate
 from release_plan import Version
+from retained_release import retained_artifact
 
 
 def tag_commit(api, version):
@@ -57,7 +58,8 @@ def validate(root, event, event_name, api):
             raise ValueError("Release approval changed after the event was recorded.")
         record = approved_candidate(root, actual, api.repository)
     version = record["version"]
-    existing = api.request("GET", f"/releases/tags/v{version}", missing_ok=True)
+    releases = api.releases()
+    existing = release_for_version(releases, version)
     tag = tag_commit(api, version)
     if tag is not None and tag != commit:
         raise ValueError("The release tag already belongs to another commit; never retag it.")
@@ -65,7 +67,7 @@ def validate(root, event, event_name, api):
     if published and (tag != commit or existing.get("immutable") is not True or existing["prerelease"]):
         raise ValueError("An existing publication is not the expected immutable stable release.")
     if not published:
-        previous = latest_published(api.releases())
+        previous = latest_published(releases)
         if previous != record["previous"]:
             raise ValueError("Published history changed; regenerate and review the candidate.")
         if previous is not None and Version.read(version) <= Version.read(previous):
@@ -74,15 +76,30 @@ def validate(root, event, event_name, api):
             "source_branch": record["source_branch"]}
 
 
+def workflow_identity(identity, event_commit, event_ref):
+    # OIDC signs the event commit, not an arbitrary checkout HEAD.
+    if sha(event_commit) != identity["commit"]:
+        raise ValueError("The workflow event must name the exact build commit; dispatch on the candidate ref.")
+    allowed = {"refs/heads/main"}
+    if identity["preview"]:
+        allowed.add("refs/heads/" + BRANCHES[identity["source_branch"]])
+    if event_ref not in allowed:
+        raise ValueError("The signing workflow is not running on an allowed source ref.")
+    return dict(identity, source_ref=event_ref)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--event", type=Path, default=os.environ.get("GITHUB_EVENT_PATH"))
     parser.add_argument("--event-name", default=os.environ.get("GITHUB_EVENT_NAME"))
     args = parser.parse_args()
-    result = validate(Path(__file__).resolve().parent.parent, json.loads(args.event.read_text()), args.event_name, GitHub())
+    api = GitHub()
+    result = validate(Path(__file__).resolve().parent.parent, json.loads(args.event.read_text()), args.event_name, api)
+    result = workflow_identity(result, os.environ["GITHUB_SHA"], os.environ["GITHUB_REF"])
+    result["retained_id"] = retained_artifact(api, os.environ["GITHUB_RUN_ID"], result["commit"]) if not result["preview"] and not result["published"] else ""
     print(json.dumps(result, indent=2))
     if os.environ.get("GITHUB_OUTPUT"):
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
-            for key in ["version", "commit", "preview", "published"]:
+            for key in ["version", "commit", "preview", "published", "retained_id"]:
                 value = str(result[key]).lower() if isinstance(result[key], bool) else result[key]
                 handle.write(f"{key}={value}\n")
