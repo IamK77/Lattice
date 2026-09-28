@@ -6,7 +6,10 @@ Preparation proposes a release; it does not create a tag, publish a GitHub
 Release, or upload to a package registry. The automation is off by default.
 Keep `RELEASE_AUTOMATION_ENABLED` unset until the publication pipeline has passed
 its dry run. Enabling that repository variable is a maintainer operation, not a
-substitute for reviewing a release PR.
+substitute for reviewing a release PR. An explicit **Prepare release** dispatch
+is allowed while automation is disabled, so maintainers can create the first
+review candidate and run the [signing preview](release-publication.md) before activation.
+It still cannot publish; do not merge that candidate until rollout is complete.
 
 ## Normal path
 

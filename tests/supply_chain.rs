@@ -93,6 +93,77 @@ fn native_artifacts_use_read_only_hosts_and_non_cached_distribution_paths() {
 }
 
 #[test]
+fn publication_separates_preview_authority_and_retains_proof_before_mutating_releases() {
+    let preparation: Value =
+        serde_yaml::from_str(include_str!("../.github/workflows/prepare-release.yml")).unwrap();
+    assert!(preparation["jobs"]["prepare"]["if"]
+        .as_str()
+        .unwrap()
+        .contains("|| github.event_name == 'workflow_dispatch'"));
+    let workflow: Value =
+        serde_yaml::from_str(include_str!("../.github/workflows/release.yml")).unwrap();
+    assert_eq!(workflow["permissions"], serde_json::json!({}));
+    let jobs = &workflow["jobs"];
+    assert_eq!(jobs["preview"]["permissions"]["contents"], "read");
+    assert_eq!(jobs["publish"]["permissions"]["contents"], "write");
+    assert_eq!(
+        jobs["build"]["permissions"],
+        serde_json::json!({"contents": "read"})
+    );
+    assert!(jobs["identity"]["if"]
+        .as_str()
+        .unwrap()
+        .contains("RELEASE_AUTOMATION_ENABLED"));
+    assert!(jobs["build"]["if"]
+        .as_str()
+        .unwrap()
+        .contains("retained_id == ''"));
+    for name in ["identity", "preview", "publish"] {
+        let job = &jobs[name];
+        assert_eq!(job["runs-on"], "ubuntu-24.04");
+        for step in job["steps"].as_array().unwrap() {
+            if let Some(action) = step["uses"].as_str() {
+                let (_, revision) = action.split_once('@').unwrap();
+                assert_eq!(revision.len(), 40);
+                assert!(revision.bytes().all(|byte| byte.is_ascii_hexdigit()));
+                if action.starts_with("actions/checkout@") {
+                    assert_eq!(step["with"]["persist-credentials"], false);
+                }
+            }
+        }
+    }
+    let steps = jobs["publish"]["steps"].as_array().unwrap();
+    let position = |needle: &str| {
+        steps
+            .iter()
+            .position(|step| step["run"].as_str().is_some_and(|run| run.contains(needle)))
+            .unwrap()
+    };
+    let retained = steps
+        .iter()
+        .position(|step| {
+            step["with"]["name"]
+                .as_str()
+                .is_some_and(|name| name.starts_with("sealed-release-"))
+        })
+        .unwrap();
+    assert!(position("publish_release.py verify") < retained);
+    assert!(retained < position("publish_release.py finalize"));
+    assert_eq!(steps[retained]["with"]["overwrite"], false);
+    assert!(steps
+        .iter()
+        .any(|step| step["with"]["artifact-ids"].as_str()
+            == Some("${{ steps.retained.outputs.retained_id }}")));
+    for name in ["preview", "publish"] {
+        for step in jobs[name]["steps"].as_array().unwrap() {
+            if let Some(run) = step["run"].as_str() {
+                assert!(!run.contains("build_release.py") && !run.contains("cargo "));
+            }
+        }
+    }
+}
+
+#[test]
 fn frontend_lock_is_complete_and_matches_the_private_package() {
     let package: Value = serde_json::from_str(include_str!("../clients/ink/package.json")).unwrap();
     let lock: Value =

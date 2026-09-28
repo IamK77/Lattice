@@ -53,14 +53,15 @@ class PackageTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "version differs"):
                     check_binary(binary, "0.1.0", TARGETS[0])
 
-    def make_archive(self, path, *, extra=None, identity=None, link=False, mode=0o755, duplicate=False, target=TARGETS[0]):
+    def make_archive(self, path, *, extra=None, identity=None, link=False, mode=0o755, duplicate=False, target=TARGETS[0], commit="a" * 40, payload_changes=None):
         prefix = f"lattice-v0.1.0-{target}/"
         graph = {"schema": 1, "root": "lattice@0.1.0", "packages": [
-            {"id": "lattice@0.1.0", "source": "git-commit:" + "a" * 40, "dependencies": []}]}
+            {"id": "lattice@0.1.0", "source": "git-commit:" + commit, "dependencies": []}]}
         payloads = {name: b"text" for name in CONTENTS - {"BUILD-INFO.json"}}
         payloads["lattice"] = self.elf() if target == TARGETS[0] else self.macho()
         payloads["DEPENDENCIES.json"] = json.dumps(graph).encode()
-        build = {"schema": 1, "version": "0.1.0", "commit": "a" * 40, "target": target, "preview": True,
+        payloads.update(payload_changes or {})
+        build = {"schema": 1, "version": "0.1.0", "commit": commit, "target": target, "preview": True,
                  "rustc": "rustc fixture", "inputs": {name: "0" * 64 for name in SOURCE_INPUTS},
                  "files": {name: hashlib.sha256(data).hexdigest() for name, data in payloads.items()}}
         build.update(identity or {})

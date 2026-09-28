@@ -40,10 +40,31 @@ class GitHub:
                 return None
             raise RuntimeError(f"GitHub {method} {path} failed with HTTP {error.code}; no automatic retry.") from None
 
-    def pages(self, path, **parameters):
+    def upload_asset(self, release_id, path):
+        if type(release_id) is not int or release_id <= 0:
+            raise ValueError("Invalid release identifier.")
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", path.name) or path.is_symlink() or not path.is_file():
+            raise ValueError("Invalid release asset file.")
+        if path.stat().st_size > 128 * 1024 * 1024:
+            raise ValueError("Release asset exceeds the supported upload bound.")
+        url = f"https://uploads.github.com/repos/{self.repository}/releases/{release_id}/assets?" + urlencode({"name": path.name})
+        request = Request(url, data=path.read_bytes(), method="POST", headers={
+            "Authorization": f"Bearer {self.token}", "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28", "Content-Type": "application/octet-stream",
+            "User-Agent": "Lattice-release-workflow",
+        })
+        try:
+            with build_opener(NoRedirect()).open(request, timeout=120) as response:
+                return json.loads(response.read())
+        except HTTPError as error:
+            raise RuntimeError(f"GitHub asset upload failed with HTTP {error.code}; inspect the draft before retrying.") from None
+
+    def pages(self, path, *, list_key=None, **parameters):
         results = []
         for page in range(1, 101):
             rows = self.request("GET", path + "?" + urlencode(dict(parameters, per_page=100, page=page)))
+            if list_key is not None:
+                rows = rows[list_key]
             if not isinstance(rows, list):
                 raise ValueError("Expected a paginated GitHub list.")
             results.extend(rows)
@@ -56,6 +77,14 @@ class GitHub:
 
     def pull_requests(self, head, state="open"):
         return self.pages("/pulls", state=state, head=f"{self.repository.split('/')[0]}:{head}")
+
+
+def release_for_version(releases, version):
+    tag = f"v{Version.read(version)}"
+    matches = [release for release in releases if release["tag_name"] == tag]
+    if len(matches) > 1:
+        raise ValueError("Multiple releases use this tag; inspect them before proceeding.")
+    return matches[0] if matches else None
 
 
 def latest_published(releases):

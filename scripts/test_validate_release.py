@@ -6,7 +6,7 @@ from unittest.mock import Mock
 from prepare_release import prepare
 from release_git import BRANCH, git
 import test_prepare_release as fixtures
-from validate_release import approved_candidate, tag_commit, validate
+from validate_release import approved_candidate, tag_commit, validate, workflow_identity
 
 
 class ApprovalTests(unittest.TestCase):
@@ -51,6 +51,19 @@ class ApprovalTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate(self.root, self.event, event_name, self.client)
 
+    def test_signing_identity_uses_the_event_commit_and_an_allowed_ref(self):
+        identity = {"commit": self.commit, "preview": False, "source_branch": "develop"}
+        self.assertEqual(workflow_identity(identity, self.commit, "refs/heads/main")["source_ref"], "refs/heads/main")
+        with self.assertRaisesRegex(ValueError, "exact build commit"):
+            workflow_identity(identity, self.candidate, "refs/heads/main")
+        with self.assertRaisesRegex(ValueError, "allowed source ref"):
+            workflow_identity(identity, self.commit, "refs/heads/release/next")
+        identity["preview"] = True
+        self.assertEqual(workflow_identity(identity, self.commit, "refs/heads/release/next")["source_ref"], "refs/heads/release/next")
+        for ref in ["refs/heads/feature/unreviewed", "refs/heads/release/hotfix-next", "refs/tags/v0.1.0"]:
+            with self.assertRaisesRegex(ValueError, "allowed source ref"):
+                workflow_identity(identity, self.commit, ref)
+
     def test_approval_change_or_new_publication_requires_review(self):
         self.event["pull_request"]["merge_commit_sha"] = self.candidate
         with self.assertRaisesRegex(ValueError, "approval changed"):
@@ -61,6 +74,8 @@ class ApprovalTests(unittest.TestCase):
             validate(self.root, self.event, "pull_request", self.client)
 
     def test_tags_are_resolved_not_reassigned_and_published_releases_are_immutable(self):
+        published = {"tag_name": "v0.1.0", "draft": False, "immutable": True, "prerelease": False}
+        self.client.releases.side_effect = lambda: [deepcopy(published)]
         def response(method, path, **kwargs):
             if path == "/pulls/1":
                 return deepcopy(self.pr)
@@ -77,7 +92,7 @@ class ApprovalTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "never retag"):
             validate(self.root, self.event, "pull_request", self.client)
         self.commit = original
-        self.client.request.side_effect = lambda method, path, **kwargs: dict(response(method, path, **kwargs), immutable=False) if path.startswith("/releases/") else response(method, path, **kwargs)
+        published["immutable"] = False
         with self.assertRaisesRegex(ValueError, "immutable"):
             validate(self.root, self.event, "pull_request", self.client)
 
