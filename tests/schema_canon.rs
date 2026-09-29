@@ -190,14 +190,16 @@ fn every_builtin_manifest_satisfies_the_canon() {
         anthropic_model::manifest(),
         openai_model::manifest(),
         lattice::components::responses_model::manifest(),
-        fs_tools::manifest(),
+        fs_tools::reader_manifest(),
+        fs_tools::writer_manifest(),
         shell_tools::manifest(),
         net_tools::manifest(),
         timer_tools::manifest(),
         fs_watch::manifest(),
         workshop_sink::manifest(),
         effects_policy::manifest(),
-        skill_library::manifest(),
+        skill_library::consumer_manifest(),
+        skill_library::installer_manifest(),
         trust_policy::manifest(),
     ];
     for manifest in manifests {

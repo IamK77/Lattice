@@ -1,7 +1,7 @@
 //! The finish line of the hot-install route: a MINIMAL runtime (no skill
 //! library assembled) gains the skill library at runtime — as a separate
 //! process running the code already inside the product binary
-//! (`lattice component skill-library`), wired by rule (default_wiring
+//! (`lattice component skill-consumer`), wired by rule (default_wiring
 //! consumed, the rest like its peers), persisted through the overlay, and
 //! still there after a restart. Nothing is downloaded and the kernel is not
 //! changed: install = a manifest + wires, exactly as promised.
@@ -34,9 +34,9 @@ fn write_skill(root: &Path, name: &str) {
 /// The skill library in its PROCESS form: same self-description, the entry
 /// is the product binary running its own builtin as a bridge child.
 fn process_form_skill_library() -> ComponentManifest {
-    let mut manifest = skill_library::manifest();
+    let mut manifest = skill_library::consumer_manifest();
     manifest.runtime = RuntimeKind::Process;
-    manifest.entry = format!("{} component skill-library", env!("CARGO_BIN_EXE_lattice"));
+    manifest.entry = format!("{} component skill-consumer", env!("CARGO_BIN_EXE_lattice"));
     manifest
 }
 
@@ -221,7 +221,7 @@ fn peer_wiring_follows_the_gate() {
     let registry: HashMap<String, ComponentManifest> = [
         (minimal_loop::NAME.to_string(), minimal_loop::manifest()),
         (trust_policy::NAME.to_string(), trust_policy::manifest()),
-        (fs_tools::NAME.to_string(), fs_tools::manifest()),
+        (fs_tools::READER.to_string(), fs_tools::reader_manifest()),
     ]
     .into();
     let assembly = AssemblyManifest {
@@ -245,7 +245,7 @@ fn peer_wiring_follows_the_gate() {
             (
                 "fs".to_string(),
                 ComponentInstance {
-                    component: fs_tools::NAME.to_string(),
+                    component: fs_tools::READER.to_string(),
                     requires: Vec::new(),
                     config: None,
                 },
@@ -263,7 +263,7 @@ fn peer_wiring_follows_the_gate() {
     let wires = suggested_wires(
         &assembly,
         &registry,
-        &skill_library::manifest(),
+        &skill_library::consumer_manifest(),
         "skills",
         "loop",
     );
@@ -317,7 +317,7 @@ fn unclaimed_components_cannot_outvote_the_claiming_peer() {
     let registry: HashMap<String, ComponentManifest> = [
         (minimal_loop::NAME.to_string(), minimal_loop::manifest()),
         (trust_policy::NAME.to_string(), trust_policy::manifest()),
-        (fs_tools::NAME.to_string(), fs_tools::manifest()),
+        (fs_tools::READER.to_string(), fs_tools::reader_manifest()),
         ("oddball".to_string(), oddball),
     ]
     .into();
@@ -330,7 +330,7 @@ fn unclaimed_components_cannot_outvote_the_claiming_peer() {
         instances: [
             ("loop".to_string(), instance(minimal_loop::NAME)),
             ("trust".to_string(), instance(trust_policy::NAME)),
-            ("fs".to_string(), instance(fs_tools::NAME)),
+            ("fs".to_string(), instance(fs_tools::READER)),
             ("odd1".to_string(), instance("oddball")),
             ("odd2".to_string(), instance("oddball")),
         ]
@@ -351,7 +351,7 @@ fn unclaimed_components_cannot_outvote_the_claiming_peer() {
     let wires = suggested_wires(
         &assembly,
         &registry,
-        &skill_library::manifest(),
+        &skill_library::consumer_manifest(),
         "skills",
         "loop",
     );

@@ -128,7 +128,7 @@ pub fn manifest() -> ComponentManifest {
         events: Vec::new(),
         default_wiring: Vec::new(),
         // Reads, and only reads. Nothing here writes, executes or dials out.
-        // The DEFAULT surface — see the note on fs-tools' manifest: these
+        // The DEFAULT surface — as in fs-reader's manifest, these
         // declarations are per-component, and unconfined is the default.
         capabilities: Some(EffectSurface {
             reads: vec!["*".to_string()],
