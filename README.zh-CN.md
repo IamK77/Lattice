@@ -30,12 +30,12 @@
 
 ## 开始使用
 
-目前提供的是**从源码构建**的使用路径。你需要 Rust/Cargo、C 编译工具链，以及可用的模型账号。入门指南面向 macOS 和 Linux，不承诺 Windows 上的完整使用路径。Linux 还需要 OpenSSL 开发库和 `pkg-config`。
+**首个正式版本尚未发布。** 先看[安装与升级指南](docs/安装与升级.md)。原生打包已在 Ubuntu 24.04 x86-64 和 macOS 15 Apple Silicon 实测，不据此承诺旧系统、Intel Mac 包或 Windows 支持。源码构建需要 Rust/Cargo、C 工具链；Linux 还需要 OpenSSL 开发库和 `pkg-config`。真实对话需要你自己的模型账号。
 
 ```sh
 git clone https://github.com/IamK77/Lattice.git
 cd Lattice
-cargo build --release --bin lattice
+cargo build --locked --release --bin lattice
 ```
 
 **接下来：[连接模型，开始第一次对话](docs/快速开始.md)。** 指南包含密钥配置、在自己的项目里启动，以及继续对话的方法。构建程序不会自动为你配置模型账号。

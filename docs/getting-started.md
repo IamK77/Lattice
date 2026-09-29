@@ -6,6 +6,8 @@ This guide takes you from source code to a real conversation in your own project
 
 ## 1. Build Lattice
 
+For release status, tested platforms, artifact verification, installation, and rollback, start with [Installation and upgrades](installation.md). The source path below remains available before the first official release.
+
 Use macOS or Linux with Rust/Cargo and a C compiler toolchain. On Linux, install your distribution's OpenSSL development libraries and `pkg-config` first; Debian/Ubuntu package names are `libssl-dev` and `pkg-config`. This guide does not provide a supported Windows path.
 
 The shell commands below use **Bash**. If you use another shell, enter `bash` first. Keep the same terminal open through setup so that exported variables remain available.
@@ -13,7 +15,7 @@ The shell commands below use **Bash**. If you use another shell, enter `bash` fi
 ```bash
 git clone https://github.com/IamK77/Lattice.git
 cd Lattice
-cargo build --release --bin lattice
+cargo build --locked --release --bin lattice
 export LATTICE_BIN="$PWD/target/release/lattice"
 "$LATTICE_BIN" --version
 ```
