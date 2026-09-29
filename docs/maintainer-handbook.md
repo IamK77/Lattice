@@ -43,6 +43,12 @@ Retain a reviewed record in the repository with concrete run IDs, source identit
 
 There are not yet two official releases to establish an official upgrade matrix. A development/preview switching exercise demonstrates that procedure, not arbitrary cross-version storage compatibility. Do not touch the runtime, model credentials, or user history carrying the maintainer's current conversation.
 
+### Repeatable runtime check
+
+After separately verifying and extracting both packages, run `python3.12 scripts/rehearse_runtime.py /absolute/old/lattice /absolute/new/lattice`. This is not an installer or signature verifier. It preserves the supplied executables and attribution, creates its own temporary HOME/project/socket, and never inherits model credentials. It tests four clean process lifetimes: old, new, old again with the newer test history, and old after restoring the pre-upgrade backup. The report checks file names and bytes, not arbitrary filesystem metadata.
+
+The Node probe correlates the unique input, model request, successful result, reply and sibling turn boundary. Restarts must carry the preceding **expanded input** into new model material; merely replaying a raw input is insufficient. Each daemon must acknowledge startup, finish a new scripted turn and stop normally. CI passes the same binary twice to test this machinery; `distinctBinaries: false` explicitly does **not** demonstrate a cross-build upgrade. The helper removes only its own temporary test tree when finished.
+
 ## Normal release and hotfix
 
 Use [candidate preparation](release-preparation.md), [version policy](versioning.md), [artifact contents](release-artifacts.md), and [publication/recovery rules](release-publication.md). Development changes refresh an unmerged candidate; merging the canonical candidate to main is the publication approval. No separate version-edit/tag/publish ritual is required in the normal path. Explicit version overrides still go through review.
