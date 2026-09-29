@@ -64,7 +64,8 @@ fn main() {
         (minimal_loop::NAME.to_string(), minimal_loop::manifest()),
         (context_gate::NAME.to_string(), context_gate::manifest()),
         (brain_name.to_string(), brain_manifest),
-        (fs_tools::NAME.to_string(), fs_tools::manifest()),
+        (fs_tools::READER.to_string(), fs_tools::reader_manifest()),
+        (fs_tools::WRITER.to_string(), fs_tools::writer_manifest()),
         (shell_tools::NAME.to_string(), shell_tools::manifest()),
         (net_tools::NAME.to_string(), net_tools::manifest()),
         (timer_tools::NAME.to_string(), timer_tools::manifest()),
@@ -94,8 +95,12 @@ fn main() {
         Box::new(|config| Box::new(context_gate::ContextGate::from_config(config))),
     );
     factories.insert(
-        fs_tools::NAME.to_string(),
-        Box::new(|config| Box::new(fs_tools::FsTools::from_config(config))),
+        fs_tools::READER.to_string(),
+        Box::new(|config| Box::new(fs_tools::FsReader::from_config(config))),
+    );
+    factories.insert(
+        fs_tools::WRITER.to_string(),
+        Box::new(|config| Box::new(fs_tools::FsWriter::from_config(config))),
     );
     factories.insert(
         shell_tools::NAME.to_string(),
@@ -186,10 +191,14 @@ fn main() {
                     })),
                 },
             ),
+            ("fs-write".into(), ComponentInstance {
+                component: fs_tools::WRITER.into(), requires: vec![],
+                config: Some(json!({"root":"./workspace"})),
+            }),
             (
                 "fs".to_string(),
                 ComponentInstance {
-                    component: fs_tools::NAME.to_string(),
+                    component: fs_tools::READER.to_string(),
                     requires: Vec::new(),
                     // A working directory the agent may read and write
                     config: Some(json!({"root": "./workspace"})),
@@ -238,6 +247,8 @@ fn main() {
             Wire::new("model.result", "loop.model"),
             Wire::new("loop.run", "fs.execute"),
             Wire::new("fs.outcome", "loop.tools"),
+            Wire::new("loop.run", "fs-write.execute"),
+            Wire::new("fs-write.outcome", "loop.tools"),
             Wire::new("loop.run", "shell.execute"),
             Wire::new("shell.outcome", "loop.tools"),
             // A finished background command wakes the loop as fresh input

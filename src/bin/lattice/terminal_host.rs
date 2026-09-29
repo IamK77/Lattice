@@ -3488,9 +3488,9 @@ mod tests {
         u.parts = vec![
             (
                 "fs".into(),
-                "fs-tools".into(),
+                "fs-reader".into(),
                 "in-process",
-                "Read Write".into(),
+                "Read Ls".into(),
                 false,
                 vec![
                     "trust.forward → fs.execute".into(),
@@ -6410,9 +6410,9 @@ mod tests {
             ),
             (
                 "fs".to_string(),
-                "fs-tools".to_string(),
+                "fs-reader".to_string(),
                 "in-process",
-                "Read Ls Write Edit".to_string(),
+                "Read Ls".to_string(),
                 false,
                 Vec::new(),
             ),
@@ -6427,11 +6427,11 @@ mod tests {
         };
 
         assert!(head(100).contains("provides"), "{}", head(100));
-        assert!(fs(100).contains("Read Ls Write Edit"), "{}", fs(100));
+        assert!(fs(100).contains("Read Ls"), "{}", fs(100));
 
         // The last column is the first to go, and what stays is whole.
         assert!(!head(46).contains("provides"), "{}", head(46));
-        assert!(fs(46).contains("fs-tools"), "{}", fs(46));
+        assert!(fs(46).contains("fs-reader"), "{}", fs(46));
 
         // Nothing ever runs past the panel's edge.
         for width in [30usize, 46, 60, 100, 160] {

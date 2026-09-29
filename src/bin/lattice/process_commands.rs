@@ -257,16 +257,20 @@ pub(super) fn component(name: Option<String>) -> std::io::Result<()> {
     use lattice::components::{
         fs_tools, fs_watch, net_tools, shell_tools, skill_library, timer_tools,
     };
-    let known = "skill-library, fs-tools, shell-tools, net-tools, timer-tools, fs-watch";
+    let known = "skill-consumer, skill-installer, fs-reader, fs-writer, shell-tools, net-tools, timer-tools, fs-watch";
     let Some(name) = name else {
         eprintln!("lattice component <name> — run a builtin as a bridge child\navailable: {known}");
         std::process::exit(2);
     };
     match name.as_str() {
-        "skill-library" => {
-            lattice::run_bridge_child(|c| Box::new(skill_library::SkillLibrary::from_config(c)))
+        "skill-consumer" => {
+            lattice::run_bridge_child(|c| Box::new(skill_library::SkillConsumer::from_config(c)))
         }
-        "fs-tools" => lattice::run_bridge_child(|c| Box::new(fs_tools::FsTools::from_config(c))),
+        "skill-installer" => {
+            lattice::run_bridge_child(|c| Box::new(skill_library::SkillInstaller::from_config(c)))
+        }
+        "fs-reader" => lattice::run_bridge_child(|c| Box::new(fs_tools::FsReader::from_config(c))),
+        "fs-writer" => lattice::run_bridge_child(|c| Box::new(fs_tools::FsWriter::from_config(c))),
         "shell-tools" => {
             lattice::run_bridge_child(|c| Box::new(shell_tools::ShellTools::from_config(c)))
         }

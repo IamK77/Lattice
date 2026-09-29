@@ -59,7 +59,7 @@ fn write_skill(root: &Path, name: &str) {
 /// The declared surface of install_skill, straight from the manifest — the
 /// same declaration the gate reads off the ledger.
 fn install_skill_effects() -> Value {
-    skill_library::manifest()
+    skill_library::installer_manifest()
         .tools
         .iter()
         .find(|t| t["name"] == "InstallSkill")
@@ -80,7 +80,10 @@ fn start(
         (minimal_loop::NAME.to_string(), minimal_loop::manifest()),
         (scripted_model::NAME.to_string(), scripted_model::manifest()),
         (trust_policy::NAME.to_string(), trust_policy::manifest()),
-        (skill_library::NAME.to_string(), skill_library::manifest()),
+        (
+            skill_library::INSTALLER.to_string(),
+            skill_library::installer_manifest(),
+        ),
         ("human".to_string(), human_manifest()),
     ]
     .into();
@@ -102,8 +105,8 @@ fn start(
         Box::new(|c| Box::new(trust_policy::TrustPolicy::from_config(c))),
     );
     factories.insert(
-        skill_library::NAME.to_string(),
-        Box::new(|c| Box::new(skill_library::SkillLibrary::from_config(c))),
+        skill_library::INSTALLER.to_string(),
+        Box::new(|c| Box::new(skill_library::SkillInstaller::from_config(c))),
     );
     factories.insert("human".to_string(), Box::new(|_| Box::new(Human)));
 
@@ -147,7 +150,7 @@ fn start(
             (
                 "skills".to_string(),
                 ComponentInstance {
-                    component: skill_library::NAME.to_string(),
+                    component: skill_library::INSTALLER.to_string(),
                     requires: Vec::new(),
                     config: Some(json!({"dirs": [library.display().to_string()]})),
                 },
@@ -511,7 +514,10 @@ fn the_frontend_answers_the_card_through_the_session() {
             (minimal_loop::NAME.to_string(), minimal_loop::manifest()),
             (scripted_model::NAME.to_string(), scripted_model::manifest()),
             (trust_policy::NAME.to_string(), trust_policy::manifest()),
-            (skill_library::NAME.to_string(), skill_library::manifest()),
+            (
+                skill_library::INSTALLER.to_string(),
+                skill_library::installer_manifest(),
+            ),
         ]
         .into();
         let mut factories: HashMap<String, Factory> = HashMap::new();
@@ -532,8 +538,8 @@ fn the_frontend_answers_the_card_through_the_session() {
             Box::new(|c| Box::new(trust_policy::TrustPolicy::from_config(c))),
         );
         factories.insert(
-            skill_library::NAME.to_string(),
-            Box::new(|c| Box::new(skill_library::SkillLibrary::from_config(c))),
+            skill_library::INSTALLER.to_string(),
+            Box::new(|c| Box::new(skill_library::SkillInstaller::from_config(c))),
         );
         let assembly = AssemblyManifest {
             instances: [
@@ -572,7 +578,7 @@ fn the_frontend_answers_the_card_through_the_session() {
                 (
                     "skills".to_string(),
                     ComponentInstance {
-                        component: skill_library::NAME.to_string(),
+                        component: skill_library::INSTALLER.to_string(),
                         requires: Vec::new(),
                         config: Some(json!({"dirs": [library_path]})),
                     },

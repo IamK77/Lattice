@@ -236,7 +236,7 @@ fn sink_instance(kernel: &Kernel, tool: &str) -> Option<String> {
 /// 1. `default_wiring` suggestions land first, but ONLY those wholly inside
 ///    the newcomer (`self.a → self.b`) — the self-referential rings no
 ///    environment rule could guess, which is the entire reason the field
-///    exists (the one built-in that uses it, skill-library, is exactly that
+///    exists (the one built-in that uses it, skill-consumer, is exactly that
 ///    shape). A suggestion naming anybody else is refused and reported.
 ///
 ///    Taking foreign endpoints at their word made installing one component

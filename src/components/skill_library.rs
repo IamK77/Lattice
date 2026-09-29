@@ -6,17 +6,18 @@
 //!
 //! Three-tier loading: the resident cost is one listing line per skill (the
 //! assembly generator computes it via [`listing_prompt`] and carries it as
-//! this instance's prompt override); the body enters context only when
-//! load_skill is called; bundled files only when fetched by name. Scripts are
-//! run by the model through the ordinary Run tool, so the effects policy
-//! governs them like any other execution — the `allowed-tools` frontmatter
-//! field is accepted for compatibility and deliberately ignored.
+//! the consumer instance's prompt override); the body enters context through
+//! LoadSkill or explicit slash expansion; bundled files only when fetched by
+//! name. The consumer never executes scripts or installs anything. Executing
+//! bundled scripts requires a separately assembled execution tool and follows
+//! that assembly's gates. The `allowed-tools` frontmatter field is accepted
+//! for compatibility and deliberately ignored.
 //!
 //! Skills are resolved from the configured directories on every call (first
-//! directory wins on a name clash), so a folder dropped in mid-session is
-//! loadable immediately; only the resident listing waits for a restart.
-//! install_skill fetches from a local path or a git URL, validates against
-//! the canon before anything lands, and records a reasoned decision event.
+//! directory wins on a name clash), so new folders are immediately loadable.
+//! Refresh updates the menu; resident prompt adoption follows cache rules.
+//! The separate installer fetches from a local path or git URL, validates
+//! before landing, records a decision, and notifies connected consumers.
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -31,7 +32,8 @@ use crate::contracts::core_events as ce;
 use crate::contracts::event::{EventDraft, EventEnvelope, EventTypeDecl};
 use crate::kernel::host::{Component, Ctx};
 
-pub const NAME: &str = "skill-library";
+pub const CONSUMER: &str = "skill-consumer";
+pub const INSTALLER: &str = "skill-installer";
 
 /// Decision event recorded for every installation (reason mandatory).
 pub const SKILL_INSTALLED: &str = "skill.installed";
@@ -65,12 +67,46 @@ fn frontmatter_canon() -> &'static jsonschema::Validator {
     })
 }
 
-pub fn manifest() -> ComponentManifest {
+pub fn installer_manifest() -> ComponentManifest {
     ComponentManifest {
-        name: NAME.to_string(),
+        name: INSTALLER.into(),
+        version: env!("CARGO_PKG_VERSION").into(),
+        runtime: RuntimeKind::Inproc,
+        entry: format!("builtin:{INSTALLER}"),
+        inputs: vec![PortDecl::new("execute", &[ce::TOOL_EXEC_STARTED])],
+        outputs: vec![
+            PortDecl::new("outcome", &[ce::TOOL_EXEC_COMPLETED]),
+            PortDecl::new("audit", &[SKILL_INSTALLED]),
+            PortDecl::new("changed", &[ce::WAKE]),
+        ],
+        events: vec![EventTypeDecl::decision(SKILL_INSTALLED, "A skill was installed into the library")
+            .with_schema(json!({"type":"object", "required":["name","source"],
+                "properties":{"name":{"type":"string"},"source":{"type":"string"},"sha256":{"type":"string"}}}))],
+        default_wiring: vec![],
+        capabilities: Some(EffectSurface {
+            reads: vec!["*".into()], writes: vec!["<skills>".into()],
+            network: vec!["*".into()], executes: true, reversible: false,
+            admits: Some("skills".into()),
+        }),
+        implements: vec!["tool-provider".into()],
+        tools: vec![json!({
+            "name":"InstallSkill",
+            "description":"Install a skill from a local directory or git URL. The source must contain SKILL.md and pass frontmatter validation. A reason is mandatory and audited. The skill is immediately loadable; the connected consumer refreshes its menu, while prompt changes follow normal cache rules.",
+            "parameters":{"type":"object","properties":{"source":{"type":"string"},"reason":{"type":"string"}},"required":["source","reason"]},
+            "effects":{"reads":["*"],"writes":["<skills>"],"network":["*"],"executes":true,"admits":"skills"}
+        })],
+        prompt: None,
+        handle_timeout_ms: Some(120_000),
+        concurrency: None,
+    }
+}
+
+pub fn consumer_manifest() -> ComponentManifest {
+    ComponentManifest {
+        name: CONSUMER.to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         runtime: RuntimeKind::Inproc,
-        entry: format!("builtin:{NAME}"),
+        entry: format!("builtin:{CONSUMER}"),
         inputs: vec![
             PortDecl::new("execute", &[ce::TOOL_EXEC_STARTED]),
             // A "my folders changed" wake comes back here (see the `changed`
@@ -86,9 +122,8 @@ pub fn manifest() -> ComponentManifest {
         ],
         outputs: vec![
             PortDecl::new("outcome", &[ce::TOOL_EXEC_COMPLETED]),
-            // Unwired by default: installations land on the ledger for audit,
-            // they are not routed anywhere
-            PortDecl::new("audit", &[SKILL_INSTALLED, SKILL_LISTING]),
+            // The consumer owns menu snapshots, never installation decisions.
+            PortDecl::new("audit", &[SKILL_LISTING]),
             // The standing watch on the skill folders fires here; wire it
             // back to `refresh` (a legal ring) so a folder dropped in by hand
             // is sensed without a restart and without costing a model call
@@ -96,39 +131,27 @@ pub fn manifest() -> ComponentManifest {
             // The far side of the expansion station (see `input`)
             PortDecl::new("expanded", &[ce::USER_MESSAGE]),
         ],
-        events: vec![
-            EventTypeDecl::decision(SKILL_INSTALLED, "A skill was installed into the library")
-                .with_schema(json!({
-                    "type": "object",
-                    "required": ["name", "source"],
-                    "properties": {
-                        "name": {"type": "string"},
-                        "source": {"type": "string"},
-                        "sha256": {"type": "string"},
-                    },
-                })),
-            EventTypeDecl::new(
-                SKILL_LISTING,
-                "The current invokable-skills menu (frontends fold it into their / palette)",
-            )
-            .with_schema(json!({
-                "type": "object",
-                "required": ["skills"],
-                "properties": {
-                    "skills": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "required": ["name", "description"],
-                            "properties": {
-                                "name": {"type": "string"},
-                                "description": {"type": "string"},
-                            },
+        events: vec![EventTypeDecl::new(
+            SKILL_LISTING,
+            "The current invokable-skills menu (frontends fold it into their / palette)",
+        )
+        .with_schema(json!({
+            "type": "object",
+            "required": ["skills"],
+            "properties": {
+                "skills": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["name", "description"],
+                        "properties": {
+                            "name": {"type": "string"},
+                            "description": {"type": "string"},
                         },
                     },
                 },
-            })),
-        ],
+            },
+        }))],
         // The self-referential ring no environment rule could guess: the
         // standing watch on the skill folders comes back to refresh
         default_wiring: vec![WireSuggestion {
@@ -137,57 +160,29 @@ pub fn manifest() -> ComponentManifest {
         }],
         capabilities: Some(EffectSurface {
             reads: vec!["<skills>".to_string()],
-            writes: vec!["<skills>".to_string()],
-            network: vec!["*".to_string()],
-            executes: true,
-            reversible: false,
-            // Installing a skill puts new INSTRUCTIONS in front of the model,
-            // which is an admission as much as new code is.
-            admits: Some("skills".to_string()),
+            reversible: true,
+            ..Default::default()
         }),
         implements: vec!["tool-provider".to_string()],
-        tools: vec![
-            json!({
-                "name": "LoadSkill",
-                "description": "Load a skill by name: returns the skill's full \
-                    instructions (its SKILL.md body). Pass `file` to fetch a bundled \
-                    file from the same skill's folder instead (a reference document, \
-                    a template). The result carries `dir`, the skill's directory — \
-                    use it as the path prefix when running the skill's bundled \
-                    scripts with the Run tool.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "name": {"type": "string"},
-                        "file": {"type": "string"},
-                    },
-                    "required": ["name"],
+        tools: vec![json!({
+            "name": "LoadSkill",
+            "description": "Load a skill by name: returns the skill's full \
+                instructions (its SKILL.md body). Pass `file` to fetch a bundled \
+                file from the same skill's folder instead (a reference document, \
+                a template). The result carries `dir`, the skill's directory — \
+                use it as the path prefix when running the skill's bundled \
+                scripts, if this assembly provides an execution tool. Loading \
+                a skill does not grant execution or installation capabilities.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "file": {"type": "string"},
                 },
-                "effects": {"reads": ["<skills>"], "reversible": true},
-            }),
-            json!({
-                "name": "InstallSkill",
-                "description": "Install a skill into the library from a local \
-                    directory path or a git repository URL. The source must be a \
-                    single skill (a folder with SKILL.md at its root); it is \
-                    validated against the frontmatter canon before anything lands. \
-                    `reason` is mandatory — it is recorded on the audit ledger as a \
-                    decision event. The skill is loadable immediately; it enters the \
-                    resident listing on the next restart.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "source": {"type": "string"},
-                        "reason": {"type": "string"},
-                    },
-                    "required": ["source", "reason"],
-                },
-                // `admits`: this call INTRODUCES new instructions the model
-                // will follow — the marker the trust gate keys on
-                "effects": {"writes": ["<skills>"], "network": ["*"], "executes": true,
-                            "admits": "skills"},
-            }),
-        ],
+                "required": ["name"],
+            },
+            "effects": {"reads": ["<skills>"], "reversible": true},
+        })],
         prompt: None,
         handle_timeout_ms: Some(120_000),
         concurrency: None,
@@ -304,7 +299,7 @@ fn scan(dirs: &[String]) -> Vec<Discovered> {
 }
 
 /// The resident listing: one line per skill, computed by the assembly
-/// generator at startup and carried as the skill-library instance's prompt
+/// generator at startup and carried as the skill-consumer instance's prompt
 /// override. None when no skills exist (zero resident cost when unused).
 pub fn listing_prompt(dirs: &[String]) -> Option<String> {
     let found = scan(dirs);
@@ -346,35 +341,30 @@ fn menu_payload(dirs: &[String]) -> Value {
 
 // ── The component ───────────────────────────────────────
 
-pub struct SkillLibrary {
+pub struct SkillConsumer {
     dirs: Vec<String>,
-    /// Where install_skill lands new skills (defaults to the first directory)
-    install_dir: String,
-    /// Largest content returned by load_skill; extra is truncated with a marker
     max_bytes: usize,
     exclusive: bool,
 }
 
-impl SkillLibrary {
+fn configured_dirs(config: Option<&Value>) -> Vec<String> {
+    config
+        .and_then(|c| c.get("dirs"))
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(String::from)
+                .collect()
+        })
+        .unwrap_or_else(default_dirs)
+}
+
+impl SkillConsumer {
     pub fn from_config(config: Option<&Value>) -> Self {
         let get = |key: &str| config.and_then(|c| c.get(key));
-        let dirs: Vec<String> = get("dirs")
-            .and_then(Value::as_array)
-            .map(|a| {
-                a.iter()
-                    .filter_map(Value::as_str)
-                    .map(String::from)
-                    .collect()
-            })
-            .unwrap_or_else(default_dirs);
-        let install_dir = get("installDir")
-            .and_then(Value::as_str)
-            .map(String::from)
-            .or_else(|| dirs.first().cloned())
-            .unwrap_or_else(|| "./.lattice/skills".to_string());
         Self {
-            dirs,
-            install_dir,
+            dirs: configured_dirs(config),
             max_bytes: get("maxBytes").and_then(Value::as_u64).unwrap_or(262_144) as usize,
             exclusive: get("exclusive").and_then(Value::as_bool).unwrap_or(false),
         }
@@ -581,8 +571,25 @@ impl SkillLibrary {
             )
         })
     }
+}
 
-    // ── install_skill ───────────────────────────────────
+pub struct SkillInstaller {
+    install_dir: String,
+    exclusive: bool,
+}
+
+impl SkillInstaller {
+    pub fn from_config(config: Option<&Value>) -> Self {
+        let get = |key: &str| config.and_then(|c| c.get(key));
+        Self {
+            install_dir: get("installDir")
+                .and_then(Value::as_str)
+                .map(String::from)
+                .or_else(|| configured_dirs(config).first().cloned())
+                .unwrap_or_else(|| "./.lattice/skills".into()),
+            exclusive: get("exclusive").and_then(Value::as_bool).unwrap_or(false),
+        }
+    }
 
     /// Returns the outcome payload, plus (name, sha256) on success for the
     /// caller to record the decision event.
@@ -690,13 +697,51 @@ impl SkillLibrary {
             "installed": name,
             "dir": target.display().to_string(),
             "sha256": digest,
-            "note": "loadable immediately via load_skill; enters the resident listing on restart",
+            "note": "loadable immediately via LoadSkill when the consumer scans this directory; a connected consumer refreshes its menu now and its resident prompt under the normal cache rules",
         }});
         (payload, Some((name, digest)))
     }
 }
 
-impl Component for SkillLibrary {
+impl Component for SkillInstaller {
+    fn handle(&mut self, _port: &str, event: &EventEnvelope, ctx: &mut Ctx) {
+        let tool = event.payload["tool"].as_str().unwrap_or("");
+        if tool != "InstallSkill" && !self.exclusive {
+            return;
+        }
+        let arguments = &event.payload["arguments"];
+        let (mut payload, installed) = if tool == "InstallSkill" {
+            self.install(arguments, ctx)
+        } else {
+            (
+                error("tool.unknown", &format!("unknown tool: {tool}"), "request"),
+                None,
+            )
+        };
+        if let Some((name, sha256)) = installed {
+            ctx.emit(
+                "audit",
+                EventDraft::new(
+                    SKILL_INSTALLED,
+                    &[&event.id],
+                    json!({"name":name,"source":arguments["source"],"sha256":sha256}),
+                )
+                .with_reason(arguments["reason"].as_str().unwrap_or("")),
+            );
+            // Refresh the consumer without starting a model turn. These are
+            // same-cause siblings; neither guesses the other's ledger ID.
+            ctx.emit("changed", EventDraft::new(ce::WAKE, &[&event.id],
+                json!({"source":"skill-installer","summary":"skill installed","body":{"name":name}})));
+        }
+        payload["call"] = event.payload["call"].clone();
+        ctx.emit(
+            "outcome",
+            EventDraft::new(ce::TOOL_EXEC_COMPLETED, &[&event.id], payload),
+        );
+    }
+}
+
+impl Component for SkillConsumer {
     /// Put the OS notification on the skill folders (the ones that exist):
     /// any change injects a wake through `changed`, which the assembly wires
     /// back to `refresh`. Runs on every start — fresh or reopened — so the
@@ -736,34 +781,13 @@ impl Component for SkillLibrary {
             return;
         }
         let tool = event.payload["tool"].as_str().unwrap_or("");
-        let ours = tool == "LoadSkill" || tool == "InstallSkill";
+        let ours = tool == "LoadSkill";
         if !ours && !self.exclusive {
             return; // someone else's tool; the fan-out convention is silence
         }
         let arguments = &event.payload["arguments"];
         let mut payload = match tool {
             "LoadSkill" => self.load(arguments, ctx),
-            "InstallSkill" => {
-                let (payload, installed) = self.install(arguments, ctx);
-                if let Some((name, sha256)) = installed {
-                    // The reasoned decision record; the audit port is unwired
-                    // by default, so this lands on the ledger and goes nowhere
-                    ctx.emit(
-                        "audit",
-                        EventDraft::new(
-                            SKILL_INSTALLED,
-                            &[&event.id],
-                            json!({
-                                "name": name,
-                                "source": arguments["source"],
-                                "sha256": sha256,
-                            }),
-                        )
-                        .with_reason(arguments["reason"].as_str().unwrap_or("")),
-                    );
-                }
-                payload
-            }
             other => error("tool.unknown", &format!("unknown tool: {other}"), "request"),
         };
         payload["call"] = event.payload["call"].clone();

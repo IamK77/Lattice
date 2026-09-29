@@ -102,7 +102,7 @@ fn component_usage_never_writes_human_output_to_the_protocol_channel() {
             assert!(error.starts_with("lattice: unknown builtin component 'missing'\n"));
         }
         assert!(error.contains(
-            "available: skill-library, fs-tools, shell-tools, net-tools, timer-tools, fs-watch\n"
+            "available: skill-consumer, skill-installer, fs-reader, fs-writer, shell-tools, net-tools, timer-tools, fs-watch\n"
         ));
     }
 }
@@ -120,7 +120,7 @@ fn builtin_file_component_speaks_only_bridge_messages_and_consumes_one_name() {
         json!({"stop":{}}),
     ].into_iter().map(|message| format!("{message}\n")).collect::<String>();
     let mut launch = command(home.path());
-    launch.args(["component", "fs-tools", "ignored"]);
+    launch.args(["component", "fs-reader", "ignored"]);
     let output = capture::output(launch, input.as_bytes(), Duration::from_secs(30)).unwrap();
     let messages: Vec<Value> = succeeded(&output)
         .lines()

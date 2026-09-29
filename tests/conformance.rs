@@ -131,11 +131,31 @@ fn search_tools_passes_the_tool_provider_exam() {
 #[test]
 fn fs_tools_passes_the_tool_provider_exam() {
     let problems = examine_tool_provider(
-        &fs_tools::manifest(),
+        &fs_tools::reader_manifest(),
         Some(Box::new(|config| {
-            Box::new(fs_tools::FsTools::from_config(config))
+            Box::new(fs_tools::FsReader::from_config(config))
         })),
         "Ls",
+    );
+    assert_eq!(problems, Vec::<String>::new());
+}
+
+#[test]
+fn file_writer_and_skill_installer_pass_the_tool_provider_exam() {
+    let problems = examine_tool_provider(
+        &fs_tools::writer_manifest(),
+        Some(Box::new(|config| {
+            Box::new(fs_tools::FsWriter::from_config(config))
+        })),
+        "Write",
+    );
+    assert_eq!(problems, Vec::<String>::new());
+    let problems = examine_tool_provider(
+        &skill_library::installer_manifest(),
+        Some(Box::new(|config| {
+            Box::new(skill_library::SkillInstaller::from_config(config))
+        })),
+        "InstallSkill",
     );
     assert_eq!(problems, Vec::<String>::new());
 }
@@ -178,9 +198,9 @@ fn fs_watch_passes_the_tool_provider_exam() {
 #[test]
 fn skill_library_passes_the_tool_provider_exam() {
     let problems = examine_tool_provider(
-        &skill_library::manifest(),
+        &skill_library::consumer_manifest(),
         Some(Box::new(|config| {
-            Box::new(skill_library::SkillLibrary::from_config(config))
+            Box::new(skill_library::SkillConsumer::from_config(config))
         })),
         "LoadSkill",
     );

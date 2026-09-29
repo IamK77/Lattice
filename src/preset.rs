@@ -581,7 +581,8 @@ pub fn standard_at_depth(cfg: &PresetConfig, depth: u64) -> Result<StandardAssem
         (responses_model::NAME, responses_model::manifest()),
         (anthropic_model::NAME, anthropic_model::manifest()),
         (scripted_model::NAME, scripted_model::manifest()),
-        (fs_tools::NAME, fs_tools::manifest()),
+        (fs_tools::READER, fs_tools::reader_manifest()),
+        (fs_tools::WRITER, fs_tools::writer_manifest()),
         (
             crate::components::browser_tools::NAME,
             crate::components::browser_tools::manifest(),
@@ -602,7 +603,11 @@ pub fn standard_at_depth(cfg: &PresetConfig, depth: u64) -> Result<StandardAssem
         (subagent::NAME, subagent::manifest()),
         (fs_watch::NAME, fs_watch::manifest()),
         (workshop_sink::NAME, workshop_sink::manifest()),
-        (skill_library::NAME, skill_library::manifest()),
+        (skill_library::CONSUMER, skill_library::consumer_manifest()),
+        (
+            skill_library::INSTALLER,
+            skill_library::installer_manifest(),
+        ),
         (trust_policy::NAME, trust_policy::manifest()),
     ]
     .into_iter()
@@ -670,8 +675,12 @@ pub fn standard_at_depth(cfg: &PresetConfig, depth: u64) -> Result<StandardAssem
         }),
     );
     factories.insert(
-        fs_tools::NAME.to_string(),
-        Box::new(|c| Box::new(fs_tools::FsTools::from_config(c))),
+        fs_tools::READER.to_string(),
+        Box::new(|c| Box::new(fs_tools::FsReader::from_config(c))),
+    );
+    factories.insert(
+        fs_tools::WRITER.to_string(),
+        Box::new(|c| Box::new(fs_tools::FsWriter::from_config(c))),
     );
     factories.insert(
         search_tools::NAME.to_string(),
@@ -702,8 +711,12 @@ pub fn standard_at_depth(cfg: &PresetConfig, depth: u64) -> Result<StandardAssem
         Box::new(|c| Box::new(subagent::Subagent::from_config(c))),
     );
     factories.insert(
-        skill_library::NAME.to_string(),
-        Box::new(|c| Box::new(skill_library::SkillLibrary::from_config(c))),
+        skill_library::CONSUMER.to_string(),
+        Box::new(|c| Box::new(skill_library::SkillConsumer::from_config(c))),
+    );
+    factories.insert(
+        skill_library::INSTALLER.to_string(),
+        Box::new(|c| Box::new(skill_library::SkillInstaller::from_config(c))),
     );
     factories.insert(
         fs_watch::NAME.to_string(),
@@ -854,7 +867,11 @@ pub fn standard_at_depth(cfg: &PresetConfig, depth: u64) -> Result<StandardAssem
             ),
             (
                 "fs".to_string(),
-                instance(fs_tools::NAME, confine("root"), TOOLS),
+                instance(fs_tools::READER, confine("root"), TOOLS),
+            ),
+            (
+                "fs-write".to_string(),
+                instance(fs_tools::WRITER, confine("root"), TOOLS),
             ),
             (
                 // Looking costs only reading here — the same questions asked
@@ -913,7 +930,11 @@ pub fn standard_at_depth(cfg: &PresetConfig, depth: u64) -> Result<StandardAssem
             ),
             (
                 "skills".to_string(),
-                instance(skill_library::NAME, Some(skills_config), TOOLS),
+                instance(skill_library::CONSUMER, Some(skills_config), TOOLS),
+            ),
+            (
+                "skill-installer".to_string(),
+                instance(skill_library::INSTALLER, Some(json!({"dirs": skill_dirs})), TOOLS),
             ),
         ]
         .into(),
@@ -1038,6 +1059,8 @@ fn standard_wires() -> Vec<Wire> {
         Wire::new("tool-catalog.outcome", "loop.tools"),
         Wire::new("trust.forward", "fs.execute"),
         Wire::new("fs.outcome", "loop.tools"),
+        Wire::new("trust.forward", "fs-write.execute"),
+        Wire::new("fs-write.outcome", "loop.tools"),
         Wire::new("trust.forward", "search.execute"),
         Wire::new("search.outcome", "loop.tools"),
         Wire::new("trust.forward", "code.execute"),
@@ -1067,6 +1090,9 @@ fn standard_wires() -> Vec<Wire> {
         Wire::new("workshop.outcome", "loop.tools"),
         Wire::new("trust.forward", "skills.execute"),
         Wire::new("skills.outcome", "loop.tools"),
+        Wire::new("trust.forward", "skill-installer.execute"),
+        Wire::new("skill-installer.outcome", "loop.tools"),
+        Wire::new("skill-installer.changed", "skills.refresh"),
         // The skill folders' standing watch, wired back to the library:
         // a folder dropped in by hand refreshes the listing, no model turn
         Wire::new("skills.changed", "skills.refresh"),
@@ -1078,10 +1104,9 @@ fn standard_wires() -> Vec<Wire> {
 /// A kind of subagent: which of the standard tools it keeps, and what it is
 /// told it is for.
 ///
-/// There is nothing else to an expert. "Only reads" is not a promise it makes
-/// — the writing components are simply not in the assembly it runs in, so
-/// there is nothing to reach for. That is a harder boundary than any gate,
-/// because it does not depend on anyone being honest.
+/// Shipped mutation tools are separate assembly choices. This bounds the
+/// provided operations, not arbitrary processes or provider-side behavior;
+/// model networking and runtime-owned audit writes remain.
 pub struct Expert {
     pub name: &'static str,
     /// Shown to the model when it asks who is available
@@ -1115,7 +1140,7 @@ pub const EXPERTS: &[Expert] = &[
     Expert {
         name: "explorer",
         description: "Reads and searches to answer a question about what is there. \
-                      Cannot change anything.",
+                      Has no user-file mutation, installation, or command-execution tools.",
         tools: &["fs", "search"],
         prompt: "You are an explorer. You were sent one question and you answer it. \
                  Read and search as widely as you need, then reply with the ANSWER and \
@@ -1126,8 +1151,8 @@ pub const EXPERTS: &[Expert] = &[
     },
     Expert {
         name: "researcher",
-        description: "Reads the web to answer a question. Cannot change anything on this \
-                      machine.",
+        description: "Reads the web to answer a question. Has no user-file mutation, \
+                      installation, or command-execution tools.",
         tools: &["net", "search-web"],
         prompt: "You are a researcher. You were sent one question and you answer it from \
                  what you can read on the web. Reply with the ANSWER and the URLs it rests \
@@ -1139,7 +1164,7 @@ pub const EXPERTS: &[Expert] = &[
         name: "worker",
         description: "Reads, searches, and runs commands. Use when the work needs doing, \
                       not just finding out — but you will not see the steps.",
-        tools: &["fs", "search", "shell", "skills"],
+        tools: &["fs", "fs-write", "search", "shell", "skill-installer"],
         prompt: "You are a worker. You were sent one job and you do it. Whoever sent you \
                  will see only your final reply, so it must say what you actually changed \
                  — which files, what happened — and say plainly what you did not finish.",
@@ -1205,6 +1230,25 @@ pub fn expert_assembly(cfg: &PresetConfig, expert: &Expert) -> Result<StandardAs
                 .is_some_and(|instance| keep.contains(instance))
         })
     });
+    // Only advertise deferred tools owned by the final expert assembly, not
+    // unused implementations in the registry or the main stream's tool list.
+    let available: std::collections::HashSet<&str> = assembly
+        .instances
+        .values()
+        .flat_map(|instance| registry[&instance.component].tools.iter())
+        .filter_map(|tool| tool["name"].as_str())
+        .collect();
+    for (instance, key) in [("tool-catalog", "deferred"), ("ctx", "deferTools")] {
+        if let Some(names) = assembly
+            .instances
+            .get_mut(instance)
+            .and_then(|i| i.config.as_mut())
+            .and_then(|c| c.get_mut(key))
+            .and_then(Value::as_array_mut)
+        {
+            names.retain(|name| name.as_str().is_some_and(|name| available.contains(name)));
+        }
+    }
     // What this expert is for, said to the expert itself. The base system text
     // lives in the context gate's config — it is the gate that assembles the
     // prompt (base text plus each component's fragment), so replacing it there
