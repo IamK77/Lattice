@@ -928,6 +928,16 @@ mod tests {
         assert!(!tabs.navigate(&mut ui, Navigation::Select(99)));
         assert_eq!(tabs.active, 1);
         assert!(tabs.navigate(&mut ui, Navigation::Parent));
+        // Settle the synthetic authorization before Enter can submit the draft.
+        on_key(
+            &mut ui,
+            None,
+            ratatui::crossterm::event::KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+            &Hit::default(),
+        );
+        assert!(ui.domain.authorizations.next().is_none());
+        assert_eq!(ui.draft.editor().expanded(), "parent draft");
+        assert_eq!(ui.draft.references()[0]["file"], "parent.png");
         on_key(
             &mut ui,
             Some(tabs.session()),
