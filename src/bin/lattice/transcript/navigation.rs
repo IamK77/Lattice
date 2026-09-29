@@ -259,7 +259,7 @@ pub(crate) fn page(
     width: usize,
     height: usize,
 ) -> io::Result<Page> {
-    if height == 0 || view.panel().is_some() {
+    if height == 0 || (view.panel().is_some() && view.pending_auth().is_none()) {
         return Ok(Page {
             rows: Vec::new(),
             before: false,

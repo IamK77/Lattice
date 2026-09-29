@@ -56,6 +56,78 @@ fn local_answers_advance_immediately_but_only_outcomes_retire_history() {
 }
 
 #[test]
+fn selection_is_per_question_and_never_survives_cancellation_or_restore() {
+    let mut state = Authorizations::default();
+    state.observe(&event(trust_policy::AUTH_REQUESTED, "first", &["a"]));
+    assert!(!state.prompt().unwrap().unwrap().allow_selected);
+    state.select_allow(true);
+    state.observe(&event(browser_tools::AUTH_REQUESTED, "second", &["b"]));
+    assert!(state.prompt().unwrap().unwrap().allow_selected);
+    state.observe(&event(ce::INTERRUPTED, "cancel-first", &["a"]));
+    assert_eq!(state.next(), Some("second"));
+    assert!(!state.prompt().unwrap().unwrap().allow_selected);
+    state.select_allow(true);
+    state.restore(state.history());
+    assert_eq!(state.answer_selected(), Some(("second".into(), false)));
+    assert_eq!(state.answer_selected(), None);
+    state.observe(&event(trust_policy::AUTH_REQUESTED, "third", &["c"]));
+    state.select_allow(true);
+    assert_eq!(state.answer_selected(), Some(("third".into(), true)));
+}
+
+#[test]
+fn restored_prompt_resolves_its_own_ledger_event_and_rejects_missing_data() {
+    use lattice::{EventDraft, EventLog, EventTypeDecl};
+    let mut log = EventLog::in_memory(
+        vec![EventTypeDecl::new(trust_policy::AUTH_REQUESTED, "fixture")],
+        "test",
+    );
+    let first = log
+        .append(
+            EventDraft::new(
+                trust_policy::AUTH_REQUESTED,
+                &[],
+                json!({"tool":"Browser", "summary":"click the first button"}),
+            ),
+            "fixture",
+        )
+        .unwrap();
+    let second = log
+        .append(
+            EventDraft::new(
+                trust_policy::AUTH_REQUESTED,
+                &[],
+                json!({"tool":"Browser", "summary":"click the second button"}),
+            ),
+            "fixture",
+        )
+        .unwrap();
+    let mut state = Authorizations::default();
+    state.bind_reader(log.reader());
+    state.restore(vec![
+        (first.id.clone(), "a".into()),
+        (second.id.clone(), "b".into()),
+    ]);
+    let prompt = state.prompt().unwrap().unwrap();
+    assert_eq!(prompt.request, first.id);
+    assert!(prompt.description.contains("first button"));
+    assert!(!prompt.description.contains("second button"));
+    assert!(!prompt.description.contains("y = allow"));
+    state.answer_selected();
+    assert!(state
+        .prompt()
+        .unwrap()
+        .unwrap()
+        .description
+        .contains("second button"));
+    state.restore(vec![("missing".into(), "c".into())]);
+    assert!(
+        state.prompt().is_err(),
+        "a missing request is not an empty prompt"
+    );
+}
+
+#[test]
 fn restoring_unsettled_history_drops_only_the_local_answer_marks() {
     let mut state = Authorizations::default();
     state.observe(&event(trust_policy::AUTH_REQUESTED, "first", &["a"]));

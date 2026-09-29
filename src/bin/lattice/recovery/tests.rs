@@ -1,5 +1,5 @@
 use super::*;
-use lattice::{core_events as ce, EventDraft, EventLog};
+use lattice::{core_events as ce, EventDraft, EventLog, View};
 use serde_json::{json, Value};
 
 fn append(log: &mut EventLog, kind: &str, causes: &[&str], payload: Value) -> EventEnvelope {
@@ -739,14 +739,24 @@ fn warm_state_matches_full_replay_and_never_saves_live_mutations() {
         .background
         .fixture_edit(0, |row| row.tools = 999);
     warm.draft.edit().clear();
-    for key in ['y', 'n'] {
+    assert_eq!(
+        warm.authorization_prompt().unwrap().unwrap().description,
+        reference
+            .authorization_prompt()
+            .unwrap()
+            .unwrap()
+            .description,
+        "warm recovery resolves the same pending request details as full replay"
+    );
+    for key in [
+        crate::terminal_host::KeyCode::Up,
+        crate::terminal_host::KeyCode::Enter,
+        crate::terminal_host::KeyCode::Esc,
+    ] {
         crate::terminal_host::on_key(
             &mut warm,
             None,
-            ratatui::crossterm::event::KeyEvent::new(
-                crate::terminal_host::KeyCode::Char(key),
-                crate::terminal_host::KeyModifiers::NONE,
-            ),
+            ratatui::crossterm::event::KeyEvent::new(key, crate::terminal_host::KeyModifiers::NONE),
             &crate::terminal_host::Hit::default(),
         );
     }

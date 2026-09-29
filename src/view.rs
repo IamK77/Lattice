@@ -348,6 +348,13 @@ pub struct TranscriptPosition {
     pub byte: usize,
 }
 
+/// A pending question and its local, non-persistent selection.
+pub struct AuthorizationPrompt {
+    pub request: String,
+    pub description: String,
+    pub allow_selected: bool,
+}
+
 /// An app, a ledger replay, or a per-stream selector can feed the same draw.
 pub trait View {
     /// The title bar text (model, endpoint, …)
@@ -440,10 +447,17 @@ pub trait View {
     /// the "thinking" line settling into "Done" after a reply lands. `None`
     /// before any turn completes (or while one is running). Defaults to `None`:
     /// a replay or a static view shows no such line.
-    /// An open authorization request awaiting the human's y/n (the trust
-    /// gate's card): the request event id. Default: none pending.
+    /// An open authorization request awaiting a human decision: its event id.
     fn pending_auth(&self) -> Option<&str> {
         None
+    }
+    /// Resolve the currently answerable question, never a newer transcript card.
+    fn authorization_prompt(&self) -> std::io::Result<Option<AuthorizationPrompt>> {
+        Ok(self.pending_auth().map(|request| AuthorizationPrompt {
+            request: request.to_owned(),
+            description: String::new(),
+            allow_selected: false,
+        }))
     }
     /// Lines the user has said that the model has NOT been shown yet — typed
     /// while a question was already out, and riding along on the next one.
@@ -881,6 +895,14 @@ fn tool_output(payload: &Value) -> Vec<String> {
 /// it declared) — a source URL with no idea what it may then do is not a
 /// question anybody can answer well.
 fn approval_text(payload: &Value) -> String {
+    format!(
+        "{}\n    y = allow · n = refuse",
+        authorization_description(payload)
+    )
+}
+
+/// Request details without a frontend-specific keyboard hint.
+pub fn authorization_description(payload: &Value) -> String {
     let tool = payload["tool"].as_str().unwrap_or("something");
     let summary = payload["summary"].as_str().unwrap_or_default();
     // The summary usually reads "tool: subject"; the tool is named already
@@ -914,7 +936,6 @@ fn approval_text(payload: &Value) -> String {
     if !powers.is_empty() {
         what.push_str(&format!("\n    once in, it may {}", powers.join(", ")));
     }
-    what.push_str("\n    y = allow · n = refuse");
     what
 }
 

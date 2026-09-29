@@ -70,6 +70,8 @@ mod tool_card;
 
 #[path = "accounting.rs"]
 mod accounting;
+#[path = "authorization_panel.rs"]
+mod authorization_panel;
 #[path = "authorizations.rs"]
 mod authorizations;
 #[path = "cards.rs"]
@@ -303,6 +305,9 @@ impl View for Ui {
     fn pending_auth(&self) -> Option<&str> {
         self.domain.authorizations.next()
     }
+    fn authorization_prompt(&self) -> std::io::Result<Option<view::AuthorizationPrompt>> {
+        self.domain.authorizations.prompt()
+    }
     fn effort(&self) -> EffortView {
         self.domain.model.effort().clone()
     }
@@ -514,6 +519,7 @@ impl Ui {
         reader: &lattice::kernel::log::LogReader,
         through: u64,
     ) -> std::io::Result<()> {
+        self.domain.authorizations.bind_reader(reader.clone());
         if self.event_facts.is_none() {
             self.event_facts = Some(view::facts::EventFacts::recover(reader.clone(), through)?);
             self.domain.event_inputs.release();
@@ -822,6 +828,9 @@ fn attachments(ui: &mut Ui) -> attachment_actions::Attachments<'_> {
 
 /// Live and headless paste share modal routing before any attachment action.
 fn absorb_paste(ui: &mut Ui, text: &str) {
+    if ui.pending_auth().is_some() {
+        return;
+    }
     if ui.controls.paste_form(text) {
         return;
     }
@@ -1196,8 +1205,31 @@ fn on_key(
     // not in the event loop so a test can drive it; and cleared BEFORE the key
     // is handled, so a command that leaves a receipt still leaves one.
     ui.flash = None;
+    if ui.pending_auth().is_some() {
+        // Authorization owns the keyboard, including modified edit/submit keys.
+        // Scrolling remains available to inspect the complete request above.
+        if key.modifiers.is_empty() {
+            match key.code {
+                KeyCode::Up => ui.domain.authorizations.select_allow(true),
+                KeyCode::Down => ui.domain.authorizations.select_allow(false),
+                KeyCode::Enter | KeyCode::Esc => {
+                    if key.code == KeyCode::Esc {
+                        ui.domain.authorizations.select_allow(false);
+                    }
+                    if let Some((request, allow)) = ui.domain.authorizations.answer_selected() {
+                        if let Some(session) = session {
+                            session.authorize(&request, allow);
+                        }
+                    }
+                }
+                KeyCode::PageUp => scroll_by(ui, SCROLL_PAGE as isize, hit),
+                KeyCode::PageDown => scroll_by(ui, -(SCROLL_PAGE as isize), hit),
+                _ => {}
+            }
+        }
+        return false;
+    }
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-    let alt = key.modifiers.contains(KeyModifiers::ALT);
     // A newline can be inserted while the slash menu is closed; the menu is only
     // open when the input is a partial slash, so this never conflicts.
     let newline = key
@@ -1283,26 +1315,6 @@ fn on_key(
             }
         }
 
-        // y/n answers an open authorization card — only on an empty input
-        // line, so typing a message containing y/n is never hijacked
-        KeyCode::Char(c @ ('y' | 'n'))
-            if !ctrl
-                && !alt
-                && ui.domain.authorizations.next().is_some()
-                && ui.draft.editor().text().is_empty() =>
-        {
-            // Hide this question immediately, including for a headless caller.
-            // Only the later decision or outcome retires its historical fact.
-            let request = ui
-                .domain
-                .authorizations
-                .answer_oldest()
-                .expect("answerable question");
-            if let Some(session) = session {
-                session.authorize(&request, c == 'y');
-            }
-        }
-
         // Its own key because ⌘V cannot carry a picture: bracketed paste is
         // text, so a clipboard holding only an image sends nothing at all.
         KeyCode::Char('v') if ctrl => attach_from_clipboard(ui),
@@ -1343,7 +1355,22 @@ struct Hit {
 
 fn on_mouse(ui: &mut Ui, m: ratatui::crossterm::event::MouseEvent, hit: &Hit) {
     use mouse_intent::Intent;
-    match mouse_intent::interpret(m, ui.panel.is_visible(), hit.mouse_targets()) {
+    let authorization = ui.pending_auth().is_some();
+    let intent = mouse_intent::interpret(
+        m,
+        ui.panel.is_visible() && !authorization,
+        hit.mouse_targets(),
+    );
+    if authorization {
+        // Keep the transcript inspectable without activating suspended controls.
+        match intent {
+            Some(Intent::Scroll(delta)) => scroll_by(ui, delta, hit),
+            Some(Intent::Jump) => ui.browsing.pin(),
+            _ => {}
+        }
+        return;
+    }
+    match intent {
         Some(Intent::PanelUp(lines)) => ui.panel.scroll_up(lines),
         Some(Intent::PanelDown(lines)) => ui.panel.scroll_down(lines),
         Some(Intent::Scroll(delta)) => scroll_by(ui, delta, hit),
@@ -1603,10 +1630,15 @@ where
     let picker = view
         .picker()
         .map(|cursor| (cursor, picker_lines(&models, cursor)));
-    let mode_h = match (&dial, &picker) {
-        (Some(_), _) => 2,
-        (_, Some((_, lines))) => lines.len() as u16,
-        _ => 0,
+    let authorization = view.authorization_prompt()?;
+    let mode_h = if authorization.is_some() {
+        authorization_panel::HEIGHT
+    } else {
+        match (&dial, &picker) {
+            (Some(_), _) => 2,
+            (_, Some((_, lines))) => lines.len() as u16,
+            _ => 0,
+        }
     };
     // Keep the palette compact; its visible window follows the selection.
     // Matching and keyboard navigation still use the complete candidate list.
@@ -1799,7 +1831,7 @@ where
         // the input box and the status bar, and the status bar is where it
         // says how to get out. `Clear` wipes the rows the panel does not fill,
         // so no transcript shows through beneath it.
-        if let Some(at) = view.panel() {
+        if let Some(at) = view.panel().filter(|_| authorization.is_none()) {
             frame.render_widget(ratatui::widgets::Clear, areas[0]);
             let mut lines = panel_lines(at, view, areas[0].width as usize);
             let height = areas[0].height as usize;
@@ -1909,22 +1941,30 @@ where
         // Row 0 gets the ❯ prompt; continuation rows a matching 2-space indent.
         // Unless the dial has the box, in which case there is no prompt at
         // all — that absence is what says a mode is running.
-        let input_lines: Vec<Line> = match (dial, &picker) {
-            (Some(cursor), _) => dial_lines(&view.effort(), cursor),
-            (_, Some((_, lines))) => lines.clone(),
-            _ => input_layout
-                .rows
-                .iter()
-                .enumerate()
-                .skip(first_input_row)
-                .take(visible_height)
-                .map(|(i, row)| {
-                    Line::from(vec![
-                        Span::styled(if i == 0 { "❯ " } else { "  " }, caret),
-                        Span::styled(row.to_string(), Style::default().fg(FG)),
-                    ])
-                })
-                .collect(),
+        let input_lines: Vec<Line> = if let Some(prompt) = &authorization {
+            authorization_panel::lines(
+                prompt,
+                input_area.width.saturating_sub(2) as usize,
+                visible_height,
+            )
+        } else {
+            match (dial, &picker) {
+                (Some(cursor), _) => dial_lines(&view.effort(), cursor),
+                (_, Some((_, lines))) => lines.clone(),
+                _ => input_layout
+                    .rows
+                    .iter()
+                    .enumerate()
+                    .skip(first_input_row)
+                    .take(visible_height)
+                    .map(|(i, row)| {
+                        Line::from(vec![
+                            Span::styled(if i == 0 { "❯ " } else { "  " }, caret),
+                            Span::styled(row.to_string(), Style::default().fg(FG)),
+                        ])
+                    })
+                    .collect(),
+            }
         };
         frame.render_widget(
             Paragraph::new(input_lines).block(
@@ -1956,7 +1996,9 @@ where
         // a report on things you cannot touch until you take it — and the way
         // out is written in these keys and nowhere else, which is also why this
         // half of the bar is not configurable.
-        let (keys, mode): (Vec<Span>, bool) = if view.panel() == Some(AT_COMPONENTS) {
+        let (keys, mode): (Vec<Span>, bool) = if authorization.is_some() {
+            (vec![Span::styled(authorization_panel::KEYS, dimmed)], true)
+        } else if view.panel() == Some(AT_COMPONENTS) {
             (
                 vec![Span::styled(
                     "↑↓ choose · Enter wiring · u remove · ← → tabs · Esc close",
@@ -1970,16 +2012,6 @@ where
                     "↑↓ PgUp/PgDn scroll · ← → tabs · Esc close",
                     dimmed,
                 )],
-                true,
-            )
-        } else if view.pending_auth().is_some() {
-            (
-                vec![
-                    // Warm, not cool: this is not a handle, it is a demand.
-                    // Nothing else moves until it is answered.
-                    Span::styled("⚠ authorization waiting", Style::default().fg(WARM)),
-                    Span::styled(" · y allow · n refuse", dimmed),
-                ],
                 true,
             )
         } else if view.scroll() > 0 && more_below {
@@ -5582,7 +5614,133 @@ mod tests {
     }
 
     #[test]
-    fn authorization_keys_advance_without_receipts_but_do_not_steal_typing() {
+    fn authorization_panel_replaces_prompt_and_restores_it_after_cancellation() {
+        let mut u = ui(
+            vec![Entry::Approval(
+                "Browser request\n    click a button\n    y = allow · n = refuse".into(),
+            )],
+            false,
+        );
+        u.draft.edit().insert_str("unsent draft");
+        u.panel.show(AT_COMMANDS);
+        let mut ask = test_event(trust_policy::AUTH_REQUESTED, &["call-a"]);
+        ask.id = "question-a".into();
+        ask.payload = json!({"tool":"Browser", "summary":"click a button"});
+        u.note_authorization(&ask);
+        for (width, height) in [(80, 30), (24, 12)] {
+            let mut term = Terminal::new(TestBackend::new(width, height)).unwrap();
+            draw(&mut term, &u).unwrap();
+            let text = screen(&term);
+            assert!(text.contains("> Refuse request"), "{text}");
+            if width >= 80 {
+                assert!(
+                    text.contains("Browser request"),
+                    "authorization must expose the transcript over a suspended panel: {text}"
+                );
+            }
+            assert!(
+                !text.contains("unsent draft"),
+                "draft must be hidden: {text}"
+            );
+            assert!(
+                !text.contains("y = allow"),
+                "old shortcuts must not be advertised"
+            );
+        }
+        u.note_authorization(&test_event(core_events::INTERRUPTED, &["call-a"]));
+        assert!(u.authorization_prompt().unwrap().is_none());
+        let mut term = Terminal::new(TestBackend::new(80, 30)).unwrap();
+        draw(&mut term, &u).unwrap();
+        assert!(screen(&term).contains("unsent draft"));
+    }
+
+    #[test]
+    fn authorization_panel_ignores_modified_submit_and_repeat_keys() {
+        use ratatui::crossterm::event::KeyEvent;
+        let mut u = ui(vec![], false);
+        u.draft.edit().insert_str("draft");
+        let hit = Hit::default();
+        on_key(
+            &mut u,
+            None,
+            KeyEvent::new(KeyCode::Left, KeyModifiers::NONE),
+            &hit,
+        );
+        let cursor = u.cursor();
+        u.domain
+            .authorizations
+            .restore(vec![("first".into(), "call-a".into())]);
+        for key in [
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT),
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::ALT),
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
+            KeyEvent::new(KeyCode::Char('v'), KeyModifiers::CONTROL),
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+            KeyEvent::new_with_kind(KeyCode::Enter, KeyModifiers::NONE, KeyEventKind::Repeat),
+        ] {
+            on_key(&mut u, None, key, &hit);
+        }
+        assert_eq!(u.pending_auth(), Some("first"));
+        assert_eq!(u.input(), "draft");
+        assert_eq!(u.cursor(), cursor);
+        assert!(!u.domain.turns.busy(), "no chat submission or interrupt");
+        u.panel.show(AT_COMMANDS);
+        u.panel.scroll_down(3);
+        let panel_scroll = u.panel_scroll();
+        on_mouse(
+            &mut u,
+            ratatui::crossterm::event::MouseEvent {
+                kind: ratatui::crossterm::event::MouseEventKind::ScrollUp,
+                column: 0,
+                row: 0,
+                modifiers: KeyModifiers::NONE,
+            },
+            &hit,
+        );
+        assert_eq!(
+            u.panel_scroll(),
+            panel_scroll,
+            "suspended panel must not consume scrolling"
+        );
+    }
+
+    #[test]
+    fn authorization_panel_preserves_draft_and_enter_answers_only_one_request() {
+        use ratatui::crossterm::event::KeyEvent;
+        let mut u = ui(vec![], false);
+        u.draft.edit().insert('x');
+        u.domain.authorizations.restore(vec![
+            ("first".into(), "call-a".into()),
+            ("second".into(), "call-b".into()),
+        ]);
+        let cursor = u.cursor();
+        let hit = Hit::default();
+        for code in [KeyCode::Char('y'), KeyCode::Backspace, KeyCode::Left] {
+            on_key(&mut u, None, KeyEvent::new(code, KeyModifiers::NONE), &hit);
+        }
+        absorb_paste(&mut u, "not chat input");
+        assert_eq!(u.input(), "x", "authorization must isolate the draft");
+        assert_eq!(u.cursor(), cursor);
+        on_key(
+            &mut u,
+            None,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            &hit,
+        );
+        assert_eq!(u.pending_auth(), Some("second"));
+        on_key(
+            &mut u,
+            None,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+            &hit,
+        );
+        assert_eq!(u.pending_auth(), None);
+        assert_eq!(u.input(), "x");
+        assert_eq!(u.cursor(), cursor);
+    }
+
+    #[test]
+    fn authorization_keys_advance_without_receipts_and_isolate_typing() {
         use ratatui::crossterm::event::KeyEvent;
         let mut u = ui(vec![], false);
         for (question, call) in [("first", "call-a"), ("second", "call-b")] {
@@ -5594,7 +5752,7 @@ mod tests {
         let hit = Hit::default();
         u.draft.edit().insert('x');
         on_key(&mut u, None, key('y', KeyModifiers::NONE), &hit);
-        assert_eq!(u.draft.editor().text(), "xy");
+        assert_eq!(u.draft.editor().text(), "x");
         assert_eq!(u.pending_auth(), Some("first"));
         u.draft.edit().clear();
         on_key(&mut u, None, key('y', KeyModifiers::CONTROL), &hit);
@@ -5602,10 +5760,28 @@ mod tests {
         on_key(&mut u, None, key('n', KeyModifiers::ALT), &hit);
         assert_eq!(u.pending_auth(), Some("first"));
         u.draft.edit().clear();
-        on_key(&mut u, None, key('y', KeyModifiers::NONE), &hit);
+        on_key(
+            &mut u,
+            None,
+            KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+            &hit,
+        );
+        assert!(u.authorization_prompt().unwrap().unwrap().allow_selected);
+        on_key(
+            &mut u,
+            None,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            &hit,
+        );
         assert_eq!(u.pending_auth(), Some("second"));
+        assert!(!u.authorization_prompt().unwrap().unwrap().allow_selected);
         assert!(u.busy());
-        on_key(&mut u, None, key('n', KeyModifiers::NONE), &hit);
+        on_key(
+            &mut u,
+            None,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+            &hit,
+        );
         assert_eq!(u.pending_auth(), None);
         assert!(
             !u.busy(),

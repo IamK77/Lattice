@@ -336,7 +336,11 @@ pub(crate) fn entry_lines(
             Line::from(Span::styled(format!("✗ {text}"), Style::default().fg(ERR))),
             INDENT_AGENT,
         )],
+        // The plain-text frontend retains its y/n hint; this frontend has a
+        // dedicated choice panel and must not advertise inactive shortcuts.
         Entry::Approval(text) => text
+            .strip_suffix("\n    y = allow · n = refuse")
+            .unwrap_or(text)
             .split('\n')
             .enumerate()
             .map(|(i, line)| {
