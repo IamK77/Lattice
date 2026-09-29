@@ -30,7 +30,7 @@ unicode-segmentation = "1"
 similar = "2.7"
 # The product binary's terminal frontend; optional so a pure-library consumer
 # can drop it with default-features = false. The lib core never uses them.
-ratatui = { version = "0.29", optional = true }
+ratatui = { version = "0.30", optional = true }
 ctrlc = { version = "3", optional = true }
 ignore = "0.4.31"
 grep-searcher = "0.1.17"

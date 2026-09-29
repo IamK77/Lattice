@@ -49,11 +49,21 @@ Use the exact reviewed commit, not an archive hash, for `--source-digest`. For a
 
 ## Returning stable history to development
 
-After successful publication, a separate job opens or reuses a same-repository
-`main` → `develop` PR and requests GitHub's native auto-merge. It follows the latest
-protected `main`, including any newer reviewed main commits; artifact identity
-remains bound to the original approved release commit. No direct branch push,
-conflict resolution, check replacement, or administrator bypass is used.
+After successful publication, a separate job combines the latest protected
+`develop` and `main` tips on one reusable `hotfix/sync-main` branch, then opens or
+reuses its PR into `develop` and requests GitHub's native auto-merge. The extra
+branch satisfies strict up-to-date protection without sending development work
+into `main`. Artifact identity remains bound to the original approved release
+commit. Neither protected branch is written directly; conflicts, check
+replacement, and administrator bypass are not automated.
+
+Only conflict-free Git merges of protected history may accumulate on the sync
+branch. Manual commits or edited merge trees stop the job rather than being
+preserved or overwritten automatically. If either protected tip advances, rerun
+synchronization to refresh the same branch and PR. Partial progress stays on the
+temporary branch; failures are visible and are not retried internally. After the
+PR merges, verify its tip is contained in `develop` and delete the temporary
+branch. The next synchronization recreates the same name, not another branch.
 
 Only a repository-bot synchronization PR is automated. Existing human PRs and
 review notes are left alone. Release candidate PRs are never given auto-merge.
