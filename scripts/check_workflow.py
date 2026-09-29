@@ -1,4 +1,4 @@
-"""Check branch routing and commit trailers without executing repository code."""
+"""Check branch routing and English Conventional Commit subjects."""
 
 import json
 import os
@@ -8,12 +8,14 @@ import subprocess
 import sys
 
 
-TYPES = {"feat", "fix", "perf", "refactor", "docs", "test", "style", "chore"}
+from conventional import TYPES, parse
 
 
-def branch_error(base, head, same_repository=True):
+def branch_error(base, head, same_repository=True, author=None):
     if base == "develop":
         if head == "main" and same_repository:
+            return None
+        if same_repository and author == "dependabot[bot]" and head.startswith("dependabot/") and len(head) > len("dependabot/"):
             return None
         prefixes = ("feature/", "release/", "hotfix/")
     elif base == "main":
@@ -25,32 +27,15 @@ def branch_error(base, head, same_repository=True):
     return f"Branch {head!r} cannot be merged into {base!r}."
 
 
-def message_errors(message, merge=False):
+def message_errors(message):
     lines = message.strip().splitlines()
     if not lines:
         return ["Commit message is empty."]
     errors = []
-    subject = re.fullmatch(
-        r"(?P<type>feat|fix|perf|refactor|docs|test|style|chore)"
-        r"(?:\([^()\s]+\))?!?: (?P<description>\S.*)", lines[0],
-    )
-    if not subject:
+    if parse(message) is None:
         errors.append("Use an English Conventional Commit subject: type(scope): description.")
     if re.search(r"[\u3400-\u9fff]", lines[0]):
         errors.append("Write the commit subject in English.")
-    trailers = [line for line in lines if line.startswith("Type:")]
-    if len(trailers) != 1 or lines[-1] not in {f"Type: {kind}" for kind in TYPES}:
-        errors.append("End with exactly one Type: trailer using an allowed value.")
-    else:
-        if subject and lines[-1] != f"Type: {subject.group('type')}":
-            errors.append("The Type: trailer must match the Conventional Commit prefix.")
-        parsed = subprocess.check_output(
-            ["git", "interpret-trailers", "--parse"], input=message, text=True,
-        ).splitlines()
-        if lines[-1] not in parsed:
-            errors.append("Separate the Type: trailer from the subject/body with a blank line.")
-        if merge and lines[-1] != "Type: chore":
-            errors.append("Merge commits must use Type: chore to avoid double-counting versions.")
     return errors
 
 
@@ -61,9 +46,8 @@ def git(*args):
 def check_range(base, head):
     revision = f"{base}..{head}" if base and set(base) != {"0"} else head
     errors = []
-    for row in git("rev-list", "--parents", revision, "--").splitlines():
-        commit, *parents = row.split()
-        for error in message_errors(git("show", "-s", "--format=%B", commit), len(parents) > 1):
+    for commit in git("rev-list", revision, "--").splitlines():
+        for error in message_errors(git("show", "-s", "--format=%B", commit)):
             errors.append(f"{commit[:12]}: {error}")
     return errors
 
@@ -73,11 +57,14 @@ def check_event(event_name, event):
     if event_name == "pull_request":
         pr = event["pull_request"]
         base, head = pr["base"], pr["head"]
-        error = branch_error(base["ref"], head["ref"], base["repo"]["id"] == head["repo"]["id"])
+        error = branch_error(
+            base["ref"], head["ref"], base["repo"]["id"] == head["repo"]["id"],
+            pr.get("user", {}).get("login"),
+        )
         if error:
             errors.append(error)
         merge_message = pr["title"] + "\n\n" + (pr.get("body") or "")
-        errors.extend(f"Pull request: {error}" for error in message_errors(merge_message, merge=True))
+        errors.extend(f"Pull request: {error}" for error in message_errors(merge_message))
         errors.extend(check_range(base["sha"], head["sha"]))
     elif event_name == "push":
         # Branch deletion has no commit to validate.
@@ -98,7 +85,7 @@ def main():
         for error in errors:
             print(error, file=sys.stderr)
         return 1
-    print("Branch routing and commit trailers passed.")
+    print("Branch routing and Conventional Commit subjects passed.")
     return 0
 
 

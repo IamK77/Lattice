@@ -1,0 +1,110 @@
+name: Native artifacts
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/artifacts.yml'
+      - 'scripts/*release*.py'
+      - 'about.*'
+      - 'Cargo.*'
+      - 'build.rs'
+      - 'build_support/**'
+      - 'src/**'
+      - 'assets/**'
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Exact source commit to build as a preview
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      commit:
+        required: true
+        type: string
+      preview:
+        required: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: artifacts-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'closed' }}
+
+jobs:
+  build:
+    name: package (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - runner: macos-15
+            target: aarch64-apple-darwin
+    env:
+      EXPECTED_COMMIT: ${{ inputs.commit || github.event.pull_request.head.sha || github.sha }}
+      PREVIEW: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.action != 'closed') || inputs.preview }}
+      TARGET: ${{ matrix.target }}
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.EXPECTED_COMMIT }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable installer snapshot
+        with:
+          toolchain: '1.98.0'
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: release-${{ matrix.target }}
+      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
+        with:
+          tool: cargo-about@0.9.2
+          fallback: none
+          checksum: true
+      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
+        with:
+          tool: cargo-deny@0.20.2
+          fallback: none
+          checksum: true
+      - name: Recheck release dependencies and exception expiry
+        run: |
+          python3 scripts/check_advisories.py
+          cargo deny --locked --all-features check advisories licenses sources
+      - name: Read authoritative version
+        id: identity
+        shell: bash
+        run: |
+          PYTHONPATH=scripts python3 - <<'PY'
+          import os, tomllib
+          from release_plan import Version
+          with open('Cargo.toml', 'rb') as handle:
+              version = str(Version.read(tomllib.load(handle)['package']['version']))
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as handle:
+              handle.write(f'version={version}\n')
+          PY
+      - name: Build, attribute, package, and execute the extracted binary
+        shell: bash
+        env:
+          VERSION: ${{ steps.identity.outputs.version }}
+        run: |
+          args=(--version "$VERSION" --commit "$EXPECTED_COMMIT" --target "$TARGET" --output "$RUNNER_TEMP/release-artifacts")
+          if [[ "$PREVIEW" == true ]]; then args+=(--preview); fi
+          python3 scripts/build_release.py "${args[@]}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-${{ matrix.target }}
+          path: ${{ runner.temp }}/release-artifacts/*.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true

@@ -30,12 +30,12 @@ You review the changes and results. Model output is not a substitute for verific
 
 ## Get started
 
-Lattice currently documents a **build-from-source** path. You need Rust/Cargo, a C toolchain, and an account with a supported model provider. Start on macOS or Linux; Windows is not a supported end-to-end path in this guide. Linux also needs OpenSSL development libraries and `pkg-config`.
+**The first official release is not published yet.** Start with the [installation and upgrade guide](docs/installation.md). Native packaging is tested on Ubuntu 24.04 x86-64 and macOS 15 Apple Silicon; older systems, Intel Mac packages, and Windows are not implied. A source build needs Rust/Cargo, a C toolchain, and, on Linux, OpenSSL development libraries and `pkg-config`. Real conversations require your own model account.
 
 ```sh
 git clone https://github.com/IamK77/Lattice.git
 cd Lattice
-cargo build --release --bin lattice
+cargo build --locked --release --bin lattice
 ```
 
 **Next: [connect a model and start your first conversation](docs/getting-started.md).** The guide covers credentials, launching in your project, and returning to a conversation. Building the program does not configure a model account.
@@ -71,4 +71,6 @@ The English entry path is available here; deeper architecture and integration do
 
 ## License
 
-A project-wide license has not yet been selected. Public source availability should not be read as an open-source license grant. Third-party attribution remains in the relevant files, including [assets](assets/README.md).
+Licensed under the [Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for project notices and [assets](assets/README.md) for third-party asset attribution. Dependencies and optional external components retain their own licenses.
+
+For help, see [Support](SUPPORT.md). Report vulnerabilities through the private channel in [Security](SECURITY.md). Participation follows the [Code of Conduct](CODE_OF_CONDUCT.md); project stewardship is documented in [Maintainers](MAINTAINERS.md).

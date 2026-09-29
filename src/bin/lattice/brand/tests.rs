@@ -45,19 +45,29 @@ fn the_build_id_is_separated_from_the_wordmark_at_every_width() {
 #[test]
 fn the_build_id_is_shown_whole_or_not_at_all() {
     let full = lattice::VERSION.chars().count();
-    let art = art_text(&brand_art("m · w", 2 + 7 + 2 + full, 12));
-    assert!(
-        art.contains(lattice::VERSION),
-        "it fits exactly, so it shows"
-    );
-    for w in [2 + 7 + 2 + full - 1, 9 + 2 + full - 1] {
-        let art = art_text(&brand_art("m · w", w, if w < 28 { 4 } else { 12 }));
-        assert!(art.contains("Lattice"), "the wordmark still shows at {w}");
-        for cut in (4..full).map(|n| &lattice::VERSION[..n]) {
+    for height in [4, 12] {
+        for width in 9..(full + 40) {
+            let plain = width < 28 || height < 6;
+            // The full scene also reserves a trailing gap against globe digits.
+            let needed = 2 + 7 + 2 + full + usize::from(!plain);
+            let art = art_text(&brand_art("m · w", width, height));
             assert!(
-                !art.contains(cut),
-                "no piece of the build id survives at width {w}: found {cut}"
+                art.contains("Lattice"),
+                "the wordmark still shows at {width}"
             );
+            assert_eq!(
+                art.contains(lattice::VERSION),
+                width >= needed,
+                "whole build id at width {width}, height {height}, needs {needed}"
+            );
+            if width < needed {
+                for cut in (4..full).map(|n| &lattice::VERSION[..n]) {
+                    assert!(
+                        !art.contains(cut),
+                        "no piece of the build id survives at width {width}: found {cut}"
+                    );
+                }
+            }
         }
     }
 }

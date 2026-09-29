@@ -2,7 +2,15 @@
 name = "lattice"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.89"
 description = "A composable, auditable agent runtime: loosely-coupled components wired by a data manifest, one event ledger as the source of truth"
+license = "Apache-2.0"
+repository = "https://github.com/IamK77/Lattice"
+homepage = "https://github.com/IamK77/Lattice"
+readme = "README.md"
+keywords = ["agent", "ai", "cli", "automation"]
+categories = ["command-line-utilities", "development-tools"]
+publish = false
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

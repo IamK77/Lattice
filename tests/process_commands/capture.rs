@@ -68,8 +68,9 @@ pub(super) fn output(command: Command, input: &[u8], limit: Duration) -> io::Res
 #[test]
 fn timeout_and_write_errors_terminate_and_reap_children() {
     const FIXTURE: &str = "LATTICE_CAPTURE_FIXTURE";
-    if let Ok(mode) = std::env::var(FIXTURE) {
-        if mode == "closed-input" {
+    let mode = std::env::var(FIXTURE).ok();
+    if matches!(mode.as_deref(), Some("blocked" | "closed-input")) {
+        if mode.as_deref() == Some("closed-input") {
             // Only the re-executed fixture closes its own piped descriptor.
             assert_eq!(unsafe { libc::close(libc::STDIN_FILENO) }, 0);
         }
@@ -82,6 +83,33 @@ fn timeout_and_write_errors_terminate_and_reap_children() {
     }
     let home = tempfile::tempdir().unwrap();
     let name = std::thread::current().name().unwrap().to_owned();
+    let command = |mode: &str| {
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
+            .args(["--exact", &name, "--nocapture"])
+            .env_clear()
+            .env("HOME", home.path())
+            .env("TMPDIR", home.path())
+            .env("PATH", "/usr/bin:/bin")
+            .env(FIXTURE, mode)
+            .current_dir(home.path());
+        command
+    };
+    if mode.is_none() {
+        // Concurrent sibling spawns may briefly inherit a pipe reader before
+        // exec, even with CLOEXEC. A small write can then succeed after the
+        // fixture closes fd 0. Create the tested pipes in a dedicated process
+        // whose only spawns are the sequential fixtures below.
+        let result = output(command("driver"), b"", Duration::from_secs(120)).unwrap();
+        assert!(
+            result.status.success(),
+            "isolated capture checks failed:\n{}\n{}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr),
+        );
+        return;
+    }
+    assert_eq!(mode.as_deref(), Some("driver"));
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -96,16 +124,7 @@ fn timeout_and_write_errors_terminate_and_reap_children() {
                     io::ErrorKind::BrokenPipe,
                 ),
             ] {
-                let mut command = Command::new(std::env::current_exe().unwrap());
-                command
-                    .args(["--exact", &name, "--nocapture"])
-                    .env_clear()
-                    .env("HOME", home.path())
-                    .env("TMPDIR", home.path())
-                    .env("PATH", "/usr/bin:/bin")
-                    .env(FIXTURE, mode)
-                    .current_dir(home.path());
-                let mut child = spawn(command).unwrap();
+                let mut child = spawn(command(mode)).unwrap();
                 // The child has reached its deliberate stall (and, in the second
                 // case, closed stdin) before starting the failure check.
                 let ready = tokio::time::timeout(Duration::from_secs(30), async {

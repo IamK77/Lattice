@@ -44,6 +44,26 @@ fn version_help_and_unknown_commands_keep_their_process_results() {
 }
 
 #[test]
+fn help_describes_current_versions_history_and_tool_boundaries() {
+    let output = run(&["--help"]);
+    assert!(output.status.success());
+    let help = String::from_utf8(output.stderr).unwrap();
+    for expected in [
+        "vX.Y.Z-dev",
+        "~/.lattice/ledgers/",
+        "current project",
+        "not an OS sandbox",
+        "unset to disable",
+        "saved preference or high",
+    ] {
+        assert!(help.contains(expected), "missing current help: {expected}");
+    }
+    for obsolete in ["<major>.<feat>.<fix>", "see ~/.lattice/tui/", "CONFINE"] {
+        assert!(!help.contains(obsolete), "obsolete help: {obsolete}");
+    }
+}
+
+#[test]
 fn maintenance_arity_errors_do_not_enter_the_filesystem_operation() {
     for (flag, usage) in [
         (

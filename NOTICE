@@ -1,0 +1,12 @@
+Lattice
+Copyright 2026 Lattice contributors
+
+Lattice is licensed under the Apache License, Version 2.0.
+See LICENSE for the full license text.
+
+The embedded Earth bitmap (assets/earth_mask.bin) is derived from NASA's
+Blue Marble "Land shallow topo" image. Its provenance and attribution are
+preserved in assets/README.md. It is not relicensed by this notice.
+
+Third-party dependencies and optional external components remain subject
+to their respective licenses. This notice does not replace their notices.

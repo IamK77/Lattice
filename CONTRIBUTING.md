@@ -47,22 +47,24 @@ Detailed architecture constraints and rationale are currently in Chinese: [contr
 
 Follow the [Git Flow workflow](docs/workflow.md) ([中文](docs/协作流程.md)): ordinary work starts on `feature/<name>` from `develop` and returns through a pull request. Only release and hotfix branches enter `main`; synchronize published work back into `develop`. Do not push directly to either long-lived branch.
 
-Use merge commits, not squash or rebase merges. A pull request's English title and body become its default merge message; use a `chore:` or `chore(scope):` title and end the body with `Type: chore` so merging does not count the original changes twice. Both protected branches require the `workflow`, `check`, and `frontend` checks. See the workflow for release authorization and the single-maintainer review limitation.
+Use merge commits, not squash or rebase merges. A pull request's English Conventional Commit title and body become its default merge message. Classify the actual change; merge commits are excluded from release change classification. Both protected branches require the `workflow`, `check`, and `frontend` checks. See the workflow for release authorization and the single-maintainer review limitation.
 
-Run the workflow regression tests when changing these checks:
+Workflow and release maintenance scripts use Python 3.12. Run their regression tests when changing these checks:
 
 ```sh
-python3 -m unittest discover -s scripts -p 'test_*.py' -v
+python3.12 -m unittest discover -s scripts -p 'test_*.py' -v
 ```
 
 ## Language and commits
 
 Code comments, assertions, and diagnostics are in English. The public README and getting-started path have English and Simplified Chinese versions; keep paired instructions and examples aligned. Deeper documentation may remain in Chinese, with language labels on English entry links.
 
-Write commit subjects and bodies in English. Follow Conventional Commits: `type: description` or `type(scope): description`, for example `feat: add model switching` or `fix(cli): handle missing credentials`. Allowed types are `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `style`, and `chore`. Keep a matching final trailer, such as `Type: docs`, separated from the body by a blank line: the existing version calculator reads this trailer, and CI requires it to match the subject prefix. Git builds need the complete public history; source archives without Git use the version in `Cargo.toml`.
+Write commit subjects and bodies in English. Follow Conventional Commits: `type: description` or `type(scope): description`, for example `feat: add model switching` or `fix(cli): handle missing credentials`. Allowed types are `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `style`, `chore`, `ci`, `build`, and `revert`. Mark incompatible changes with `!` or a `BREAKING CHANGE:` footer and document migration. No custom `Type:` trailer is required. `Cargo.toml` owns the formal version; Git only identifies development builds. See [versioning](docs/versioning.md) ([中文](docs/版本与变更记录.md)) and [CHANGELOG.md](CHANGELOG.md).
 
 Repository instructions do not authorize a push, release, program installation, service restart, or destructive action on a maintainer's behalf.
 
-## License status
+## License and community
 
-A project-wide license has not yet been selected. Do not assume a license grant from public visibility. Third-party sources and attribution remain in their own files, including [assets](assets/README.md).
+Lattice is licensed under [Apache-2.0](LICENSE). Contributions are accepted under the project license; do not contribute material you cannot license accordingly. Preserve [NOTICE](NOTICE) and third-party sources and attribution, including [assets](assets/README.md). Dependencies and external components retain their own licenses.
+
+Follow the [Code of Conduct](CODE_OF_CONDUCT.md). See [Support](SUPPORT.md) for usage questions, [Security](SECURITY.md) for private vulnerability reports, and [Maintainers](MAINTAINERS.md) for project responsibility.

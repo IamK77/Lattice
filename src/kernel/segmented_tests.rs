@@ -1,7 +1,7 @@
 //! Segmented storage protocol tests. Never opens a real conversation ledger.
 #![cfg(unix)]
 
-use super as segmented;
+use crate::kernel::segmented;
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
