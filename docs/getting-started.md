@@ -95,7 +95,7 @@ From a terminal with the required model credentials available, use:
 "$LATTICE_BIN" -c
 ```
 
-This continues the most recent conversation. It does not rerun historical tool actions. An interrupted action may already have partly taken effect: check the recorded result and the actual files or processes before retrying. Cancellation is not rollback.
+This continues the most recent conversation visible to the current project directory. Legacy records without a project identity remain visible across projects. Named resume uses the same visibility rule. It does not rerun historical tool actions. An interrupted action may already have partly taken effect: check the recorded result and the actual files or processes before retrying. Cancellation is not rollback.
 
 Use `"$LATTICE_BIN" --help` for other entry points and environment settings. Record files can contain sensitive data; inspect them before sharing a debugging report.
 
@@ -136,7 +136,7 @@ See [design decisions (Chinese)](架构决策.md) for the detailed boundaries.
 
 - A Linux build cannot find OpenSSL: check that development headers and `pkg-config` are installed, not only the runtime library.
 - No usable model is available: check the catalog path, adapter, and exported variable name. Do not paste the key into an issue.
-- The provider rejects a request: check its endpoint root, model ID, limits, and supported settings. If experimenting with `LATTICE_THINKING`, leave it unset to avoid sending an explicit thinking setting.
+- The provider rejects a request: check its endpoint root, model ID, limits, and supported settings. To omit the thinking parameter, launch with `LATTICE_THINKING= "$LATTICE_BIN"`. An unset variable uses the saved preference or `high`; `off` sends an explicit disabled setting rather than omitting the parameter.
 - An optional tool is unavailable: check its requirements above; a successful core build does not install them.
 
 For a **scripted UI check without model access**, launch `LATTICE_SCRIPTED=1 "$LATTICE_BIN"`. This is a deterministic test mode, not a real model demonstration. The model-free component example is `cargo run --example heartbeat`, run from the Lattice source directory.
