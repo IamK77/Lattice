@@ -140,6 +140,8 @@ struct Failing {
     draws: usize,
 }
 impl Backend for Failing {
+    type Error = io::Error;
+
     fn draw<'a, I>(&mut self, content: I) -> io::Result<()>
     where
         I: Iterator<Item = (u16, u16, &'a ratatui::buffer::Cell)>,
@@ -148,31 +150,40 @@ impl Backend for Failing {
         if self.fail {
             return Err(io::Error::other("injected draw failure"));
         }
-        self.inner.draw(content)
+        self.inner.draw(content).map_err(|never| match never {})
     }
     fn hide_cursor(&mut self) -> io::Result<()> {
-        self.inner.hide_cursor()
+        self.inner.hide_cursor().map_err(|never| match never {})
     }
     fn show_cursor(&mut self) -> io::Result<()> {
-        self.inner.show_cursor()
+        self.inner.show_cursor().map_err(|never| match never {})
     }
     fn get_cursor_position(&mut self) -> io::Result<Position> {
-        self.inner.get_cursor_position()
+        self.inner
+            .get_cursor_position()
+            .map_err(|never| match never {})
     }
     fn set_cursor_position<P: Into<Position>>(&mut self, p: P) -> io::Result<()> {
-        self.inner.set_cursor_position(p)
+        self.inner
+            .set_cursor_position(p)
+            .map_err(|never| match never {})
     }
     fn clear(&mut self) -> io::Result<()> {
-        self.inner.clear()
+        self.inner.clear().map_err(|never| match never {})
+    }
+    fn clear_region(&mut self, clear_type: ratatui::backend::ClearType) -> io::Result<()> {
+        self.inner
+            .clear_region(clear_type)
+            .map_err(|never| match never {})
     }
     fn size(&self) -> io::Result<Size> {
-        self.inner.size()
+        self.inner.size().map_err(|never| match never {})
     }
     fn window_size(&mut self) -> io::Result<WindowSize> {
-        self.inner.window_size()
+        self.inner.window_size().map_err(|never| match never {})
     }
     fn flush(&mut self) -> io::Result<()> {
-        self.inner.flush()
+        self.inner.flush().map_err(|never| match never {})
     }
 }
 #[test]

@@ -1,5 +1,7 @@
 from copy import deepcopy
 from datetime import date
+from pathlib import Path
+import tomllib
 import unittest
 
 from check_advisories import errors
@@ -36,6 +38,23 @@ class AdvisoryTests(unittest.TestCase):
                 self.assertTrue(self.check(records))
         self.records[0]["expires"] = "next month"
         self.assertTrue(self.check())
+
+
+class RepositoryPolicyTests(unittest.TestCase):
+    def test_informational_advisories_cover_transitive_dependencies(self):
+        root = Path(__file__).resolve().parents[1]
+        config = tomllib.loads((root / "deny.toml").read_text())
+        for category in ("unsound", "unmaintained"):
+            with self.subTest(category=category):
+                self.assertEqual(config["advisories"].get(category), "all")
+
+    def test_locked_lru_has_the_iter_mut_fix(self):
+        root = Path(__file__).resolve().parents[1]
+        lock = tomllib.loads((root / "Cargo.lock").read_text())
+        for package in lock["package"]:
+            if package["name"] == "lru":
+                version = tuple(map(int, package["version"].split(".")))
+                self.assertGreaterEqual(version, (0, 16, 3), "RUSTSEC-2026-0002 must stay fixed")
 
 
 if __name__ == "__main__":
