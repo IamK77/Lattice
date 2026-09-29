@@ -189,6 +189,17 @@ fn stable_sync_waits_for_publication_and_has_no_signing_authority() {
         );
         assert_eq!(job["concurrency"]["group"], "stable-history-sync");
         assert_eq!(job["runs-on"], "ubuntu-24.04");
+        let checkout = job["steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|step| {
+                step["uses"]
+                    .as_str()
+                    .is_some_and(|action| action.starts_with("actions/checkout@"))
+            })
+            .unwrap();
+        assert_eq!(checkout["with"]["fetch-depth"], 0);
         for step in job["steps"].as_array().unwrap() {
             if let Some(action) = step["uses"].as_str() {
                 let (_, revision) = action.split_once('@').unwrap();
