@@ -23,7 +23,9 @@ class GitHub:
             raise ValueError("Invalid repository identity.")
 
     def request(self, method, path, data=None, missing_ok=False):
-        if not path.startswith("/") or "://" in path or ".." in path:
+        # GitHub's commit comparison separator is not a traversal segment.
+        comparison = re.fullmatch(r"/compare/[0-9a-f]{40}\.\.\.[0-9a-f]{40}", path)
+        if not path.startswith("/") or "://" in path or (".." in path and not comparison):
             raise ValueError("Invalid repository API path.")
         body = json.dumps(data).encode() if data is not None else None
         request = Request(f"https://api.github.com/repos/{self.repository}{path}", data=body, method=method, headers={
