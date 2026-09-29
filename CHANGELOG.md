@@ -26,6 +26,13 @@ release. Published artifacts and their publication dates are recorded in
   distinguished from release builds; commit counts no longer change the version.
 - Use English Conventional Commits without a custom `Type:` trailer requirement.
 
+### Fixed
+
+- Preserve expert failures and cancellations in both foreground and background
+  `ask` reports, including structured errors and child-ledger references. A
+  missing reply is no longer reported as success; valid empty replies remain
+  successful. Failed expert calls are not automatically retried.
+
 ### Security
 
 - Update the locked h2 dependency to 0.4.16 for RUSTSEC-2026-0258.
