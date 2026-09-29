@@ -21,7 +21,8 @@ def without_comments(block):
 
 class OperatorDocumentationTests(unittest.TestCase):
     def test_all_operator_bash_examples_parse_without_execution(self):
-        for name in ["installation.md", "安装与升级.md", "troubleshooting.md", "故障排查.md"]:
+        for name in ["installation.md", "安装与升级.md", "troubleshooting.md", "故障排查.md",
+                     "signed-preview-acceptance.md", "签名预览验收.md"]:
             snippets = blocks(name)
             self.assertTrue(snippets, name)
             for index, snippet in enumerate(snippets):
@@ -29,10 +30,13 @@ class OperatorDocumentationTests(unittest.TestCase):
                     result = subprocess.run(["bash", "-n"], input=snippet, text=True, capture_output=True, check=False)
                     self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_bilingual_installation_commands_do_not_drift(self):
-        english = [without_comments(block) for block in blocks("installation.md")]
-        chinese = [without_comments(block) for block in blocks("安装与升级.md")]
-        self.assertEqual(english, chinese)
+    def test_bilingual_installation_and_verification_commands_do_not_drift(self):
+        for english_name, chinese_name in [("installation.md", "安装与升级.md"),
+                                           ("signed-preview-acceptance.md", "签名预览验收.md")]:
+            with self.subTest(document=english_name):
+                english = [without_comments(block) for block in blocks(english_name)]
+                chinese = [without_comments(block) for block in blocks(chinese_name)]
+                self.assertEqual(english, chinese)
 
 
 if __name__ == "__main__":

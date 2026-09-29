@@ -28,6 +28,8 @@ These are required actions, **not a statement that rollout has already completed
 
 ## Preview acceptance record
 
+The [signed-preview acceptance record](signed-preview-acceptance.md) covers actual acquisition, source/integrity verification, and negative checks for one pinned candidate. Installation and distinct-build upgrade/rollback remain separate acceptance work.
+
 Retain a reviewed record in the repository with concrete run IDs, source identities, hashes, commands, and results. Avoid numeric test totals as permanent claims; they drift.
 
 | Exercise | Evidence required |
