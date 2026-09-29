@@ -98,6 +98,8 @@ jobs:
           daemon_pid=$!
           trap 'kill "$daemon_pid" 2>/dev/null || true; wait "$daemon_pid" 2>/dev/null || true' EXIT
           node clients/ink/scripts/xlang-smoke.js "$socket"
+      - name: Isolated scripted restart and backup rehearsal
+        run: python3 scripts/rehearse_runtime.py "$PWD/target/debug/lattice" "$PWD/target/debug/lattice"
 
   platform:
     runs-on: macos-15
