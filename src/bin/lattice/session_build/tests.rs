@@ -49,7 +49,20 @@ fn preview_keeps_order_tools_wires_and_overlay_provenance() {
         assert!(rows.windows(2).all(|pair| pair[0].0 < pair[1].0));
         let fs = rows.iter().find(|row| row.0 == "fs").unwrap();
         assert_eq!(fs.2, "in-process");
-        assert_eq!(fs.3, "Read Ls Write Edit");
+        assert_eq!(fs.1, "fs-reader");
+        assert_eq!(fs.3, "Read Ls");
+        let writer = rows.iter().find(|row| row.0 == "fs-write").unwrap();
+        assert_eq!(writer.1, "fs-writer");
+        assert_eq!(writer.2, "in-process");
+        assert_eq!(writer.3, "Write Edit");
+        assert!(!writer.4);
+        assert_eq!(
+            writer.5,
+            [
+                "trust.forward → fs-write.execute",
+                "fs-write.outcome → loop.tools"
+            ]
+        );
         assert!(!fs.4);
         assert_eq!(
             fs.5,
