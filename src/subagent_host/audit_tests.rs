@@ -173,6 +173,27 @@ fn empty_request_batches_still_advance_the_poll_cursor() {
 }
 
 #[test]
+fn a_closed_input_without_a_reply_is_not_success() {
+    let assembly = crate::AssemblyManifest {
+        instances: Default::default(),
+        wires: Vec::new(),
+    };
+    let mut kernel = Kernel::start(
+        &assembly,
+        &Default::default(),
+        &mut Default::default(),
+        Default::default(),
+    )
+    .unwrap();
+    let report = run_expert_turn(&mut kernel, &Mutex::new(JobState::default()), |_| false).unwrap();
+    match report.outcome {
+        ExpertOutcome::Failure(error) => assert_eq!(error["code"], "ask.no_reply"),
+        other => panic!("closed input must report failure, got {other:?}"),
+    }
+    kernel.shutdown();
+}
+
+#[test]
 fn a_quiet_expert_waits_for_external_input_instead_of_reporting_an_empty_answer() {
     use crate::components::scripted_model;
     use crate::preset::{standard, PresetConfig};
@@ -236,9 +257,8 @@ fn a_quiet_expert_waits_for_external_input_instead_of_reporting_an_empty_answer(
         );
         true
     });
-    assert_eq!(
-        answer.unwrap().map(|(_, text)| text),
-        Some(json!("after wake"))
+    assert!(
+        matches!(answer.unwrap().outcome, ExpertOutcome::Success(text) if text == "after wake")
     );
     assert_eq!(waits, 1);
     kernel.shutdown();
