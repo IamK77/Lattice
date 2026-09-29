@@ -17,6 +17,8 @@ an input; it is not an independent audit of that input.
   and a real daemon/client smoke using a scripted model, not paid credentials.
 - Rust dependencies: cargo-deny checks the locked graph's known advisories,
   accepted licenses, and registry/Git sources. Unknown sources are rejected.
+  `unsound = "all"` and `unmaintained = "all"` explicitly include indirect
+  dependencies; enabling all Cargo features does not widen these advisory scopes.
 - Frontend production dependencies: npm audit rejects high/critical findings.
   Lower severities remain visible in its output; this is not a zero-risk claim.
 - Workflow YAML: actionlint checks syntax. Its optional external shellcheck and
@@ -45,9 +47,8 @@ revision can become red. Fix a finding or document a narrowly scoped exception
 with its specific advisory, reason, owner, and review date; never disable an
 entire advisory/license/source class merely to restore green checks.
 
-The current maintenance exceptions are `bincode 1.3.3` (RUSTSEC-2025-0141),
-`paste 1.0.15` (RUSTSEC-2024-0436), and `yaml-rust 0.4.5` (RUSTSEC-2024-0320),
-introduced by syntect/ratatui. Their upstream migrations remain open work, not
+The current maintenance exceptions are `bincode 1.3.3` (RUSTSEC-2025-0141)
+and `yaml-rust 0.4.5` (RUSTSEC-2024-0320), introduced by syntect. Their upstream migrations remain open work, not
 resolved findings. [Exception records](../advisory-exceptions.json) name the
 maintainer and expire on October 28, 2026. CI rejects an expired exception, a
 changed dependency version, or an ignored advisory without a matching record.

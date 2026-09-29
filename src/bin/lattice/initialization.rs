@@ -131,7 +131,10 @@ pub(super) fn draw_observed<B: ratatui::backend::Backend>(
     session: &Session,
     startup: &mut Option<StartupTrace>,
     cost: &mut RenderCost,
-) -> std::io::Result<Hit> {
+) -> std::io::Result<Hit>
+where
+    B::Error: super::backend_error::IntoIoError,
+{
     if let Some(trace) = startup.as_mut() {
         trace.checkpoint("pre_draw");
     }

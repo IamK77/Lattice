@@ -130,7 +130,8 @@ pub(crate) fn run_debug_tui(args: Vec<String>) -> std::io::Result<()> {
     }
     .install(&past);
     let mut tabs = tabs::Tabs::interactive(&session, tab_config, &main_ledger, &mut ui, false);
-    let mut term = Terminal::new(ratatui::backend::TestBackend::new(width, height))?;
+    let mut term = Terminal::new(ratatui::backend::TestBackend::new(width, height))
+        .unwrap_or_else(|never| match never {});
     let mut hit = draw_ui(&mut term, &mut ui)?;
     for (number, raw) in actions.lines().enumerate() {
         let session = tabs.session();
@@ -174,7 +175,8 @@ pub(crate) fn run_debug_tui(args: Vec<String>) -> std::io::Result<()> {
                 if let Some((w, h)) = rest.trim().split_once('x') {
                     width = w.trim().parse().unwrap_or(width);
                     height = h.trim().parse().unwrap_or(height);
-                    term = Terminal::new(ratatui::backend::TestBackend::new(width, height))?;
+                    term = Terminal::new(ratatui::backend::TestBackend::new(width, height))
+                        .unwrap_or_else(|never| match never {});
                 }
             }
             "frame" => {}

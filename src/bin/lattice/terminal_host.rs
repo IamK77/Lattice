@@ -3,6 +3,8 @@
 //! lifecycle and debug drivers share this host without owning its rules.
 //! Only the three launch functions are exposed to the process entry.
 
+#[path = "backend_error.rs"]
+mod backend_error;
 #[path = "brand.rs"]
 mod brand;
 #[path = "effort_dial.rs"]
@@ -1566,7 +1568,10 @@ fn frame_html(view: &dyn View, w: u16, h: u16) -> String {
 fn draw_ui<B: ratatui::backend::Backend>(
     term: &mut Terminal<B>,
     ui: &mut Ui,
-) -> std::io::Result<Hit> {
+) -> std::io::Result<Hit>
+where
+    B::Error: backend_error::IntoIoError,
+{
     let hit = draw(term, ui)?;
     if ui.panel.active().is_none() {
         if let Some(top) = hit.top {
@@ -1579,7 +1584,10 @@ fn draw_ui<B: ratatui::backend::Backend>(
 fn draw<B: ratatui::backend::Backend>(
     term: &mut Terminal<B>,
     view: &dyn View,
-) -> std::io::Result<Hit> {
+) -> std::io::Result<Hit>
+where
+    B::Error: backend_error::IntoIoError,
+{
     let spinner = activity::spinner(view.tick());
     // Candidate commands to suggest under the input (empty unless typing a slash)
     let hint = slash_matches(&view.input(), view.skills(), &view.effort());
@@ -1619,7 +1627,12 @@ fn draw<B: ratatui::backend::Backend>(
     let sel = view.hint_sel().min(hint.len().saturating_sub(1));
     // Rendering and cursor navigation use the same wrapped screen rows.
     let input = view.input();
-    let input_width = term.size()?.width.saturating_sub(4).max(1) as usize;
+    let input_width = term
+        .size()
+        .map_err(backend_error::IntoIoError::into_io_error)?
+        .width
+        .saturating_sub(4)
+        .max(1) as usize;
     let input_layout = lattice::editor::InputLayout::new(&input, input_width);
     let input_h = if mode_h > 0 {
         mode_h
@@ -2063,7 +2076,8 @@ fn draw<B: ratatui::backend::Backend>(
             spans.push(Span::styled(seg.text.clone(), seg.style));
         }
         frame.render_widget(Paragraph::new(Line::from(spans)), bar);
-    })?;
+    })
+    .map_err(backend_error::IntoIoError::into_io_error)?;
     if let Some(error) = transcript_error {
         return Err(error);
     }
