@@ -164,6 +164,45 @@ fn publication_separates_preview_authority_and_retains_proof_before_mutating_rel
 }
 
 #[test]
+fn stable_sync_waits_for_publication_and_has_no_signing_authority() {
+    let release: Value =
+        serde_yaml::from_str(include_str!("../.github/workflows/release.yml")).unwrap();
+    let recovery: Value =
+        serde_yaml::from_str(include_str!("../.github/workflows/sync-develop.yml")).unwrap();
+    assert_eq!(
+        release["jobs"]["sync"]["needs"],
+        serde_json::json!(["identity", "publish"])
+    );
+    assert!(release["jobs"]["sync"]["if"]
+        .as_str()
+        .unwrap()
+        .contains("preview == 'false'"));
+    assert!(recovery["jobs"]["sync"]["if"]
+        .as_str()
+        .unwrap()
+        .contains("refs/heads/main"));
+    for workflow in [&release, &recovery] {
+        let job = &workflow["jobs"]["sync"];
+        assert_eq!(
+            job["permissions"],
+            serde_json::json!({"contents": "write", "pull-requests": "write"})
+        );
+        assert_eq!(job["concurrency"]["group"], "stable-history-sync");
+        assert_eq!(job["runs-on"], "ubuntu-24.04");
+        for step in job["steps"].as_array().unwrap() {
+            if let Some(action) = step["uses"].as_str() {
+                let (_, revision) = action.split_once('@').unwrap();
+                assert_eq!(revision.len(), 40);
+                assert!(revision.bytes().all(|byte| byte.is_ascii_hexdigit()));
+                if action.starts_with("actions/checkout@") {
+                    assert_eq!(step["with"]["persist-credentials"], false);
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn frontend_lock_is_complete_and_matches_the_private_package() {
     let package: Value = serde_json::from_str(include_str!("../clients/ink/package.json")).unwrap();
     let lock: Value =

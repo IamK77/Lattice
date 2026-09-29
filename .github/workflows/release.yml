@@ -182,3 +182,27 @@ jobs:
           overwrite: false
       - name: Verify proof, reserve the tag, fill the draft, and publish last
         run: python3 scripts/publish_release.py finalize --directory "$DISTRIBUTION"
+
+  sync:
+    needs: [identity, publish]
+    if: needs.identity.outputs.preview == 'false' && needs.publish.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    concurrency:
+      group: stable-history-sync
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.identity.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Return stable history through protected native PR checks
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/sync_develop.py

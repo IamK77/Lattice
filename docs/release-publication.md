@@ -47,6 +47,24 @@ Use the exact reviewed commit, not an archive hash, for `--source-digest`. For a
 - **Already published:** a rerun downloads and re-verifies the immutable release. It does not rebuild, overwrite assets, or publish again. This also permits a later synchronization step to recover independently.
 - **Publication succeeded but a final check failed:** the error explicitly says publication already occurred. Do not describe this as “nothing happened” or try to roll it back automatically.
 
+## Returning stable history to development
+
+After successful publication, a separate job opens or reuses a same-repository
+`main` → `develop` PR and requests GitHub's native auto-merge. It follows the latest
+protected `main`, including any newer reviewed main commits; artifact identity
+remains bound to the original approved release commit. No direct branch push,
+conflict resolution, check replacement, or administrator bypass is used.
+
+Only a repository-bot synchronization PR is automated. Existing human PRs and
+review notes are left alone. Release candidate PRs are never given auto-merge.
+Required checks still apply, and a maintainer may need to approve bot-triggered
+checks. If the request fails, the PR remains visible and the job reports failure.
+
+For initial bootstrap or recovery, dispatch **Synchronize development** on `main`.
+This works before release automation is enabled and cannot publish. Once `main`
+is contained in `develop`, repeating synchronization has no side effects. Enable
+repository auto-merge and Actions PR creation before this workflow is exercised.
+
 ## Repository rollout prerequisites
 
 A repository administrator must enable immutable releases and read the setting back **before activation**. The Actions repository token cannot query that administration-only setting; the runtime instead checks the published release's `immutable` field. A disabled setting discovered after publication is an incident, not a reversible preflight failure.
