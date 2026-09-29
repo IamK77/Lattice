@@ -13,6 +13,7 @@ mod tests;
 #[derive(Default)]
 pub(super) struct Authorizations {
     questions: Vec<Question>,
+    reader: Option<lattice::LogReader>,
 }
 
 struct Question {
@@ -21,9 +22,60 @@ struct Question {
     // Kept with its occurrence, not in a set keyed by ID: folding has never
     // deduplicated requests. This flag is excluded from history snapshots.
     answered_locally: bool,
+    allow_selected: bool,
+    description: std::cell::OnceCell<String>,
 }
 
 impl Authorizations {
+    pub fn bind_reader(&mut self, reader: lattice::LogReader) {
+        self.reader = Some(reader);
+    }
+
+    pub fn prompt(&self) -> std::io::Result<Option<lattice::view::AuthorizationPrompt>> {
+        let Some(question) = self.questions.iter().find(|q| !q.answered_locally) else {
+            return Ok(None);
+        };
+        if question.description.get().is_none() {
+            let description = if let Some(reader) = &self.reader {
+                let event = reader.get(&question.request)?.ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "authorization request is missing",
+                    )
+                })?;
+                lattice::view::authorization_description(&event.payload)
+            } else {
+                // Headless state fixtures can restore IDs without a backing ledger.
+                format!("Request {}", question.request)
+            };
+            let _ = question.description.set(description);
+        }
+        Ok(Some(lattice::view::AuthorizationPrompt {
+            request: question.request.clone(),
+            description: question
+                .description
+                .get()
+                .expect("resolved question")
+                .clone(),
+            allow_selected: question.allow_selected,
+        }))
+    }
+
+    pub fn select_allow(&mut self, allow: bool) {
+        if let Some(question) = self.questions.iter_mut().find(|q| !q.answered_locally) {
+            question.allow_selected = allow;
+        }
+    }
+
+    pub fn answer_selected(&mut self) -> Option<(String, bool)> {
+        let allow = self
+            .questions
+            .iter()
+            .find(|q| !q.answered_locally)?
+            .allow_selected;
+        self.answer_oldest().map(|request| (request, allow))
+    }
+
     pub fn next(&self) -> Option<&str> {
         self.questions
             .iter()
@@ -56,6 +108,8 @@ impl Authorizations {
                 request,
                 held,
                 answered_locally: false,
+                allow_selected: false,
+                description: std::cell::OnceCell::new(),
             })
             .collect();
     }
@@ -72,6 +126,10 @@ impl Authorizations {
                 request: event.id.clone(),
                 held,
                 answered_locally: false,
+                allow_selected: false,
+                description: std::cell::OnceCell::from(lattice::view::authorization_description(
+                    &event.payload,
+                )),
             });
         } else if event.event_type == trust_policy::DECISION
             || event.event_type == browser_tools::DECISION

@@ -17,6 +17,10 @@ release. Published artifacts and their publication dates are recorded in
 
 ### Changed
 
+- Replace terminal authorization y/n input with a bottom choice panel: Up/Down
+  selects, Enter confirms, and Esc refuses. Refusal is selected by default;
+  pending authorization preserves the chat draft and cursor without changing
+  permission scope or audit behavior.
 - Adopt Apache-2.0 and provide contribution, security-reporting, and support paths.
 - Make `Cargo.toml` the formal version source. Development builds are visibly
   distinguished from release builds; commit counts no longer change the version.
