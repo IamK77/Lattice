@@ -92,8 +92,8 @@ pub(super) fn print_help() {
         "lattice — a composable, auditable agent runtime\n\n\
          USAGE:\n  \
          lattice          run the in-process terminal UI (default)\n  \
-         lattice -c       continue the most recent conversation\n  \
-         lattice --resume [name]\n                   continue a named one (see ~/.lattice/tui/)\n  \
+         lattice -c       continue the most recent conversation in the current project\n  \
+         lattice --resume [name]\n                   continue a named one in the current project (see ~/.lattice/ledgers/)\n  \
          lattice --recover PATH [--offset BYTES] [--bytes COUNT]\n                   \
          inspect a bounded raw window without credentials, assembly, or writes\n  \
          lattice --migrate-ledger OFFLINE_LEGACY.jsonl\n                   copy to a segmented ledger, retaining original files (requires lsof)\n  \
@@ -105,7 +105,7 @@ pub(super) fn print_help() {
          move each ledger's documents out beside it (no argument: every\n                   \
          conversation there is). Idempotent; also migrates older records.\n  \
          lattice --version\n                   \
-         which build this is: v<major>.<feat>.<fix>-<commit>\n  \
+         vX.Y.Z (release) or vX.Y.Z-dev[+g<commit>] (development)\n  \
          lattice index    rebuild ~/.lattice/ledgers/index.jsonl from the ledgers\n  \
          lattice tidy     apply the `ledger` policy in preferences.json\n                   \
          (compactAfterDays / archiveAfterDays / deleteAfterDays; off by default)\n  \
@@ -120,12 +120,12 @@ pub(super) fn print_help() {
          ENV:\n  \
          LATTICE_ADAPTER=anthropic   use the Anthropic wire format (default: openai)\n  \
          LATTICE_MODEL, LATTICE_BASE_URL, LATTICE_API_KEY_ENV\n  \
-         LATTICE_THINKING=high|max|off  main-model thinking (default: high;\n                              \
+         LATTICE_THINKING=high|max|off  main-model thinking (saved preference or high;\n                              \
          empty = send no thinking parameter at all)\n  \
-         LATTICE_SCRIPTED=1          keyless deterministic run (for smoke tests)\n  \
+         LATTICE_SCRIPTED=1          keyless deterministic run (any value enables; unset to disable)\n  \
          prompt                      print the system prompt and tool list, then exit\n  \
-         LATTICE_WORKSPACE=DIR       CONFINE the fs/search/shell tools to DIR\n                              \
-         (default: unconfined — they work from where you started lattice)"
+         LATTICE_WORKSPACE=DIR       workspace for bundled tools; not an OS sandbox\n                              \
+         (default: tools work from where you started lattice)"
     );
 }
 
