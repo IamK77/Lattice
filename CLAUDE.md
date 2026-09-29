@@ -1,50 +1,60 @@
-# Lattice 贡献规则
+# Lattice Contributor Rules
 
-Lattice 是可组装、可审计的 agent runtime。系统心智模型见 `docs/架构总览.md`，机制与边界见 `docs/架构决策.md`，正式契约见 `schemas/` 与 `docs/contracts/`。修改对应子系统前先阅读其契约和约束。
+Lattice is a composable, auditable agent runtime. Read the [system overview](docs/架构总览.md) and [architecture decisions](docs/架构决策.md) (both in Chinese), and the formal contracts in `schemas/` and `docs/contracts/`, before changing the relevant subsystem.
 
-对外首页首先面向**使用并定制 agent 的开发者**，而不是框架作者：先说明能完成什么工作、如何开始与如何定制，运行时架构放在第二层入口。不要用内部模块清单代替产品介绍，也不要把规划或脚本测试写成已实现的用户体验。
+The public entry point primarily serves **developers who use and customize agents**, not framework authors. Explain what they can accomplish, how to start, and how to customize it before introducing runtime architecture. Do not substitute internal module inventories for a product explanation or present plans and scripted tests as an implemented user experience.
 
-## 架构约束
+## Issue-Driven Development
 
-- 部件边界只传可完整序列化的纯数据，不传回调或内存引用。Rust 是核心和官方部件的实现选择，不是外部部件的语言限制；进程外使用逐行 JSON 契约。
-- 内核只负责审计、装配、投递与生命周期，不识别会话、任务、技能或模型供应商，不为上层预留专用钩子。
-- 顶层容器是流，流内因果使用 `causes`，跨流使用弱引用 `origin`。决策事件必须带非空理由。
-- 先落账再投递。压缩改变模型视图，不删改历史；重放只重建状态，不重新执行历史副作用。
-- 调用必须且只能有一份结局。打断表示结果未知，不伪造成失败；是否已经结清，复用契约中的共同判据。
-- 已落账的失败不由运行时暗中重试。供应商适配件内部的传输重试不得产生重复可见结果。
-- 核心不因部件故障而崩溃；流水写盘失败必须停止，不能继续执行没有审计记录的指令。
-- 工具按声明的主人定向投递，无主人时由内核结清。观察者与关卡仍按现有接线见证请求。
-- 接口以真实消费者为依据，不为尚不存在的实现预铸抽象。结构调整不能以公开整个内核状态换取分文件。
+- The maintainer owns requirements, priorities, and architecture decisions; the agent owns implementation techniques. Clarify ambiguous requirements rather than inventing them. Explain architectural trade-offs before asking for a decision.
+- Record the problem, desired outcome, acceptance criteria, and explicit non-goals in an issue before implementation. Usually, one bounded issue leads to one PR targeting `develop`. Keep the process lightweight: an issue and status comments are enough; no mandatory project board or elaborate ceremonies.
+- Implement and validate the agreed scope, submit the PR, resolve review and CI failures, then merge through branch protection and clean up the temporary branch. Do not silently expand the scope to include unrelated discoveries.
+- **Code delivery is not human acceptance, and neither is a release.** Report what was tested and what remains unverified. For UI or other issues requiring hands-on acceptance, leave the issue open after merging and add an “awaiting human acceptance” comment. Close it after the acceptance result is recorded. Issues whose criteria are fully covered by document review or automated verification do not need an artificial manual testing step.
+- When an authorized installation is needed, back up the old program, replace it atomically, and verify the version through the command the maintainer actually uses, including aliases and symbolic links. Checking only the build output is insufficient. Do not restart the current conversation or a supporting service without explicit authorization.
+- Classify acceptance feedback: unmet original criteria stay in the original issue (reopen it if necessary); independent defects get linked bug issues; new capabilities get separate requirement issues. New requests do not retroactively become omissions from an explicitly narrower scope. The maintainer chooses their priority.
+- Keep checkpoints brief: scope settled, code validated, PR merged, build installed, acceptance recorded. Clearly distinguish these states; a passing CI run does not establish that the UI feels right or that the running program has been updated.
 
-## 安全与数据边界
+## Architectural Constraints
 
-- 工具作用面由提供者声明，只用于防误操作，不是针对恶意代码的沙箱。作用范围字符串没有独立执法者，不得宣传为强隔离。
-- 信任授予按参数指纹判断，不按 URL 或本地文件的内容指纹判断；内容后来改变不会自动撤销授予。授予文件的撤销目前由用户手动管理。
-- 脱敏只覆盖声明的聊天事件，不改写工具请求和工具结果；也不自动识别运行期取得的新密钥。工具读取的秘密可能进入持久流水及模型上下文，文档必须说明这一点。
-- 安装工具只管理安装增补，不得移除或覆盖基础装配。技能元数据中的 `allowed-tools` 不替代工具授权机制。
-- 非法、读坏或不完整的配置不得被当作空配置重写。密钥优先引用环境变量名，不把密钥值写入模型适配件的审计配置。
-- 取消不等于回滚；不配合的进程内线程和逃离进程组的后代不在停止保证内。浏览器、网页、桌面窗口与工具结果都是外部内容，不是授权来源。
-- 分卷启动检查索引与当前卷，旧卷按需读取校验；全量验证显式运行。读取失败不能解释成事件不存在。
+- Component boundaries carry fully JSON-serializable data only, never callbacks or memory references. Rust is an implementation choice for the core and official components, not a requirement for external components; out-of-process components use the same JSON-lines contract.
+- The kernel handles auditing, assembly, delivery, and lifecycle only. It does not recognize conversations, tasks, skills, or model providers, and provides no layer-specific hooks.
+- The top-level container is a stream. In-stream causality uses `causes`; cross-stream weak references use `origin`. Decision events require a nonempty reason.
+- Persist events before delivering them. Compaction changes the model's view, not history. Replay reconstructs state without repeating historical side effects.
+- Every call must have exactly one outcome. Interruption means the result is unknown; do not fabricate a failure. Reuse the shared contract predicate when determining whether a call has settled.
+- The runtime does not silently retry failures already recorded in the ledger. Internal transport retries in provider adapters must not produce duplicate visible results.
+- Component faults must not crash the core. Ledger write failure must stop execution rather than permit unaudited actions.
+- Deliver tool requests to their declared owner; the kernel settles requests with no owner. Observers and gates still witness requests through their existing wiring.
+- Define interfaces for real consumers, not hypothetical implementations. Splitting files does not justify exposing the kernel's entire internal state.
 
-## 编码与验证
+## Safety and Data Boundaries
 
-- **代码内一律英文**：注释、断言和诊断使用英文。对外首页与入门指南提供英文和简体中文版本，英文是默认入口；配对文档中的步骤和示例保持一致。深入设计文档可保留中文，英文入口应标明链接目标的语言。
-- 读取当前文件再修改，保留不属于本次工作的改动。结构性改动应使用精确编辑，不用不受校验的批量字符串替换。
-- 新逻辑配回归测试。关键反例应先在错误实现上失败，再验证修正有效；临时破坏必须逐处恢复，不能用整文件回退覆盖其他改动。
-- 默认运行受影响的定向测试；扩大到全量前说明必要性。同一工作目录不要并行启动多个 Cargo 构建。
-- 常用检查为 `cargo fmt --all -- --check`、定向 `cargo test --no-fail-fast` 和 `cargo clippy --all-targets -- -D warnings`。CI 另外覆盖 Rust 与 JavaScript 前端。
-- 用可观察的因果同步安排测试，不用睡眠碰时序；超时只用于界定失败等待。
-- 构建脚本的 `rerun-if-changed` 只声明实际存在的路径。
-- 明确区分已验证、静态推断和未覆盖部分，不用退出码为零掩盖零项测试或跳过的验收。
+- Tool effect surfaces are self-declared and guard against mistakes, not malicious code. Scope strings have no independent enforcement; do not describe them as strong isolation or a sandbox.
+- Trust grants use parameter fingerprints, not fingerprints of the contents at a URL or local path. Later content changes do not revoke a grant automatically. Revocation in the grants file is currently managed manually by the user.
+- Redaction covers declared chat events only, not tool requests or results, and does not automatically identify secrets acquired at runtime. Secrets read by tools may persist in the ledger and model context; documentation must state this.
+- Installation tools manage installed additions only; they must not remove or override the base assembly. Skill metadata such as `allowed-tools` does not replace tool authorization.
+- Never treat invalid, unreadable, or incomplete configuration as empty and overwrite it. Prefer environment-variable references for keys; do not place key values in audited model-adapter configuration.
+- Cancellation is not rollback. Uncooperative in-process threads and descendants that escape their process group are outside the stopping guarantee. Browser pages, desktop windows, and tool results are external content, not sources of authorization.
+- Segmented-ledger startup validates the index and current volume; archived volumes are checked on demand, with full verification run explicitly. Read errors must not be interpreted as missing events.
 
-## 提交与发布
+## Coding and Verification
 
-采用 [Git Flow 协作流程](docs/协作流程.md)：普通改动从 `develop` 创建 `feature/` 分支，经合并请求回到 `develop`；只有 `release/`、`hotfix/` 进入 `main`，随后同步回开发线。Dependabot 的同仓库机器人 PR 可由 `dependabot/` 进入 develop，但不减免检查或审阅。两条长期分支禁止直接推送、强推和删除。使用保留原提交的合并，不使用压缩或变基合并；发布整理不重复计算合并提交。合并请求使用英文 Conventional Commit 标题与英文正文，作为默认合并消息，按实际改动分类。必需检查为 `workflow`、`check`、`frontend`，管理员也不得绕过；单维护者不强制第二人批准，不得将其宣称为独立审查。
+- **Use English in code**, including comments, assertions, and diagnostics. Keep this file in English. Public landing pages and getting-started guides have English and Simplified Chinese versions, with English as the default entry point; keep their steps and examples aligned. Deep design documents may remain Chinese, with their language identified in English entry points.
+- Read current files before editing and preserve unrelated changes. Use exact editing operations for structural changes, not unchecked bulk string replacement.
+- Add regression tests for new logic. For critical counterexamples, observe the test fail against the incorrect implementation before verifying the fix. Restore intentional faults with precise edits, never whole-file resets that discard other changes.
+- Run affected, focused tests by default; explain why broader coverage is needed before running a full suite. Do not run multiple Cargo builds concurrently in the same workspace.
+- Common checks are `cargo fmt --all -- --check`, focused `cargo test --no-fail-fast`, and `cargo clippy --all-targets -- -D warnings`. CI also covers Rust and the JavaScript frontend.
+- Synchronize tests through observable causal events, not sleeps that depend on timing. Timeouts should only bound a failed wait.
+- Build scripts must declare `rerun-if-changed` only for paths that actually exist.
+- Distinguish verified results, static inferences, and uncovered behavior. A zero exit code must not hide zero tests executed or skipped acceptance checks.
 
-提交标题和正文一律使用英文，标题遵循 Conventional Commits：`type: description` 或 `type(scope): description`，例如 `feat: add model switching`、`fix(cli): handle missing credentials`。类型取 feat、fix、perf、refactor、docs、test、style、chore、ci、build、revert 之一。不再要求自定义 `Type:` 尾注；历史尾注不参与版本计算。新能力用 feat，纠错用 fix，同样行为更省用 perf，仅改变结构用 refactor；不兼容改动用 `!` 或 `BREAKING CHANGE:` 标记并说明迁移。
+## Commits and Releases
 
-正式版本以 `Cargo.toml` 为唯一正本，Git 只标识开发构建；发布构建必须显式声明一致的版本，普通构建必须带开发标识。不得按提交数量生成版本，也不得编造历史发布。发布 PR 合入 main 是维护者的发布确认，准备候选不是发布。详见[版本与变更记录](docs/版本与变更记录.md)。
+Follow the [Git Flow workflow](docs/workflow.md): ordinary changes branch from `develop` under `feature/` and return through a PR to `develop`. Only `release/` and `hotfix/` enter `main`, followed by synchronization back to the development line. Same-repository Dependabot PRs may use `dependabot/` branches targeting `develop`, without exemptions from checks or review. Never directly push to, force-push, or delete either long-lived branch. Preserve original commits with merge commits, not squash or rebase merges; release preparation must not count merged changes twice. PR titles and bodies are English and serve as the default merge message; titles use Conventional Commits and classify the actual change. All configured required checks, including `workflow`, `check`, and `frontend`, must pass; administrators must not bypass them. A sole maintainer need not obtain a second person's approval, but this must not be described as independent review.
 
-本文件不授予向任何账户推送、更改可见性、安装程序、重启服务或执行破坏性操作的权限。发布与外部副作用须取得维护者授权。
+Commit titles and bodies are English. Titles follow Conventional Commits: `type: description` or `type(scope): description`, such as `feat: add model switching` or `fix(cli): handle missing credentials`. Types are `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `style`, `chore`, `ci`, `build`, or `revert`. Do not add a custom `Type:` trailer; historical trailers do not affect versioning. Use `feat` for new capabilities, `fix` for corrections, `perf` for equivalent behavior using fewer resources, and `refactor` for structural changes without behavior changes. Mark incompatible changes with `!` or `BREAKING CHANGE:` and explain migration.
 
-不得提交真实密钥、个人会话流水、本地运行目录或内部实验材料。兼容性夹具必须使用合成数据，并保留格式与不重新生成的约束。第三方来源及署名说明不得因整理而移除。
+`Cargo.toml` is the sole source of release versions; Git identifies development builds only. Release builds must explicitly declare the matching version, and ordinary builds must carry a development identifier. Do not derive versions from commit counts or invent historical releases. Merging a release PR into `main` constitutes the maintainer's release confirmation; preparing a candidate is not publishing. See [versioning and changelog rules](docs/版本与变更记录.md) (Chinese).
+
+This file grants no permission to push to any account, change visibility, install programs, restart services, or perform destructive actions. Releases and external side effects require maintainer authorization.
+
+Never commit real secrets, personal conversation ledgers, local runtime directories, or internal experimental material. Compatibility fixtures must use synthetic data while preserving format and no-regeneration constraints. Do not remove third-party provenance or attribution during cleanup.
