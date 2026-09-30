@@ -116,6 +116,7 @@ impl Authorizations {
     pub fn observe(&mut self, event: &EventEnvelope) {
         if event.event_type == trust_policy::AUTH_REQUESTED
             || event.event_type == browser_tools::AUTH_REQUESTED
+            || event.event_type == lattice::components::expert_definitions::AUTH_REQUESTED
         {
             let held = event.payload["held"]
                 .as_str()
@@ -133,6 +134,7 @@ impl Authorizations {
             });
         } else if event.event_type == trust_policy::DECISION
             || event.event_type == browser_tools::DECISION
+            || event.event_type == lattice::components::expert_definitions::DECISION
             || ce::is_outcome(&event.event_type)
         {
             self.questions.retain(|question| {

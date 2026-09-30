@@ -5,6 +5,7 @@
 pub mod anthropic_model;
 pub mod browser_driver;
 pub mod browser_tools;
+pub(crate) mod call_purpose;
 pub mod code_tools;
 pub mod context_gate;
 pub mod desktop_cua;
@@ -15,6 +16,7 @@ pub mod desktop_tools;
 pub mod effects_policy;
 pub mod environment;
 pub mod expert_definitions;
+pub mod expert_ui;
 pub mod fs_tools;
 pub mod fs_watch;
 pub mod media_document;

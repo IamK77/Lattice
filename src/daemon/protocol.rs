@@ -47,6 +47,14 @@ pub enum ClientMessage {
         request: String,
         approve: bool,
     },
+    /// Manage experts through the same audited provider and authorization
+    /// route as the terminal UI. Results arrive as experts.ui.result events.
+    ManageExperts {
+        stream: String,
+        request: String,
+        operation: String,
+        arguments: Value,
+    },
     /// Stop watching a stream (e.g. the frontend closed its tab). The stream
     /// itself stays open in the daemon; only this client's subscription ends.
     Detach { stream: String },

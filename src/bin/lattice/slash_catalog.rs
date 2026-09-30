@@ -55,6 +55,11 @@ pub(super) const SLASH: &[Slash] = &[
         name: "/exit",
         summary: "quit lattice",
     },
+    // Preserve /ex as the existing exit completion; /exp selects experts.
+    Slash {
+        name: "/experts",
+        summary: "create, inspect and manage reusable experts",
+    },
     Slash {
         name: "/btw",
         summary: "open a side conversation (/btw [question])",

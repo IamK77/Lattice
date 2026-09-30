@@ -94,6 +94,11 @@ use model_controls::ModelControls;
 mod background_state;
 #[path = "domain_state.rs"]
 mod domain_state;
+#[path = "expert_controls.rs"]
+mod expert_controls;
+#[cfg(test)]
+#[path = "expert_controls/entry_tests.rs"]
+mod expert_entry_tests;
 #[path = "initialization.rs"]
 mod initialization;
 #[cfg(test)]
@@ -251,6 +256,7 @@ struct Ui {
     /// being attached somewhere nobody will look for it.
     documents: Option<std::path::PathBuf>,
     controls: ModelControls,
+    experts: expert_controls::ExpertControls,
 }
 
 impl View for Ui {
@@ -325,6 +331,10 @@ impl View for Ui {
 
     fn model_form(&self) -> Option<ModelForm> {
         self.controls.form().cloned()
+    }
+
+    fn expert_panel(&self) -> Option<view::expert_panel::Panel> {
+        Some(self.experts.display())
     }
 
     fn confirm_delete(&self) -> Option<String> {
@@ -437,6 +447,7 @@ impl Ui {
             panel: panels::navigation::PanelNavigation::default(),
             documents: None,
             controls: ModelControls::default(),
+            experts: expert_controls::ExpertControls::default(),
         };
         ui.replay_history(events);
         // Any "Done" belongs to history, past its animation: `done_at` is set
@@ -808,6 +819,9 @@ fn panel_rows(at: (usize, usize), view: &dyn View, width: usize) -> Vec<(String,
 
 /// Prepare panel contents at their existing read boundaries, then compose.
 fn panel_lines(at: (usize, usize), view: &dyn View, width: usize) -> Vec<Line<'static>> {
+    if at == panels::AT_EXPERTS {
+        return panels::experts::lines(view, width);
+    }
     let picture = match at {
         AT_CONTEXT => context_picture(view, width),
         // Keep the calendar read separate and before the totals read.
@@ -829,6 +843,10 @@ fn attachments(ui: &mut Ui) -> attachment_actions::Attachments<'_> {
 /// Live and headless paste share modal routing before any attachment action.
 fn absorb_paste(ui: &mut Ui, text: &str) {
     if ui.pending_auth().is_some() {
+        return;
+    }
+    if ui.panel.active() == Some(panels::AT_EXPERTS) {
+        ui.experts.paste(text);
         return;
     }
     if ui.controls.paste_form(text) {
@@ -901,7 +919,13 @@ fn run_slash(ui: &mut Ui, line: &str, session: Option<&Session>) -> bool {
             ui.clear_cards();
             ui.browsing.pin();
         }
-        Intent::Panel(target) => ui.panel.show(target),
+        Intent::Panel(target) => {
+            ui.panel.show(target);
+            if target == panels::AT_EXPERTS {
+                ui.experts.refresh();
+                ui.experts.flush(session);
+            }
+        }
         Intent::Effort(rest) => {
             run_model_action(ui, session, model_actions::Action::Effort(rest));
         }
@@ -1048,6 +1072,7 @@ fn drain_render(ui: &mut Ui, session: &Session) -> std::io::Result<bool> {
     let mut folded = false;
     while let Some(render) = session.poll_render() {
         fold_render(ui, render)?;
+        ui.experts.flush(Some(session));
         folded = true;
     }
     Ok(folded)
@@ -1119,6 +1144,7 @@ fn fold_render(ui: &mut Ui, render: RenderEvent) -> std::io::Result<()> {
                 .notified(event, pid, clock_ns, lattice::input_latency::clock_ns());
         }
         RenderEvent::Appended(event) => {
+            ui.experts.observe(&event);
             ui.try_absorb_profiled(&event, ui.tick, None)?;
             if event.event_type == core_events::USER_MESSAGE && event.causes.is_empty() {
                 ui.input_latency
@@ -1157,6 +1183,10 @@ fn fold_render(ui: &mut Ui, render: RenderEvent) -> std::io::Result<()> {
 }
 
 fn route_modal(ui: &mut Ui, session: Option<&Session>, key: KeyCode) -> bool {
+    if ui.panel.active() == Some(panels::AT_EXPERTS) && ui.experts.key(key) {
+        ui.experts.flush(session);
+        return true;
+    }
     match modal_keys::handle(
         &mut ui.controls,
         &mut ui.panel,
@@ -1183,6 +1213,10 @@ fn route_modal(ui: &mut Ui, session: Option<&Session>, key: KeyCode) -> bool {
             ),
             None => {}
         },
+    }
+    if ui.panel.active() == Some(panels::AT_EXPERTS) {
+        ui.experts.ensure_loaded();
+        ui.experts.flush(session);
     }
     true
 }
@@ -2009,7 +2043,11 @@ where
         } else if view.panel().is_some() {
             (
                 vec![Span::styled(
-                    "↑↓ PgUp/PgDn scroll · ← → tabs · Esc close",
+                    if view.panel() == Some(panels::AT_EXPERTS) {
+                        "Experts · PgUp/PgDn scroll"
+                    } else {
+                        "↑↓ PgUp/PgDn scroll · ← → tabs · Esc close"
+                    },
                     dimmed,
                 )],
                 true,
@@ -2902,6 +2940,7 @@ mod tests {
             panel: panels::navigation::PanelNavigation::default(),
             documents: None,
             controls: ModelControls::default(),
+            experts: expert_controls::ExpertControls::default(),
         }
     }
 

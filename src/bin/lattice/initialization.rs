@@ -57,6 +57,7 @@ impl Main {
             panel: panels::navigation::PanelNavigation::default(),
             documents: self.documents,
             controls: ModelControls::default(),
+            experts: expert_controls::ExpertControls::default(),
         };
         if let Some(trace) = startup.as_mut() {
             ui.replay_prefix_traced(

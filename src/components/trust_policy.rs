@@ -245,7 +245,7 @@ impl TrustPolicy {
         // rather than the exception. Read the declarations, not the reference
         // to them — a gate that cannot see a declaration treats the call as
         // undeclared, which is the safe direction but the wrong answer.
-        ce::try_declared_effects(
+        let offered = ce::try_declared_effects::<String>(
             |id| {
                 let Some(mut event) = ctx.log().get(id).map_err(|e| e.to_string())? else {
                     return Ok(None);
@@ -255,7 +255,17 @@ impl TrustPolicy {
             },
             request_id,
             tool,
-        )
+        )?;
+        // When no historical surface was offered (including direct frontend
+        // calls), use the actual assembled provider, never caller-supplied
+        // effects. A non-null historical surface always wins.
+        Ok(offered.or_else(|| {
+            ctx.tool_decls()
+                .into_iter()
+                .find(|declaration| declaration["name"] == tool)
+                .and_then(|declaration| declaration.get("effects").cloned())
+                .filter(|effects| !effects.is_null())
+        }))
     }
 
     fn review(&mut self, event: &EventEnvelope, ctx: &mut Ctx) {

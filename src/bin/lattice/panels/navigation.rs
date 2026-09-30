@@ -148,6 +148,8 @@ mod tests {
         let mut state = populated();
         state.show(AT_BACKGROUND);
         state.next_tab();
+        assert_eq!(state.active(), Some(super::super::AT_EXPERTS));
+        state.next_tab();
         assert_eq!(state.active(), Some(AT_BACKGROUND));
     }
 

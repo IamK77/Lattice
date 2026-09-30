@@ -312,6 +312,9 @@ pub const FRAGMENTS_HEADING: &str = "# Your setup";
 pub const DEFERRED_TOOLS: &[&str] = &[
     "InspectExpert",
     "ActivateExpert",
+    "ListExperts",
+    "SaveExpert",
+    "DeleteExpert",
     "CancelExpert",
     "Browser",
     "Desktop",
@@ -600,6 +603,10 @@ pub(crate) fn builtin_implementations(
         (timer_tools::NAME, timer_tools::manifest()),
         (subagent::NAME, subagent::manifest()),
         (
+            crate::components::expert_ui::NAME,
+            crate::components::expert_ui::manifest(),
+        ),
+        (
             crate::components::expert_definitions::NAME,
             crate::components::expert_definitions::manifest(),
         ),
@@ -715,6 +722,10 @@ pub(crate) fn builtin_implementations(
     factories.insert(
         subagent::NAME.to_string(),
         Box::new(|c| Box::new(subagent::Subagent::from_config(c))),
+    );
+    factories.insert(
+        crate::components::expert_ui::NAME.to_string(),
+        Box::new(|_| Box::new(crate::components::expert_ui::ExpertUi::default())),
     );
     factories.insert(
         crate::components::expert_definitions::NAME.to_string(),
@@ -945,6 +956,10 @@ pub fn standard_at_depth(cfg: &PresetConfig, depth: u64) -> Result<StandardAssem
                 "expert-review".to_string(),
                 instance(crate::components::expert_definitions::review::NAME, expert_definition_config(cfg), &[]),
             ),
+            (
+                "expert-ui".to_string(),
+                instance(crate::components::expert_ui::NAME, None, &[]),
+            ),
             // The frontends can answer the authorization pair (ui.answer →
             // trust.answer below), so the gate ASKS: an ungranted admission
             // puts a card in front of the human and the turn waits. Headless
@@ -1116,6 +1131,15 @@ fn standard_wires() -> Vec<Wire> {
         Wire::new("subagent.outcome", "loop.tools"),
         Wire::new("trust.forward", "expert-definitions.execute"),
         Wire::new("expert-definitions.outcome", "loop.tools"),
+        Wire::new("ui.answer", "expert-definitions.answer"),
+        Wire::new("ui.interrupt", "expert-definitions.control"),
+        Wire::new("expert-definitions.interrupted", "loop.faults"),
+        Wire::new("ui.answer", "expert-ui.input"),
+        Wire::new("expert-ui.run", "expert-review.review"),
+        Wire::new("expert-review.verdict", "expert-ui.completed"),
+        Wire::new("trust.verdict", "expert-ui.completed"),
+        Wire::new("expert-definitions.outcome", "expert-ui.completed"),
+        Wire::new("expert-definitions.interrupted", "expert-ui.completed"),
         // A subagent's answer arrives the way a finished background command's
         // does; the host emits it through this instance's injector
         Wire::new("subagent.wake", "loop.input"),

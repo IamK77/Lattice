@@ -92,6 +92,50 @@ fn checkpoint_tail_matches_cold_material_and_never_restores_execution() {
 }
 
 #[test]
+fn recovery_excludes_auxiliary_tool_results_and_interruptions() {
+    let mut log = EventLog::in_memory(ce::core_event_decls(), "auxiliary-tools");
+    let input = log
+        .append(
+            EventDraft::new(ce::USER_MESSAGE, &[], json!({"text":"Continue"})),
+            "ui",
+        )
+        .unwrap();
+    let request = log
+        .append(
+            EventDraft::new(
+                ce::TOOL_EXEC_STARTED,
+                &[&input.id],
+                json!({"call":"panel","tool":"fixture","arguments":{},"purpose":"frontend.test"}),
+            ),
+            "panel",
+        )
+        .unwrap();
+    log.append(
+        EventDraft::new(
+            ce::TOOL_EXEC_COMPLETED,
+            &[&request.id],
+            json!({"call":"panel","status":"ok","result":{}}),
+        ),
+        "provider",
+    )
+    .unwrap();
+    let request = log.append(EventDraft::new(ce::TOOL_EXEC_STARTED, &[], json!({"call":"cancelled-panel","tool":"fixture","arguments":{},"purpose":"frontend.test"})), "panel").unwrap();
+    log.append(
+        EventDraft::new(ce::INTERRUPTED, &[&request.id], json!({"by":"restart"})),
+        "core",
+    )
+    .unwrap();
+    let before = log.reader().snapshot_end();
+    let mut resumed = MinimalLoop::from_config(None);
+    resumed.sync_material(&log.reader(), before).unwrap();
+    assert_eq!(resumed.material.parts.collect(), vec![input.id.clone()]);
+    assert_eq!(
+        MinimalLoop::restore_parts(&log.reader(), before + 1).unwrap(),
+        vec![input.id]
+    );
+}
+
+#[test]
 fn online_material_does_not_admit_inputs_still_waiting_behind_a_gate() {
     let mut log = EventLog::in_memory(ce::core_event_decls(), "delivery");
     let first = log

@@ -211,7 +211,10 @@ fn settle(ui: &mut Ui, session: &Session) -> std::io::Result<()> {
     let deadline = std::time::Instant::now() + Duration::from_secs(30);
     loop {
         drain_render(ui, session)?;
-        if !ui.domain.turns.busy() || std::time::Instant::now() > deadline {
+        if (!ui.domain.turns.busy() && !ui.experts.is_waiting())
+            || ui.pending_auth().is_some()
+            || std::time::Instant::now() > deadline
+        {
             return Ok(());
         }
         std::thread::sleep(Duration::from_millis(5));

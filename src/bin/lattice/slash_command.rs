@@ -36,6 +36,7 @@ pub(super) fn parse(line: &str) -> Intent<'_> {
         "/help" => Intent::Panel(AT_COMMANDS),
         "/context" => Intent::Panel(AT_CONTEXT),
         "/background" => Intent::Panel(AT_BACKGROUND),
+        "/experts" => Intent::Panel(crate::terminal_host::panels::AT_EXPERTS),
         "/usage" => Intent::Panel(AT_USAGE),
         "/config" => Intent::Panel(AT_CONFIG),
         "/components" => Intent::Panel(AT_COMPONENTS),
