@@ -6,6 +6,8 @@
 //! parent), a subagent cannot start another subagent, and a job that was still
 //! running when the process died is settled rather than re-run.
 
+#[path = "subagent/custom_definitions.rs"]
+mod custom_definitions;
 #[path = "subagent/outcomes.rs"]
 mod outcomes;
 #[path = "subagent/snapshot_probe.rs"]

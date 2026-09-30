@@ -30,7 +30,7 @@ pub const MAIN_MODEL: &str = "model";
 pub const CONDENSE_MODEL: &str = "cmodel";
 
 /// Which brain, where it lives, and where the agent may work.
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct PresetConfig {
     /// "openai" | "anthropic" | "scripted"
     pub adapter: String,
@@ -556,14 +556,10 @@ fn validate_model_endpoint(adapter: &str, model: &str, base_url: &str) -> Result
     Ok(())
 }
 
-/// The same assembly, built for a stream that is already `depth` subagents
-/// deep. The only thing depth changes is whether `Task` is offered onward —
-/// everything else about a subagent's stream is an ordinary stream, which is
-/// why there is one assembly and not two.
-pub fn standard_at_depth(cfg: &PresetConfig, depth: u64) -> Result<StandardAssembly, String> {
-    validate_model_endpoint(&cfg.adapter, &cfg.model, &cfg.base_url)?;
-    let brain = brain_name(&cfg.adapter);
-
+/// Local implementations, without consulting mutable product configuration.
+/// Captured assemblies use these factories without rebuilding their recipe.
+pub(crate) fn builtin_implementations(
+) -> (HashMap<String, ComponentManifest>, HashMap<String, Factory>) {
     let registry: HashMap<String, ComponentManifest> = [
         (silent_ui::NAME, silent_ui::manifest()),
         (environment::NAME, environment::manifest()),
@@ -601,6 +597,14 @@ pub fn standard_at_depth(cfg: &PresetConfig, depth: u64) -> Result<StandardAssem
         (web_search::NAME, web_search::manifest()),
         (timer_tools::NAME, timer_tools::manifest()),
         (subagent::NAME, subagent::manifest()),
+        (
+            crate::components::expert_definitions::NAME,
+            crate::components::expert_definitions::manifest(),
+        ),
+        (
+            crate::components::expert_definitions::review::NAME,
+            crate::components::expert_definitions::review::manifest(),
+        ),
         (fs_watch::NAME, fs_watch::manifest()),
         (workshop_sink::NAME, workshop_sink::manifest()),
         (skill_library::CONSUMER, skill_library::consumer_manifest()),
@@ -711,6 +715,18 @@ pub fn standard_at_depth(cfg: &PresetConfig, depth: u64) -> Result<StandardAssem
         Box::new(|c| Box::new(subagent::Subagent::from_config(c))),
     );
     factories.insert(
+        crate::components::expert_definitions::NAME.to_string(),
+        Box::new(|c| {
+            Box::new(crate::components::expert_definitions::ExpertDefinitions::from_config(c))
+        }),
+    );
+    factories.insert(
+        crate::components::expert_definitions::review::NAME.to_string(),
+        Box::new(|c| {
+            Box::new(crate::components::expert_definitions::review::ExpertReview::from_config(c))
+        }),
+    );
+    factories.insert(
         skill_library::CONSUMER.to_string(),
         Box::new(|c| Box::new(skill_library::SkillConsumer::from_config(c))),
     );
@@ -730,7 +746,14 @@ pub fn standard_at_depth(cfg: &PresetConfig, depth: u64) -> Result<StandardAssem
         workshop_sink::NAME.to_string(),
         Box::new(|_| Box::new(workshop_sink::WorkshopSink)),
     );
+    (registry, factories)
+}
 
+/// Build the independent standard recipe at the requested delegation depth.
+pub fn standard_at_depth(cfg: &PresetConfig, depth: u64) -> Result<StandardAssembly, String> {
+    validate_model_endpoint(&cfg.adapter, &cfg.model, &cfg.base_url)?;
+    let brain = brain_name(&cfg.adapter);
+    let (registry, factories) = builtin_implementations();
     let scripted = cfg.adapter == "scripted";
     let entry = running_entry(cfg);
     let model_config = if scripted {
@@ -908,9 +931,17 @@ pub fn standard_at_depth(cfg: &PresetConfig, depth: u64) -> Result<StandardAssem
                 "subagent".to_string(),
                 instance(
                     subagent::NAME,
-                    Some(json!({"depth": depth, "experts": expert_roster()})),
+                    Some(json!({"depth": depth, "experts": expert_roster(), "definitions": expert_definition_config(cfg)})),
                     TOOLS,
                 ),
+            ),
+            (
+                "expert-definitions".to_string(),
+                instance(crate::components::expert_definitions::NAME, expert_definition_config(cfg), TOOLS),
+            ),
+            (
+                "expert-review".to_string(),
+                instance(crate::components::expert_definitions::review::NAME, expert_definition_config(cfg), &[]),
             ),
             // The frontends can answer the authorization pair (ui.answer →
             // trust.answer below), so the gate ASKS: an ungranted admission
@@ -1037,7 +1068,9 @@ fn standard_wires() -> Vec<Wire> {
         // Every tool request passes the trust gate: non-admissions are
         // forwarded untouched (the audit-visible hop), install-class
         // calls only when granted
-        Wire::new("loop.run", "trust.review"),
+        Wire::new("loop.run", "expert-review.review"),
+        Wire::new("expert-review.forward", "trust.review"),
+        Wire::new("expert-review.verdict", "loop.tools"),
         Wire::new("trust.verdict", "loop.tools"),
         // The human's authorization answers reach the gate
         Wire::new("ui.answer", "trust.answer"),
@@ -1079,6 +1112,8 @@ fn standard_wires() -> Vec<Wire> {
         Wire::new("timer.wake", "loop.input"),
         Wire::new("trust.forward", "subagent.execute"),
         Wire::new("subagent.outcome", "loop.tools"),
+        Wire::new("trust.forward", "expert-definitions.execute"),
+        Wire::new("expert-definitions.outcome", "loop.tools"),
         // A subagent's answer arrives the way a finished background command's
         // does; the host emits it through this instance's injector
         Wire::new("subagent.wake", "loop.input"),
@@ -1107,13 +1142,13 @@ fn standard_wires() -> Vec<Wire> {
 /// Shipped mutation tools are separate assembly choices. This bounds the
 /// provided operations, not arbitrary processes or provider-side behavior;
 /// model networking and runtime-owned audit writes remain.
-pub struct Expert {
-    pub name: &'static str,
+pub struct Expert<'a> {
+    pub name: &'a str,
     /// Shown to the model when it asks who is available
-    pub description: &'static str,
+    pub description: &'a str,
     /// Tool instances kept, on top of the ones every stream needs
-    pub tools: &'static [&'static str],
-    pub prompt: &'static str,
+    pub tools: &'a [&'a str],
+    pub prompt: &'a str,
 }
 
 /// Instances every stream needs whatever it is for: the loop, the model, the
@@ -1127,6 +1162,7 @@ const EXPERT_CORE: &[&str] = &[
     "env",
     "zz-project-rules",
     "trust",
+    "expert-review",
     "tool-catalog",
     // Structural, not a tool: what the user says reaches the loop THROUGH it
     // (ui.user → skills.input → skills.expanded → loop.input). Dropping it as
@@ -1136,7 +1172,7 @@ const EXPERT_CORE: &[&str] = &[
     "skills",
 ];
 
-pub const EXPERTS: &[Expert] = &[
+pub const EXPERTS: &[Expert<'static>] = &[
     Expert {
         name: "explorer",
         description: "Reads and searches to answer a question about what is there. \
@@ -1181,6 +1217,35 @@ pub fn expert_roster() -> Value {
     )
 }
 
+fn expert_definition_config(cfg: &PresetConfig) -> Option<Value> {
+    let home = PathBuf::from(std::env::var_os("HOME")?);
+    let cwd = std::env::current_dir().ok()?;
+    let workspace = cfg
+        .workspace
+        .as_ref()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| cwd.clone());
+    let model_catalog = crate::models::path()?;
+    let model_catalog = if model_catalog.is_absolute() {
+        model_catalog
+    } else {
+        cwd.join(model_catalog)
+    };
+    let mut defaults = cfg.clone();
+    defaults.assembly = None;
+    defaults.overlay = None;
+    defaults.system.clear();
+    defaults.catalog_problems.clear();
+    defaults.workspace = Some(workspace.to_string_lossy().into_owned());
+    Some(json!(crate::experts::catalog::Config {
+        workspace,
+        home,
+        model_catalog,
+        gate: "trust".into(),
+        defaults,
+    }))
+}
+
 /// The product's expert host, with the same startup credential boundaries as
 /// its main stream. Hosts choose storage separately from this assembly recipe.
 pub fn expert_host(cfg: &PresetConfig) -> crate::StreamHost {
@@ -1206,7 +1271,10 @@ pub fn expert_host(cfg: &PresetConfig) -> crate::StreamHost {
 /// One expert's assembly: the standard one at depth 1, with every tool it does
 /// not get removed — and `subagent` removed always, because an expert that
 /// cannot hand work on had better not be offered the tool for it.
-pub fn expert_assembly(cfg: &PresetConfig, expert: &Expert) -> Result<StandardAssembly, String> {
+pub fn expert_assembly(
+    cfg: &PresetConfig,
+    expert: &Expert<'_>,
+) -> Result<StandardAssembly, String> {
     // Experts are independent templates, not filtered copies of a user's
     // custom conversation baseline: filtering a custom gate could bypass it.
     let mut expert_cfg = cfg.clone();

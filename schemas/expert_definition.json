@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Reusable expert definition",
+  "description": "Editable data, not activation or authorization. Scope comes from the configured source directory.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["v", "id", "name", "description", "instructions", "model", "capabilities"],
+  "properties": {
+    "v": {"const": 1},
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_-]{0,63}$"},
+    "name": {"type": "string", "pattern": "\\S"},
+    "description": {"type": "string", "pattern": "\\S"},
+    "instructions": {"type": "string", "pattern": "\\S"},
+    "model": {"type": "string", "pattern": "\\S"},
+    "capabilities": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"enum": ["read", "write", "web", "commands", "skill-install"]}
+    }
+  }
+}

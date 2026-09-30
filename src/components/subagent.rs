@@ -138,6 +138,7 @@ pub fn manifest() -> ComponentManifest {
                     "prompt": {"type": "string"},
                     "background": {"type": "boolean"},
                     "call": {},
+                    "execution": {"type": "object"},
                 },
             })),
             EventTypeDecl::decision(
@@ -196,6 +197,7 @@ pub struct Subagent {
     /// stops things is ready to catch one.
     depth: u64,
     roster: Vec<Value>,
+    catalog: Option<Result<crate::experts::catalog::Catalog, String>>,
     exclusive: bool,
 }
 
@@ -208,6 +210,14 @@ impl Subagent {
                 .and_then(Value::as_u64)
                 .unwrap_or(0),
             roster: experts(config),
+            catalog: config
+                .and_then(|c| c.get("definitions"))
+                .filter(|value| !value.is_null())
+                .map(|value| {
+                    serde_json::from_value::<crate::experts::catalog::Config>(value.clone())
+                        .map_err(|error| error.to_string())
+                        .and_then(crate::experts::catalog::Catalog::new)
+                }),
             exclusive: config
                 .and_then(|c| c.get("exclusive"))
                 .and_then(Value::as_bool)
@@ -224,7 +234,75 @@ impl Subagent {
     ///
     /// `None` for the outcome means this call is answered by the host later —
     /// the foreground hand-off, and the only path that leaves the call open.
+    fn decide_with_catalog(
+        &mut self,
+        args: &Value,
+        call: &Value,
+        reader: &crate::LogReader,
+    ) -> (Option<Value>, Option<Value>) {
+        if self.catalog.is_none()
+            || self.depth > 0
+            || args["prompt"]
+                .as_str()
+                .is_none_or(|prompt| prompt.trim().is_empty())
+        {
+            return self.decide(args, call);
+        }
+        let requested = args["expert"].as_str().unwrap_or("").to_owned();
+        if let Some(builtin) = requested.strip_prefix("builtin:") {
+            let mut args = args.clone();
+            args["expert"] = json!(builtin);
+            return self.decide(&args, call);
+        }
+        let catalog = match self.catalog.as_ref().expect("catalog presence checked") {
+            Ok(catalog) => catalog,
+            Err(error) => return (Some(refusal("expert.unavailable", error)), None),
+        };
+        if requested.is_empty() {
+            let mut roster = self.roster.clone();
+            for entry in &mut roster {
+                if let Some(name) = entry["name"].as_str() {
+                    entry["name"] = json!(format!("builtin:{name}"));
+                }
+            }
+            let mut result = json!({"experts":roster});
+            match catalog.listing(Some(reader)) {
+                Ok(entries) => result["experts"].as_array_mut().unwrap().extend(entries),
+                Err(error) => result["customExpertError"] = json!(error),
+            }
+            return (Some(json!({"status":"ok","result":result})), None);
+        }
+        let prepared = (|| -> Result<(Value, Option<Value>), String> {
+            let name = catalog.qualify(&requested, self.knows(&requested))?;
+            let mut args = args.clone();
+            if let Some(builtin) = name.strip_prefix("builtin:") {
+                args["expert"] = json!(builtin);
+                Ok((args, None))
+            } else {
+                let execution = catalog.resolve(&name, Some(reader))?;
+                args["expert"] = json!(name);
+                Ok((
+                    args,
+                    Some(serde_json::to_value(execution).map_err(|error| error.to_string())?),
+                ))
+            }
+        })();
+        match prepared {
+            Ok((args, execution)) => self.decide_prepared(&args, call, execution),
+            Err(error) => (Some(refusal("expert.unavailable", &error)), None),
+        }
+    }
+
     fn decide(&mut self, args: &Value, call: &Value) -> (Option<Value>, Option<Value>) {
+        self.decide_prepared(args, call, None)
+    }
+
+    fn decide_prepared(
+        &mut self,
+        args: &Value,
+        call: &Value,
+        execution: Option<Value>,
+    ) -> (Option<Value>, Option<Value>) {
         let prompt = args["prompt"].as_str().unwrap_or("").trim();
         if prompt.is_empty() {
             return (
@@ -252,7 +330,7 @@ impl Subagent {
                 None,
             );
         }
-        if !self.knows(expert) {
+        if execution.is_none() && !self.knows(expert) {
             return (
                 Some(refusal(
                     "ask.unknown_expert",
@@ -266,13 +344,16 @@ impl Subagent {
         let background = args["background"].as_bool().unwrap_or(true);
         let job = self.next_job;
         self.next_job += 1;
-        let wanted = json!({
+        let mut wanted = json!({
             "job": job,
             "expert": expert,
             "prompt": prompt,
             "background": background,
             "call": call,
         });
+        if let Some(execution) = execution {
+            wanted["execution"] = execution;
+        }
         let outcome = background.then(|| json!({"status": "ok", "result": {"job": job}}));
         (outcome, Some(wanted))
     }
@@ -385,7 +466,7 @@ impl Component for Subagent {
             return;
         }
         let (outcome, wanted) = if tool == ASK {
-            self.decide(&event.payload["arguments"], &call)
+            self.decide_with_catalog(&event.payload["arguments"], &call, ctx.log())
         } else {
             (
                 Some(refusal("tool.unknown", &format!("unknown tool: {tool}"))),

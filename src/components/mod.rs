@@ -14,6 +14,7 @@ pub mod desktop_scope;
 pub mod desktop_tools;
 pub mod effects_policy;
 pub mod environment;
+pub mod expert_definitions;
 pub mod fs_tools;
 pub mod fs_watch;
 pub mod media_document;
