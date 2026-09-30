@@ -8,7 +8,8 @@ use serde_json::{json, Value};
 
 use super::activation::{Activation, Activations};
 use super::execution::Execution;
-use super::{Candidate, Definitions, Scope};
+use super::state::Record;
+use super::{Candidate, Definitions, Identity, Scope};
 use crate::{EventEnvelope, LogReader};
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -92,7 +93,79 @@ impl Catalog {
         }).collect()
     }
 
+    pub fn management_listing(&self, current: Option<&LogReader>) -> Result<Value, String> {
+        let mut experts: Vec<Value> = crate::preset::EXPERTS
+            .iter()
+            .map(|expert| {
+                json!({
+                    "name":format!("builtin:{}",expert.name),"description":expert.description,
+                    "ready":true,"state":"builtin","builtin":true
+                })
+            })
+            .collect();
+        experts.extend(self.listing(current)?);
+        let models = std::fs::read_to_string(&self.config.model_catalog)
+            .map_err(|error| error.to_string())
+            .and_then(|text| {
+                serde_json::from_str::<Value>(&text).map_err(|error| error.to_string())
+            })
+            .and_then(|document| {
+                document["models"]
+                    .as_object()
+                    .map(|models| models.keys().cloned().collect::<Vec<_>>())
+                    .ok_or("model catalog requires a models object".into())
+            });
+        Ok(
+            json!({"experts":experts,"models":models.as_ref().ok(),"modelProblem":models.err(),
+            "projectRoot":self.definitions.identity(Scope::Project,"placeholder")?.root,
+            "personalRoot":self.definitions.identity(Scope::Personal,"placeholder")?.root}),
+        )
+    }
+
+    fn builtin_details(&self, id: &str) -> Result<Value, String> {
+        let expert = crate::preset::EXPERTS
+            .iter()
+            .find(|expert| expert.name == id)
+            .ok_or("unknown built-in expert")?;
+        let groups = [
+            super::Capability::Read,
+            super::Capability::Write,
+            super::Capability::Web,
+            super::Capability::Commands,
+            super::Capability::SkillInstall,
+        ];
+        let capabilities: Vec<_> = groups
+            .into_iter()
+            .filter(|group| {
+                group
+                    .instances()
+                    .iter()
+                    .all(|instance| expert.tools.contains(instance))
+            })
+            .collect();
+        let expanded: std::collections::HashSet<_> = capabilities
+            .iter()
+            .flat_map(|group| group.instances().iter().copied())
+            .collect();
+        if expert.tools.iter().any(|tool| !expanded.contains(tool)) {
+            return Err(
+                "built-in capabilities cannot be represented by the supported groups".into(),
+            );
+        }
+        Ok(
+            json!({"name":format!("builtin:{id}"),"builtin":true,"state":"builtin","ready":true,
+            "copyTemplate":{"v":1,"id":id,"name":id,"description":expert.description,
+                "instructions":expert.prompt,"model":"","capabilities":capabilities},
+            "note":"Choose a project or personal identity and an existing model when copying this built-in. Activation is not copied."}),
+        )
+    }
+
     pub fn candidate(&self, name: &str) -> Result<Candidate, String> {
+        let identity = self.identity(name)?;
+        self.definitions.read(identity.scope, &identity.id)
+    }
+
+    pub fn identity(&self, name: &str) -> Result<Identity, String> {
         let (scope, id) = name
             .split_once(':')
             .ok_or("qualify the expert as project:<id> or personal:<id>")?;
@@ -104,7 +177,7 @@ impl Catalog {
             }
             _ => return Err("unknown expert definition scope".into()),
         };
-        self.definitions.read(scope, id)
+        self.definitions.identity(scope, id)
     }
 
     /// Parse the inspected bytes once using the same catalog normalization as
@@ -174,9 +247,11 @@ impl Catalog {
     }
 
     pub fn resolve(&self, name: &str, current: Option<&LogReader>) -> Result<Execution, String> {
-        let candidate = self.candidate(name)?;
-        let activation = self.activations.read(&candidate.identity)?;
-        self.resolve_candidate(&candidate, activation.as_ref(), current)
+        let identity = self.identity(name)?;
+        let guard = self.activations.lock(&identity)?;
+        let candidate = self.definitions.read(identity.scope, &identity.id)?;
+        let state = guard.read()?;
+        self.resolve_candidate(&candidate, state.as_ref().and_then(Record::active), current)
     }
 
     fn resolve_candidate(
@@ -196,33 +271,74 @@ impl Catalog {
     }
 
     pub fn inspect(&self, name: &str, current: Option<&LogReader>) -> Result<Value, String> {
-        let candidate = self.candidate(name)?;
-        let activation = self.activations.read(&candidate.identity)?;
-        Ok(self.inspect_candidate(&candidate, activation.as_ref(), current))
+        if let Some(id) = name.strip_prefix("builtin:") {
+            return self.builtin_details(id);
+        }
+        let identity = self.identity(name)?;
+        let guard = self.activations.lock(&identity)?;
+        let state = guard.read()?;
+        match self.definitions.find(identity.scope, &identity.id)? {
+            Some(candidate) => Ok(self.inspect_state(&candidate, state.as_ref(), current)),
+            None => Ok(
+                json!({"target":identity,"definition":null,"fileVersion":null,
+                "activation":state,"ready":false,"unavailable":"expert definition does not exist",
+                "state":"absent"}),
+            ),
+        }
     }
 
+    #[cfg(test)]
     pub(super) fn inspect_candidate(
         &self,
         candidate: &Candidate,
         activation: Option<&Activation>,
         current: Option<&LogReader>,
     ) -> Value {
+        self.inspect_state(
+            candidate,
+            activation
+                .map(|record| Record::Active(record.clone()))
+                .as_ref(),
+            current,
+        )
+    }
+
+    pub(super) fn inspect_state(
+        &self,
+        candidate: &Candidate,
+        state: Option<&Record>,
+        current: Option<&LogReader>,
+    ) -> Value {
+        let activation = state.and_then(Record::active);
         let availability = self.resolve_candidate(candidate, activation, current);
+        let status = if availability.is_ok() {
+            "ready"
+        } else if activation.is_some_and(|record| record.matches(candidate)) {
+            "unavailable"
+        } else {
+            "pending"
+        };
         json!({
             "target":candidate.identity,"definition":candidate.definition,
-            "fileVersion":candidate.file_version,"activation":activation,
+            "fileVersion":candidate.file_version,"activation":state,"state":status,
             "ready":availability.is_ok(),"unavailable":availability.err(),
             "activateArguments": {
                 "operation":"activate","target":candidate.identity,
                 "definition":candidate.definition,"fileVersion":candidate.file_version,
-                "expectedActivation":activation
-            }
+                "expectedActivation":state
+            },
+            "putArguments": {"operation":"put","target":candidate.identity,"definition":candidate.definition,
+                "fileVersion":candidate.file_version,"expectedActivation":state},
+            "deleteArguments": {"operation":"delete","target":candidate.identity,
+                "fileVersion":candidate.file_version,"expectedActivation":state}
         })
     }
 
     pub fn review(&self, arguments: &Value) -> Result<String, String> {
         let target: super::Identity = serde_json::from_value(arguments["target"].clone())
             .map_err(|error| format!("invalid activation target: {error}"))?;
+        let identity = self.definitions.identity(target.scope, &target.id)?;
+        let guard = self.activations.lock(&identity)?;
         let candidate = self.definitions.read(target.scope, &target.id)?;
         super::activation::check_candidate(&candidate, arguments)?;
         if arguments["reason"]
@@ -234,15 +350,16 @@ impl Catalog {
         if arguments.get("expectedActivation").is_none() {
             return Err("inspect the expected activation before requesting approval".into());
         }
-        let expected: Option<Activation> =
+        let expected: Option<Record> =
             serde_json::from_value(arguments["expectedActivation"].clone())
                 .map_err(|error| error.to_string())?;
-        if self.activations.read(&candidate.identity)? != expected {
+        if guard.read()? != expected {
             return Err("expert activation changed; inspect it again before approval".into());
         }
         let model = self.model(&candidate)?;
         let prior = expected
             .as_ref()
+            .and_then(Record::active)
             .map(|old| old.revision.as_str())
             .unwrap_or("not activated");
         Ok(format!("{}\nWorkspace/source: {}\nPrevious: {}\nReviewed revision: {}\nModel: {} ({})\nCapabilities: {}\nStanding instructions:\n{}",
@@ -260,8 +377,10 @@ impl Catalog {
         let target: super::Identity =
             serde_json::from_value(event.payload["arguments"]["target"].clone())
                 .map_err(|error| format!("invalid activation target: {error}"))?;
+        let identity = self.definitions.identity(target.scope, &target.id)?;
+        let guard = self.activations.lock(&identity)?;
         let candidate = self.definitions.read(target.scope, &target.id)?;
-        let expected: Option<Activation> =
+        let expected: Option<Record> =
             serde_json::from_value(event.payload["arguments"]["expectedActivation"].clone())
                 .map_err(|error| format!("invalid expected activation: {error}"))?;
         let ledger = reader
@@ -274,7 +393,7 @@ impl Catalog {
         // captures and checks a recipe but never starts a child or a provider.
         let model = self.model(&candidate)?;
         Execution::capture(&candidate, &activation, &model, &self.config.defaults)?;
-        self.activations.commit(&activation, expected.as_ref())?;
+        guard.commit(&Record::Active(activation.clone()), expected.as_ref())?;
         Ok(activation)
     }
 }

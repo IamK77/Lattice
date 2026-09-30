@@ -15,6 +15,7 @@ pub fn manifest() -> ComponentManifest {
         PortDecl::new("verdict", &[ce::TOOL_EXEC_COMPLETED]),
     ];
     declaration.tools.clear();
+    declaration.events.clear();
     declaration.implements.clear();
     declaration
 }
@@ -39,13 +40,29 @@ impl Component for ExpertReview {
         if let Some(object) = payload.as_object_mut() {
             object.remove("admissionReview");
         }
-        if payload["tool"] == ACTIVATE {
+        if [ACTIVATE, SAVE, DELETE].contains(&payload["tool"].as_str().unwrap_or("")) {
             let reviewed = self
                 .definitions
                 .catalog
                 .as_ref()
                 .map_err(Clone::clone)
-                .and_then(|catalog| catalog.review(&payload["arguments"]));
+                .and_then(|catalog| {
+                    if payload["tool"] == ACTIVATE {
+                        catalog.review(&payload["arguments"])
+                    } else {
+                        use crate::experts::management::{Mutation, Operation};
+                        let request = Mutation::parse(&payload["arguments"])?;
+                        let expected = if payload["tool"] == SAVE {
+                            Operation::Put
+                        } else {
+                            Operation::Delete
+                        };
+                        if request.operation != expected {
+                            return Err("expert tool and operation do not match".into());
+                        }
+                        catalog.review_mutation(&payload["arguments"])
+                    }
+                });
             match reviewed {
                 Ok(summary) => payload["admissionReview"] = json!(summary),
                 Err(message) => {

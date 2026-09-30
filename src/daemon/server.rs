@@ -426,6 +426,33 @@ fn core_loop(
                     });
                 }
             },
+            ClientMessage::ManageExperts {
+                stream,
+                request,
+                operation,
+                arguments,
+            } => {
+                // Do not enqueue behind a running model turn. The injector
+                // wakes the driver even when the conversation is idle.
+                if let Some(injector) = interrupters.lock().unwrap().get(&stream) {
+                    injector.emit(
+                        "answer",
+                        EventDraft::new(
+                            ce::EXTERNAL_INPUT,
+                            &[],
+                            json!({
+                                "channel":crate::components::expert_ui::CHANNEL,
+                                "request":request,"operation":operation,"arguments":arguments
+                            }),
+                        ),
+                    );
+                } else {
+                    let _ = outbox.send(ServerMessage::Error {
+                        stream: Some(stream),
+                        message: "unknown stream - attach first".into(),
+                    });
+                }
+            }
             ClientMessage::Detach { stream } => {
                 if let Some(driver) = drivers.get(&stream) {
                     let _ = driver.cmd.send(DriverCmd::Unsubscribe { client_id });

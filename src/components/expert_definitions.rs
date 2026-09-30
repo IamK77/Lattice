@@ -1,29 +1,41 @@
 //! Management of reusable expert activation. Definition files remain editable
 //! data; this provider is the authorized transition into reusable availability.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use serde_json::{json, Value};
 
 use crate::contracts::component::{ComponentManifest, EffectSurface, PortDecl, RuntimeKind};
+use crate::contracts::event::EventTypeDecl;
 use crate::experts::activation::ACTIVATE;
 use crate::experts::catalog::{Catalog, Config};
+use crate::experts::management::{DELETE, LIST, SAVE};
 use crate::{core_events as ce, Component, Ctx, EventDraft, EventEnvelope};
 
+mod confirmation;
+mod management_tools;
 pub mod review;
+
+pub const AUTH_REQUESTED: &str = "experts.authorization_requested";
+pub const DECISION: &str = "experts.authorization_decided";
 
 pub const NAME: &str = "expert-definitions";
 pub const INSPECT: &str = "InspectExpert";
 
 pub fn manifest() -> ComponentManifest {
-    ComponentManifest {
+    let mut manifest = ComponentManifest {
         name: NAME.into(),
         version: env!("CARGO_PKG_VERSION").into(),
         runtime: RuntimeKind::Inproc,
         entry: format!("builtin:{NAME}"),
-        inputs: vec![PortDecl::new("execute", &[ce::TOOL_EXEC_STARTED])],
-        outputs: vec![PortDecl::new("outcome", &[ce::TOOL_EXEC_COMPLETED])],
-        events: vec![],
+        inputs: vec![PortDecl::new("execute", &[ce::TOOL_EXEC_STARTED]), PortDecl::new("answer", &[ce::EXTERNAL_INPUT]), PortDecl::new("control", &[ce::INTERRUPTED])],
+        outputs: vec![PortDecl::new("outcome", &[ce::TOOL_EXEC_COMPLETED]), PortDecl::new("request", &[AUTH_REQUESTED]), PortDecl::new("decision", &[DECISION]), PortDecl::new("interrupted", &[ce::INTERRUPTED])],
+        events: vec![
+            EventTypeDecl::new(AUTH_REQUESTED,"Deleting a reusable expert awaits human confirmation")
+                .with_schema(json!({"type":"object","required":["request","held","tool","confirmation","summary"]})),
+            EventTypeDecl::decision(DECISION,"The user approved or refused deleting an expert")
+                .with_schema(json!({"type":"object","required":["held","verdict"]})),
+        ],
         default_wiring: vec![],
         implements: vec!["tool-provider".into()],
         capabilities: Some(EffectSurface {
@@ -39,9 +51,9 @@ pub fn manifest() -> ComponentManifest {
         tools: vec![
             json!({
                 "name":INSPECT,
-                "description":"Inspect a reusable expert definition, its exact file version, activation and availability. Use project:<id> or personal:<id>. A definition file alone is not permission to run it. The result supplies the full arguments for ActivateExpert; add a reason before requesting approval.",
+                "description":"Inspect an expert's exact content, file version, activation state and mutation arguments. Use project:<id>, personal:<id>, or builtin:<id>. Missing custom identities return an absent slot for creation. Built-ins return their actual copyTemplate; select a model and a custom destination before saving. Add a reason to the returned save, activate or delete arguments.",
                 "parameters":{"type":"object","properties":{"expert":{"type":"string"}},"required":["expert"],"additionalProperties":false},
-                "effects":{"reads":["expert definitions, model catalog and authorization evidence"],"writes":["process credential references"],"network":[],"executes":false}
+                "effects":{"reads":["expert definitions, model catalog and authorization evidence"],"writes":["expert state locks and process credential references"],"network":[],"executes":false}
             }),
             json!({
                 "name":ACTIVATE,
@@ -62,12 +74,15 @@ pub fn manifest() -> ComponentManifest {
                 "effects":{"reads":["*"],"writes":["*"],"network":["*"],"executes":true,"admits":"reusable-expert-definition","reversible":false}
             }),
         ],
-    }
+    };
+    manifest.tools.extend(management_tools::declarations());
+    manifest
 }
 
 pub struct ExpertDefinitions {
     catalog: Result<Catalog, String>,
     handled: HashSet<String>,
+    pending: HashMap<String, EventEnvelope>,
 }
 
 impl ExpertDefinitions {
@@ -81,14 +96,28 @@ impl ExpertDefinitions {
         Self {
             catalog,
             handled: HashSet::new(),
+            pending: HashMap::new(),
         }
     }
 }
 
 impl Component for ExpertDefinitions {
     fn handle(&mut self, _port: &str, event: &EventEnvelope, ctx: &mut Ctx) {
+        if matches!(
+            event.event_type.as_str(),
+            ce::EXTERNAL_INPUT | ce::INTERRUPTED
+        ) {
+            if let Err(error) = self.handle_confirmation(event, ctx) {
+                ctx.fail(
+                    "expert confirmation history",
+                    error,
+                    std::slice::from_ref(&event.id),
+                );
+            }
+            return;
+        }
         let tool = event.payload["tool"].as_str().unwrap_or("");
-        if tool != INSPECT && tool != ACTIVATE {
+        if ![INSPECT, ACTIVATE, LIST, SAVE, DELETE].contains(&tool) {
             return;
         }
         match ctx.log().has_outcome(&event.id) {
@@ -106,39 +135,65 @@ impl Component for ExpertDefinitions {
         if !self.handled.insert(event.id.clone()) {
             return;
         }
-        let result = self
-            .catalog
-            .as_ref()
-            .map_err(Clone::clone)
-            .and_then(|catalog| {
-                let reader = ctx.log();
-                if tool == INSPECT {
-                    let name = event.payload["arguments"]["expert"]
+        use crate::experts::management::{Failure, Mutation, Operation};
+        let result = (|| -> Result<Option<Value>, Failure> {
+            let catalog = self.catalog.as_ref().map_err(Clone::clone)?;
+            let arguments = &event.payload["arguments"];
+            let reader = ctx.log();
+            let value = match tool {
+                LIST => catalog.management_listing(Some(reader))?,
+                INSPECT => catalog.inspect(
+                    arguments["expert"]
                         .as_str()
-                        .ok_or("expert must be qualified")?;
-                    catalog.inspect(name, Some(reader))
-                } else {
-                    if event.payload["arguments"]["reason"]
+                        .ok_or_else(|| "expert must be qualified".to_string())?,
+                    Some(reader),
+                )?,
+                ACTIVATE => {
+                    if arguments["reason"]
                         .as_str()
                         .is_none_or(|reason| reason.trim().is_empty())
                     {
-                        return Err("expert activation requires a nonempty reason".into());
+                        return Err("expert activation requires a nonempty reason"
+                            .to_string()
+                            .into());
                     }
-                    catalog
-                        .activate(event, reader)
-                        .map(|activation| json!({"activation":activation}))
+                    json!({"activation":catalog.activate(event, reader)?})
                 }
-            });
-        let mut payload = match result {
-            Ok(value) => json!({"status":"ok","result":value}),
-            Err(message) => {
-                json!({"status":"error","error":{"code":"expert.unavailable","message":message,"blame":"request","retryable":false,"transient":false}})
-            }
-        };
-        payload["call"] = event.payload["call"].clone();
-        ctx.emit(
-            "outcome",
-            EventDraft::new(ce::TOOL_EXEC_COMPLETED, &[&event.id], payload),
-        );
+                SAVE => {
+                    if event.source != catalog.config.gate
+                        || Mutation::parse(arguments)?.operation != Operation::Put
+                    {
+                        return Err(
+                            "saving requires the reviewed put request from the admission gate"
+                                .to_string()
+                                .into(),
+                        );
+                    }
+                    catalog.apply_mutation(arguments, Self::audit_reference(event, reader)?)?
+                }
+                DELETE => {
+                    if Mutation::parse(arguments)?.operation != Operation::Delete {
+                        return Err("DeleteExpert requires a delete operation"
+                            .to_string()
+                            .into());
+                    }
+                    let summary = catalog.review_mutation(arguments)?;
+                    Self::audit_reference(event, reader)?;
+                    self.pending.insert(event.id.clone(), event.clone());
+                    ctx.emit("request", EventDraft::new(AUTH_REQUESTED, &[&event.id], json!({
+                        "request":event.id,"held":event.id,"tool":DELETE,"confirmation":"expert-delete",
+                        "summary":summary,"reason":arguments["reason"]
+                    })));
+                    return Ok(None);
+                }
+                _ => unreachable!(),
+            };
+            Ok(Some(value))
+        })();
+        match result {
+            Ok(None) => {}
+            Ok(Some(value)) => Self::finish(event, None, Ok(value), ctx),
+            Err(error) => Self::finish(event, None, Err(error), ctx),
+        }
     }
 }

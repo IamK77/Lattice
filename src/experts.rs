@@ -3,6 +3,8 @@
 pub mod activation;
 pub mod catalog;
 pub mod execution;
+pub mod management;
+pub mod state;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -176,6 +178,19 @@ impl Definitions {
     }
 
     pub fn read(&self, scope: Scope, id: &str) -> Result<Candidate, String> {
+        self.find(scope, id)?.ok_or_else(|| {
+            format!(
+                "expert definition {}:{id} does not exist",
+                match scope {
+                    Scope::Project => "project",
+                    Scope::Personal => "personal",
+                }
+            )
+        })
+    }
+
+    /// Only absence is empty. Broken JSON, links and unreadable files remain errors.
+    pub fn find(&self, scope: Scope, id: &str) -> Result<Option<Candidate>, String> {
         use std::io::Read;
         let identity = self.identity(scope, id)?;
         let path = self.path(scope, id)?;
@@ -186,9 +201,11 @@ impl Definitions {
             use std::os::unix::fs::OpenOptionsExt;
             options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
         }
-        let file = options
-            .open(&path)
-            .map_err(|error| format!("cannot open {}: {error}", path.display()))?;
+        let file = match options.open(&path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(format!("cannot open {}: {error}", path.display())),
+        };
         let metadata = file
             .metadata()
             .map_err(|error| format!("cannot inspect {}: {error}", path.display()))?;
@@ -211,11 +228,11 @@ impl Definitions {
         if definition.id != id {
             return Err("expert definition id does not match its file name".into());
         }
-        Ok(Candidate {
+        Ok(Some(Candidate {
             identity,
             definition,
             file_version: digest(&bytes),
-        })
+        }))
     }
 }
 
@@ -225,5 +242,7 @@ mod activation_tests;
 mod catalog_tests;
 #[cfg(test)]
 mod definition_schema_tests;
+#[cfg(test)]
+mod management_pipeline_tests;
 #[cfg(test)]
 mod tests;

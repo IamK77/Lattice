@@ -109,7 +109,9 @@ impl Projection {
             self.state.waiting = true;
         }
         match event.event_type.as_str() {
-            "trust.authorization_requested" | "browser.authorization_requested" => {
+            "trust.authorization_requested"
+            | "browser.authorization_requested"
+            | "experts.authorization_requested" => {
                 if !self
                     .state
                     .pending_auth
@@ -127,6 +129,7 @@ impl Projection {
             }
             "trust.gate.decision"
             | "browser.authorization_decided"
+            | "experts.authorization_decided"
             | ce::INTERRUPTED
             | ce::TOOL_EXEC_COMPLETED => {
                 self.state.pending_auth.retain(|card| {

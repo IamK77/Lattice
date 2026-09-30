@@ -1,0 +1,33 @@
+# Drive the real UI with an isolated scripted model named preview.
+type /experts
+key enter
+wait
+frame
+key enter
+wait
+frame
+key c
+type review-copy
+key tab
+type Copy
+key tab
+key tab
+type preview
+key tab
+key tab
+paste \nAlso review cancellation boundaries.
+frame
+key f2
+wait
+frame
+key up
+key enter
+wait
+frame
+key a
+wait
+frame
+key up
+key enter
+wait
+frame

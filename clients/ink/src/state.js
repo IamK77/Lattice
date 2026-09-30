@@ -52,12 +52,12 @@ function newStream(id, kind, parent) {
 // a decision names the call it reviewed, not the question asked about it.
 export function authPhase(prev, event) {
   const open = prev ?? [];
-  if (['trust.authorization_requested', 'browser.authorization_requested'].includes(event.type)) {
+  if (['trust.authorization_requested', 'browser.authorization_requested', 'experts.authorization_requested'].includes(event.type)) {
     const held = event.payload?.held ?? event.causes?.[0] ?? null;
     if (open.some((card) => card.request === event.id)) return open;
     return [...open, { request: event.id, held }];
   }
-  if (['trust.gate.decision', 'browser.authorization_decided', 'core.control.interrupted', 'core.tool.exec_completed'].includes(event.type)) {
+  if (['trust.gate.decision', 'browser.authorization_decided', 'experts.authorization_decided', 'core.control.interrupted', 'core.tool.exec_completed'].includes(event.type)) {
     const settled = [...(event.causes ?? []), event.payload?.held].filter(Boolean);
     return open.filter((card) => !settled.includes(card.held));
   }

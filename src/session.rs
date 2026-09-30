@@ -738,6 +738,23 @@ impl Session {
         );
     }
 
+    /// Run one expert-management operation through the ordinary provider and
+    /// authorization route, even while a model turn is busy. The frontend's
+    /// correlation ID is returned by experts.ui.result; this is not chat input.
+    pub fn manage_experts(&self, request: &str, operation: &str, arguments: Value) {
+        self.interrupter.emit(
+            "answer",
+            EventDraft::new(
+                ce::EXTERNAL_INPUT,
+                &[],
+                json!({
+                    "channel":crate::components::expert_ui::CHANNEL,
+                    "request":request,"operation":operation,"arguments":arguments
+                }),
+            ),
+        );
+    }
+
     /// Put a catalog edit on the ledger. The file is written by the caller —
     /// it is the frontend's own file and the person is owed an answer at the
     /// keystroke, not after a round trip — so this reports rather than asks.
@@ -954,7 +971,8 @@ pub fn render_line(event: &EventEnvelope) -> Option<(&'static str, String)> {
             ),
         )),
         t if t == crate::components::trust_policy::AUTH_REQUESTED
-            || t == crate::components::browser_tools::AUTH_REQUESTED =>
+            || t == crate::components::browser_tools::AUTH_REQUESTED
+            || t == crate::components::expert_definitions::AUTH_REQUESTED =>
         {
             Some((
                 "notice",

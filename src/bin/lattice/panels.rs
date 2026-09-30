@@ -17,6 +17,8 @@ pub(super) mod compose;
 pub(super) mod config;
 #[path = "panels/context.rs"]
 pub(super) mod context;
+#[path = "panels/experts.rs"]
+pub(super) mod experts;
 #[path = "panels/models.rs"]
 pub(super) mod models;
 #[path = "panels/navigation.rs"]
@@ -31,7 +33,7 @@ pub(super) const PANELS: &[(&str, &[&str])] = &[
     ("help", &["Commands", "Keys"]),
     ("cost", &["Context", "Usage"]),
     ("setup", &["Session", "Config", "Models", "Components"]),
-    ("work", &["Background"]),
+    ("work", &["Background", "Experts"]),
 ];
 pub(super) const AT_COMMANDS: (usize, usize) = (0, 0);
 pub(super) const AT_CONTEXT: (usize, usize) = (1, 0);
@@ -42,6 +44,7 @@ pub(super) const AT_CONFIG: (usize, usize) = (2, 1);
 pub(super) const AT_MODELS: (usize, usize) = (2, 2);
 pub(super) const AT_COMPONENTS: (usize, usize) = (2, 3);
 pub(super) const AT_BACKGROUND: (usize, usize) = (3, 0);
+pub(super) const AT_EXPERTS: (usize, usize) = (3, 1);
 
 pub(super) fn panel_tabs(panel: usize) -> &'static [&'static str] {
     PANELS.get(panel).map(|(_, t)| *t).unwrap_or(&[])

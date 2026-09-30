@@ -8,7 +8,7 @@ use crate::kernel::log::Header;
 use crate::LogReader;
 
 const KEY: &str = "minimal-loop-material";
-const VERSION: u32 = 2;
+const VERSION: u32 = 3;
 const CHECKPOINT_INTERVAL: u64 = 256;
 
 #[derive(Default)]
@@ -35,18 +35,8 @@ impl Material {
         ) {
             return Ok(());
         }
-        if matches!(
-            header.event_type.as_str(),
-            ce::MODEL_CALL_COMPLETED | ce::INTERRUPTED
-        ) {
-            if let Some(cause) = header.causes.first() {
-                if reader
-                    .header(cause)?
-                    .is_some_and(|request| request.has_purpose)
-                {
-                    return Ok(());
-                }
-            }
+        if crate::components::call_purpose::auxiliary_header(reader, header)? {
+            return Ok(());
         }
         self.supersede(header)?;
         self.parts

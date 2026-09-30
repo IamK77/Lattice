@@ -6,7 +6,7 @@ use super::*;
 use crate::preset::PresetConfig;
 use serde_json::json;
 
-fn setup() -> (tempfile::TempDir, Catalog, Candidate, Activation) {
+pub(super) fn setup() -> (tempfile::TempDir, Catalog, Candidate, Activation) {
     let (directory, definitions) = fixture();
     put(
         &definitions,

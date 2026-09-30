@@ -71,6 +71,7 @@ export function renderLine(event) {
         call: p.call ?? null,
         text: `${p.tool ?? '?'} ${JSON.stringify(p.arguments ?? {})}`,
       };
+    case 'experts.authorization_requested':
     case 'browser.authorization_requested':
     case 'trust.authorization_requested':
       return {

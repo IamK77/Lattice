@@ -193,6 +193,14 @@ impl MinimalLoop {
 
 impl Component for MinimalLoop {
     fn handle(&mut self, port: &str, event: &EventEnvelope, ctx: &mut Ctx) {
+        match super::call_purpose::auxiliary(ctx.log(), event) {
+            Ok(true) => return,
+            Ok(false) => {}
+            Err(error) => {
+                ctx.fail("classify conversation outcome", error.to_string(), &[]);
+                return;
+            }
+        }
         if let Err(error) = self.accept_material(ctx.log(), event) {
             ctx.fail("restore conversation material", error.to_string(), &[]);
             return;

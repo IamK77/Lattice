@@ -28,6 +28,10 @@ pub(super) const SLASH: &[Slash] = &[
         summary: "request one compaction attempt, including when automatic compaction is paused",
     },
     Slash {
+        name: "/experts",
+        summary: "create, inspect and manage reusable experts",
+    },
+    Slash {
         name: "/background",
         summary: "what is running or armed away from this conversation",
     },

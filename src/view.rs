@@ -590,6 +590,11 @@ pub trait View {
         None
     }
 
+    /// Frontend-owned expert management state, not conversation material.
+    fn expert_rows(&self) -> Vec<(String, String)> {
+        Vec::new()
+    }
+
     /// A deletion waiting to be confirmed, named so the question can say what
     /// it is about to destroy.
     fn confirm_delete(&self) -> Option<String> {
@@ -770,7 +775,8 @@ pub fn ingest(entries: &mut Vec<Entry>, event: &EventEnvelope) -> bool {
             }
         }
         t if t == trust_policy::AUTH_REQUESTED
-            || t == crate::components::browser_tools::AUTH_REQUESTED =>
+            || t == crate::components::browser_tools::AUTH_REQUESTED
+            || t == crate::components::expert_definitions::AUTH_REQUESTED =>
         {
             entries.push(Entry::Approval(approval_text(&event.payload)));
             return true;
@@ -905,6 +911,9 @@ fn approval_text(payload: &Value) -> String {
 pub fn authorization_description(payload: &Value) -> String {
     let tool = payload["tool"].as_str().unwrap_or("something");
     let summary = payload["summary"].as_str().unwrap_or_default();
+    if payload["confirmation"] == "expert-delete" {
+        return format!("Confirm expert deletion\n    {summary}");
+    }
     // The summary usually reads "tool: subject"; the tool is named already
     let subject = summary
         .strip_prefix(tool)
