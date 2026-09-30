@@ -303,14 +303,12 @@ impl ExpertControls {
                 };
             }
             "activate" => {
-                if let Some(details) = &self.details {
-                    let name = format!(
-                        "{}:{}",
-                        details["target"]["scope"].as_str().unwrap_or("project"),
-                        details["target"]["id"].as_str().unwrap_or_default()
-                    );
-                    self.request("inspect", json!({"expert":name}), "inspect");
-                }
+                self.details = result.get("details").cloned();
+                self.notice = if result["details"]["ready"] == true {
+                    "Activated. This revision is ready to use.".into()
+                } else {
+                    "Activation recorded. Check availability before delegating.".into()
+                };
             }
             "delete" => {
                 self.details = None;
@@ -430,12 +428,14 @@ impl ExpertControls {
             }
             KeyCode::Char('a' | 'd') if self.details.is_some() => {
                 let details = self.details.as_ref().unwrap();
-                let (field, operation) = if key == KeyCode::Char('a') {
-                    ("activateArguments", "activate")
+                let operation = if key == KeyCode::Char('a') {
+                    "activate"
                 } else {
-                    ("deleteArguments", "delete")
+                    "delete"
                 };
-                if let Some(mut arguments) = details.get(field).cloned() {
+                if let Ok(mut arguments) =
+                    lattice::experts::catalog::mutation_arguments(details, operation)
+                {
                     arguments["reason"] = json!(format!(
                         "{} the inspected expert from its management panel",
                         operation

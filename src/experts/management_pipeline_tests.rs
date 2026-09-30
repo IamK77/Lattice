@@ -143,10 +143,59 @@ fn outcomes(kernel: &Kernel) -> Vec<EventEnvelope> {
         .collect()
 }
 #[test]
+fn managed_results_chain_save_activate_and_delete_without_reinspection() {
+    use super::catalog::mutation_arguments;
+    let (dir, catalog, _, _) = setup();
+    let mut kernel = kernel(&catalog, &dir.path().join("chain.jsonl"));
+    call(
+        &mut kernel,
+        provider::INSPECT,
+        json!({"expert":"project:reviewer"}),
+    );
+    let details = outcomes(&kernel).last().unwrap().payload["result"].clone();
+    let mut save = mutation_arguments(&details, "put").unwrap();
+    save["definition"]["instructions"] = json!("Review the newly selected boundary.");
+    save["reason"] = json!("Save the selected revision");
+    call(&mut kernel, SAVE, save);
+    let q = question(&kernel, trust::AUTH_REQUESTED);
+    answer(&mut kernel, &q, true);
+    let saved = outcomes(&kernel).last().unwrap().payload["result"]["details"].clone();
+    assert_eq!(saved["state"], "pending");
+    let mut activate = mutation_arguments(&saved, "activate").unwrap();
+    activate["reason"] = json!("Activate the saved revision");
+    call(&mut kernel, super::activation::ACTIVATE, activate);
+    let q = question(&kernel, trust::AUTH_REQUESTED);
+    answer(&mut kernel, &q, true);
+    let activated = outcomes(&kernel).last().unwrap().payload["result"].clone();
+    assert_eq!(activated["activated"], true);
+    assert_eq!(activated["details"]["ready"], true);
+    assert_ne!(activated["details"]["activation"], saved["activation"]);
+    assert_eq!(activated["details"]["fileVersion"], saved["fileVersion"]);
+    let mut delete = mutation_arguments(&activated["details"], "delete").unwrap();
+    delete["reason"] = json!("Remove the inspected revision");
+    call(&mut kernel, DELETE, delete);
+    let q = question(&kernel, provider::AUTH_REQUESTED);
+    answer(&mut kernel, &q, true);
+    let results = outcomes(&kernel);
+    assert_eq!(
+        results.len(),
+        4,
+        "one inspection followed by three mutations"
+    );
+    assert!(results.iter().all(|event| event.payload["status"] == "ok"));
+    assert_eq!(results.last().unwrap().payload["result"]["deleted"], true);
+    assert!(catalog.candidate("project:reviewer").is_err());
+}
+
+#[test]
 fn managed_save_waits_for_reviewed_admission_and_returns_pending_revision() {
     let (dir, catalog, _, _) = setup();
     let mut kernel = kernel(&catalog, &dir.path().join("management.jsonl"));
-    let mut arguments = catalog.inspect("project:reviewer", None).unwrap()["putArguments"].clone();
+    let mut arguments = super::catalog::mutation_arguments(
+        &catalog.inspect("project:reviewer", None).unwrap(),
+        "put",
+    )
+    .unwrap();
     arguments["reason"] = json!("Update the review instructions");
     arguments["definition"]["instructions"] = json!("Review changed boundaries only.");
     call(&mut kernel, SAVE, arguments);
@@ -168,8 +217,11 @@ fn managed_save_waits_for_reviewed_admission_and_returns_pending_revision() {
 fn deletion_refusal_and_late_approval_never_remove_the_definition() {
     let (dir, catalog, candidate, _) = setup();
     let mut kernel = kernel(&catalog, &dir.path().join("management.jsonl"));
-    let mut arguments =
-        catalog.inspect("project:reviewer", None).unwrap()["deleteArguments"].clone();
+    let mut arguments = super::catalog::mutation_arguments(
+        &catalog.inspect("project:reviewer", None).unwrap(),
+        "delete",
+    )
+    .unwrap();
     arguments["reason"] = json!("Remove unused reviewer");
     call(&mut kernel, DELETE, arguments);
     let question = question(&kernel, provider::AUTH_REQUESTED);
@@ -189,8 +241,11 @@ fn deletion_refusal_and_late_approval_never_remove_the_definition() {
 fn deletion_rechecks_the_file_after_confirmation_and_accepts_only_the_current_revision() {
     let (dir, catalog, candidate, _) = setup();
     let mut kernel = kernel(&catalog, &dir.path().join("management.jsonl"));
-    let mut arguments =
-        catalog.inspect("project:reviewer", None).unwrap()["deleteArguments"].clone();
+    let mut arguments = super::catalog::mutation_arguments(
+        &catalog.inspect("project:reviewer", None).unwrap(),
+        "delete",
+    )
+    .unwrap();
     arguments["reason"] = json!("Remove unused reviewer");
     call(&mut kernel, DELETE, arguments);
     let first = question(&kernel, provider::AUTH_REQUESTED);
@@ -203,8 +258,11 @@ fn deletion_rechecks_the_file_after_confirmation_and_accepts_only_the_current_re
     answer(&mut kernel, &first, true);
     assert_eq!(outcomes(&kernel)[0].payload["status"], "error");
     assert_eq!(std::fs::read_to_string(&path).unwrap(), changed);
-    let mut arguments =
-        catalog.inspect("project:reviewer", None).unwrap()["deleteArguments"].clone();
+    let mut arguments = super::catalog::mutation_arguments(
+        &catalog.inspect("project:reviewer", None).unwrap(),
+        "delete",
+    )
+    .unwrap();
     arguments["reason"] = json!("Remove the freshly inspected revision");
     call(&mut kernel, DELETE, arguments);
     let second = question(&kernel, provider::AUTH_REQUESTED);
@@ -219,7 +277,11 @@ fn deletion_rechecks_the_file_after_confirmation_and_accepts_only_the_current_re
 fn frontend_bridge_uses_the_real_gate_without_creating_a_model_turn() {
     let (dir, catalog, _, _) = setup();
     let mut kernel = kernel(&catalog, &dir.path().join("management.jsonl"));
-    let mut arguments = catalog.inspect("project:reviewer", None).unwrap()["putArguments"].clone();
+    let mut arguments = super::catalog::mutation_arguments(
+        &catalog.inspect("project:reviewer", None).unwrap(),
+        "put",
+    )
+    .unwrap();
     arguments["reason"] = json!("Save from the expert panel");
     arguments["definition"]["instructions"] = json!("Review the chosen boundary.");
     kernel.injector("driver").emit("answers", EventDraft::new(ce::EXTERNAL_INPUT, &[], json!({

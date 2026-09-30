@@ -31,6 +31,7 @@ fn panel_copy_save_activate_and_delete_use_real_authorization_without_model_turn
     for expected in [
         "● Needs activation",
         "● Ready",
+        "Tool root",
         "Confirm expert deletion",
         "user refused expert deletion",
         "Deleted.",
@@ -49,6 +50,10 @@ fn panel_copy_save_activate_and_delete_use_real_authorization_without_model_turn
     assert!(!events
         .iter()
         .any(|event| event["type"] == lattice::core_events::MODEL_CALL_STARTED));
+    assert_eq!(events.iter().filter(|event| event["type"] == lattice::core_events::TOOL_EXEC_STARTED
+        && event["source"] == "expert-ui"
+        && event["payload"]["tool"] == lattice::components::expert_definitions::INSPECT).count(), 2,
+        "only inspect the built-in source and the new destination; activation returns its own fresh snapshot");
     assert_eq!(events.iter().filter(|event| event["type"] == lattice::components::expert_definitions::AUTH_REQUESTED).count(), 2);
     assert_eq!(
         events

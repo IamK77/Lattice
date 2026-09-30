@@ -197,9 +197,97 @@ fn short_names_never_silently_override_a_builtin_or_another_scope() {
 }
 
 #[test]
+fn inspected_content_is_returned_once_and_preserves_all_mutation_preconditions() {
+    let (_directory, catalog, candidate, _) = setup();
+    let mut definition = candidate.definition.clone();
+    definition.instructions = "Review each changed boundary carefully. ".repeat(256);
+    std::fs::write(
+        catalog
+            .definitions
+            .path(candidate.identity.scope, &candidate.identity.id)
+            .unwrap(),
+        serde_json::to_vec(&definition).unwrap(),
+    )
+    .unwrap();
+    let details = catalog.inspect("project:reviewer", None).unwrap();
+    let encoded = serde_json::to_string(&details).unwrap();
+    assert_eq!(encoded.matches(&definition.instructions).count(), 1);
+    assert_eq!(
+        details["toolRoot"],
+        json!(catalog.config.defaults.workspace)
+    );
+    let mut old = details.clone();
+    for (operation, field) in [
+        ("put", "putArguments"),
+        ("activate", "activateArguments"),
+        ("delete", "deleteArguments"),
+    ] {
+        let args = super::catalog::mutation_arguments(&details, operation).unwrap();
+        assert_eq!(args["target"], details["target"]);
+        assert_eq!(args["fileVersion"], details["fileVersion"]);
+        assert_eq!(args["expectedActivation"], details["activation"]);
+        assert_eq!(
+            args.get("definition"),
+            if operation == "delete" {
+                None
+            } else {
+                Some(&details["definition"])
+            }
+        );
+        assert!(details.get(field).is_none());
+        old[field] = args;
+    }
+    let old_len = serde_json::to_vec(&old).unwrap().len();
+    println!(
+        "Inspection bytes: compact={}, repeated={old_len}",
+        encoded.len()
+    );
+    assert!(
+        encoded.len() * 2 < old_len,
+        "large definitions must not be duplicated in action templates"
+    );
+    let builtin = catalog.inspect("builtin:explorer", None).unwrap();
+    assert!(super::catalog::mutation_arguments(&builtin, "delete").is_err());
+    let mut incomplete = details.clone();
+    incomplete.as_object_mut().unwrap().remove("activation");
+    assert!(super::catalog::mutation_arguments(&incomplete, "put").is_err());
+}
+
+#[test]
+fn personal_storage_does_not_change_the_reported_file_tool_root() {
+    let (_directory, mut catalog, candidate, _) = setup();
+    put(
+        &catalog.definitions,
+        Scope::Personal,
+        &serde_json::to_vec(&candidate.definition).unwrap(),
+    );
+    let details = catalog.inspect("personal:reviewer", None).unwrap();
+    assert_eq!(
+        details["target"]["root"],
+        json!(catalog.config.home.canonicalize().unwrap())
+    );
+    assert_eq!(
+        details["toolRoot"],
+        json!(catalog.config.defaults.workspace)
+    );
+    assert_ne!(details["target"]["root"], details["toolRoot"]);
+    catalog.config.defaults.workspace = None;
+    assert!(catalog.inspect("personal:reviewer", None).unwrap()["toolRoot"].is_null());
+    assert!(catalog.management_listing(None).unwrap()["toolRoot"].is_null());
+    let absent = catalog.inspect("personal:missing", None).unwrap();
+    assert!(super::catalog::mutation_arguments(&absent, "put").is_ok());
+    assert!(super::catalog::mutation_arguments(&absent, "activate").is_err());
+    assert!(super::catalog::mutation_arguments(&absent, "delete").is_err());
+}
+
+#[test]
 fn invalid_activation_is_rejected_before_a_human_question_is_needed() {
     let (_directory, catalog, _candidate, _activation) = setup();
-    let mut args = catalog.inspect("project:reviewer", None).unwrap()["activateArguments"].clone();
+    let mut args = super::catalog::mutation_arguments(
+        &catalog.inspect("project:reviewer", None).unwrap(),
+        "activate",
+    )
+    .unwrap();
     args["reason"] = json!("Confirm this version");
     assert!(catalog
         .review(&args)

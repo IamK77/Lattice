@@ -253,6 +253,12 @@ pub(crate) fn lines(view: &dyn View, width: usize) -> Vec<Line<'static>> {
                 },
             );
             c.field("Access", &access(&definition["capabilities"]));
+            if let Some(root) = details.get("toolRoot") {
+                c.field(
+                    "Tool root",
+                    root.as_str().unwrap_or("Not confined by a configured root"),
+                );
+            }
             c.blank();
             c.text("INSTRUCTIONS", DIM);
             c.rule();

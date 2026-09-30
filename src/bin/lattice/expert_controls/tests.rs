@@ -3,8 +3,7 @@ fn definition() -> Value {
     json!({"v":1,"id":"reviewer","name":"Reviewer","description":"Review changes","instructions":"Check boundaries","model":"configured-model","capabilities":["read"]})
 }
 fn details() -> Value {
-    json!({"target":{"scope":"personal","root":"/fixture/home","id":"reviewer"},"definition":definition(),"fileVersion":"old-file","activation":null,
-        "activateArguments":{"operation":"activate","target":{"scope":"personal","id":"reviewer"},"expectedActivation":null}})
+    json!({"target":{"scope":"personal","root":"/fixture/home","id":"reviewer"},"definition":definition(),"fileVersion":"old-file","activation":null})
 }
 fn deliver(ui: &mut ExpertControls, payload: Value) {
     let mut payload = payload;
@@ -187,18 +186,31 @@ fn expert_list_navigation_follows_the_visual_scope_order() {
 }
 
 #[test]
-fn activation_refreshes_exact_state_instead_of_reusing_stale_delete_arguments() {
+fn activation_supplies_exact_state_for_deletion_without_another_inspection() {
     let mut ui = ExpertControls {
         details: Some(details()),
         ..Default::default()
     };
     ui.key(KeyCode::Char('a'));
     ui.outgoing.clear();
+    let mut activated = details();
+    activated["activation"] = json!({"v":1,"revision":"new-approval"});
+    activated["ready"] = json!(true);
     deliver(
         &mut ui,
-        json!({"status":"ok","result":{"activation":{"v":1}}}),
+        json!({"status":"ok","result":{"activated":true,"details":activated}}),
     );
+    assert!(
+        ui.outgoing.is_empty(),
+        "activation must not cause a redundant inspect call"
+    );
+    ui.key(KeyCode::Char('d'));
     assert_eq!(ui.outgoing.len(), 1);
-    assert_eq!(ui.outgoing[0].1, "inspect");
-    assert_eq!(ui.outgoing[0].2["expert"], "personal:reviewer");
+    assert_eq!(ui.outgoing[0].1, "delete");
+    assert_eq!(
+        ui.outgoing[0].2["expectedActivation"],
+        activated["activation"]
+    );
+    assert_eq!(ui.outgoing[0].2["fileVersion"], activated["fileVersion"]);
+    assert!(ui.outgoing[0].2.get("definition").is_none());
 }

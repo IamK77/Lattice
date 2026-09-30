@@ -22,6 +22,29 @@ pub struct Config {
     pub defaults: crate::preset::PresetConfig,
 }
 
+/// Build a request from one inspected snapshot. This is not authorization:
+/// providers still validate the exact version and state after human approval.
+pub fn mutation_arguments(details: &Value, operation: &str) -> Result<Value, String> {
+    if !matches!(operation, "put" | "activate" | "delete") {
+        return Err("unknown expert mutation operation".into());
+    }
+    if !details["target"].is_object()
+        || details.get("fileVersion").is_none()
+        || details.get("activation").is_none()
+    {
+        return Err("inspect a custom expert before changing it".into());
+    }
+    if operation != "put" && !details["fileVersion"].is_string() {
+        return Err("the inspected expert definition does not exist".into());
+    }
+    let mut arguments = json!({"operation":operation,"target":details["target"],
+        "fileVersion":details["fileVersion"],"expectedActivation":details["activation"]});
+    if operation != "delete" {
+        arguments["definition"] = details["definition"].clone();
+    }
+    Ok(arguments)
+}
+
 pub struct Catalog {
     pub config: Config,
     pub definitions: Definitions,
@@ -116,7 +139,7 @@ impl Catalog {
                     .ok_or("model catalog requires a models object".into())
             });
         Ok(
-            json!({"experts":experts,"models":models.as_ref().ok(),"modelProblem":models.err(),
+            json!({"experts":experts,"models":models.as_ref().ok(),"modelProblem":models.err(),"toolRoot":self.config.defaults.workspace,
             "projectRoot":self.definitions.identity(Scope::Project,"placeholder")?.root,
             "personalRoot":self.definitions.identity(Scope::Personal,"placeholder")?.root}),
         )
@@ -153,7 +176,7 @@ impl Catalog {
             );
         }
         Ok(
-            json!({"name":format!("builtin:{id}"),"builtin":true,"state":"builtin","ready":true,
+            json!({"name":format!("builtin:{id}"),"builtin":true,"state":"builtin","ready":true,"toolRoot":self.config.defaults.workspace,
             "copyTemplate":{"v":1,"id":id,"name":id,"description":expert.description,
                 "instructions":expert.prompt,"model":"","capabilities":capabilities},
             "note":"Choose a project or personal identity and an existing model when copying this built-in. Activation is not copied."}),
@@ -282,7 +305,7 @@ impl Catalog {
             None => Ok(
                 json!({"target":identity,"definition":null,"fileVersion":null,
                 "activation":state,"ready":false,"unavailable":"expert definition does not exist",
-                "state":"absent"}),
+                "state":"absent","toolRoot":self.config.defaults.workspace}),
             ),
         }
     }
@@ -322,15 +345,7 @@ impl Catalog {
             "target":candidate.identity,"definition":candidate.definition,
             "fileVersion":candidate.file_version,"activation":state,"state":status,
             "ready":availability.is_ok(),"unavailable":availability.err(),
-            "activateArguments": {
-                "operation":"activate","target":candidate.identity,
-                "definition":candidate.definition,"fileVersion":candidate.file_version,
-                "expectedActivation":state
-            },
-            "putArguments": {"operation":"put","target":candidate.identity,"definition":candidate.definition,
-                "fileVersion":candidate.file_version,"expectedActivation":state},
-            "deleteArguments": {"operation":"delete","target":candidate.identity,
-                "fileVersion":candidate.file_version,"expectedActivation":state}
+            "toolRoot":self.config.defaults.workspace
         })
     }
 
@@ -374,6 +389,16 @@ impl Catalog {
         event: &EventEnvelope,
         reader: &LogReader,
     ) -> Result<Activation, String> {
+        self.activate_inspected(event, reader)
+            .map(|(activation, _)| activation)
+    }
+
+    /// Return the exact committed snapshot, not a later read that can race a save.
+    pub fn activate_inspected(
+        &self,
+        event: &EventEnvelope,
+        reader: &LogReader,
+    ) -> Result<(Activation, Value), String> {
         let target: super::Identity =
             serde_json::from_value(event.payload["arguments"]["target"].clone())
                 .map_err(|error| format!("invalid activation target: {error}"))?;
@@ -393,7 +418,9 @@ impl Catalog {
         // captures and checks a recipe but never starts a child or a provider.
         let model = self.model(&candidate)?;
         Execution::capture(&candidate, &activation, &model, &self.config.defaults)?;
-        guard.commit(&Record::Active(activation.clone()), expected.as_ref())?;
-        Ok(activation)
+        let state = Record::Active(activation.clone());
+        guard.commit(&state, expected.as_ref())?;
+        let details = self.inspect_state(&candidate, Some(&state), Some(reader));
+        Ok((activation, details))
     }
 }

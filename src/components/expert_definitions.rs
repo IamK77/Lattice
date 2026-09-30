@@ -51,13 +51,13 @@ pub fn manifest() -> ComponentManifest {
         tools: vec![
             json!({
                 "name":INSPECT,
-                "description":"Inspect an expert's exact content, file version, activation state and mutation arguments. Use project:<id>, personal:<id>, or builtin:<id>. Missing custom identities return an absent slot for creation. Built-ins return their actual copyTemplate; select a model and a custom destination before saving. Add a reason to the returned save, activate or delete arguments.",
+                "description":"Inspect one expert snapshot: definition, target, fileVersion, activation and readiness. Use project:<id>, personal:<id>, or builtin:<id>. For mutations copy target and fileVersion, use activation as expectedActivation, and add operation and reason. Save and activate also require definition. Missing custom identities return an absent slot; built-ins return copyTemplate. toolRoot is the configured file-tool root (null means unconfined); target.root is only the definition's storage scope, not extra filesystem access.",
                 "parameters":{"type":"object","properties":{"expert":{"type":"string"}},"required":["expert"],"additionalProperties":false},
                 "effects":{"reads":["expert definitions, model catalog and authorization evidence"],"writes":["expert state locks and process credential references"],"network":[],"executes":false}
             }),
             json!({
                 "name":ACTIVATE,
-                "description":"Activate the exact reusable expert revision returned by InspectExpert. Requires explicit admission authorization; neither a file nor a model-supplied boolean grants permission. Copy all activateArguments, add a reason, and do not replace changed content silently. Conflicts require a fresh inspection. Activation does not start an expert job.",
+                "description":"Activate the exact snapshot from InspectExpert or SaveExpert.details. Copy target, definition and fileVersion; copy activation as expectedActivation; add operation=activate and a reason. Requires explicit admission authorization and never starts a job. Returns updated details usable immediately for editing or deletion, without another inspection. Conflicts require fresh inspection, never silent replacement.",
                 "parameters":{
                     "type":"object",
                     "properties":{
@@ -157,7 +157,8 @@ impl Component for ExpertDefinitions {
                             .to_string()
                             .into());
                     }
-                    json!({"activation":catalog.activate(event, reader)?})
+                    let (_, details) = catalog.activate_inspected(event, reader)?;
+                    json!({"activated":true,"details":details})
                 }
                 SAVE => {
                     if event.source != catalog.config.gate

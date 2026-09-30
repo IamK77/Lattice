@@ -41,10 +41,7 @@ fn saving_a_changed_definition_withdraws_availability_and_returns_activation_arg
         .unwrap();
     assert_eq!(row["state"], "pending");
     assert_eq!(row["displayName"], proposed.name);
-    assert_eq!(
-        result["details"]["activateArguments"]["expectedActivation"]["v"],
-        2
-    );
+    assert_eq!(result["details"]["activation"]["v"], 2);
     assert!(catalog.resolve("project:reviewer", None).is_err());
     assert!(catalog
         .apply_mutation(&request, change(&catalog, "stale-save"))
@@ -85,7 +82,7 @@ fn create_expects_absence_and_never_copies_an_activation() {
 fn deletion_and_identical_recreation_cannot_resurrect_the_old_activation() {
     let (_directory, catalog, original, active) = setup();
     let details = catalog.inspect("project:reviewer", None).unwrap();
-    let mut delete = details["deleteArguments"].clone();
+    let mut delete = crate::experts::catalog::mutation_arguments(&details, "delete").unwrap();
     delete["reason"] = json!("Remove the reusable definition");
     assert_eq!(
         catalog
@@ -101,10 +98,7 @@ fn deletion_and_identical_recreation_cannot_resurrect_the_old_activation() {
         .apply_mutation(&request, change(&catalog, "recreate"))
         .unwrap();
     assert_eq!(result["details"]["state"], "pending");
-    assert_ne!(
-        result["details"]["activateArguments"]["expectedActivation"],
-        details["activateArguments"]["expectedActivation"]
-    );
+    assert_ne!(result["details"]["activation"], details["activation"]);
     assert!(catalog.resolve("project:reviewer", None).is_err());
     assert!(catalog
         .apply_mutation(&delete, change(&catalog, "late-delete"))
