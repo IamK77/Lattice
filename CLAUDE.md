@@ -2,7 +2,7 @@
 
 Lattice is a composable, auditable agent runtime. Read the [system overview](docs/架构总览.md) and [architecture decisions](docs/架构决策.md) (both in Chinese), and the formal contracts in `schemas/` and `docs/contracts/`, before changing the relevant subsystem.
 
-The public entry point primarily serves **developers who use and customize agents**, not framework authors. Explain what they can accomplish, how to start, and how to customize it before introducing runtime architecture. Do not substitute internal module inventories for a product explanation or present plans and scripted tests as an implemented user experience.
+The public entry point presents Lattice as **an event-sourced, composable AI agent runtime for the terminal**, with **Record first. Deliver second.** as its signature. Product appeal comes first: make the distinctive value visible immediately, then connect it to use, customization, and a clear starting path. Lead with positive capabilities and concrete evidence, not repeated disclaimers or defensive qualifications. State setup requirements directly and keep detailed safety boundaries in their own section. Do not substitute internal module inventories for a product explanation or present plans and scripted tests as an implemented user experience.
 
 ## Issue-Driven Development
 
