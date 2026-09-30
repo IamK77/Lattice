@@ -107,6 +107,10 @@ pub trait Streams {
     /// Open a stream and hand its kernel straight over. Detached, because an
     /// expert runs on its own thread — the host never drives it.
     fn open_detached(&mut self, stream: &str, template: &str) -> Result<Kernel, String>;
+    /// A captured request must never fall back to a mutable named template.
+    fn open_captured(&mut self, _stream: &str, _snapshot: &Value) -> Result<Kernel, String> {
+        Err("this host does not support captured expert execution".into())
+    }
     /// Where that stream's record is written, so the answer can say where to
     /// go and read what it did.
     fn ledger_of(&self, stream: &str) -> Option<String>;
@@ -131,6 +135,12 @@ impl Streams for StreamHost {
         self.open(stream, template).map_err(|e| e.to_string())?;
         self.take(stream)
             .ok_or_else(|| format!("{stream} vanished after opening"))
+    }
+
+    fn open_captured(&mut self, stream: &str, snapshot: &Value) -> Result<Kernel, String> {
+        let execution: crate::experts::execution::Execution =
+            serde_json::from_value(snapshot.clone()).map_err(|error| error.to_string())?;
+        execution.open(stream, self.ledger_for(stream), self.kernel_options(stream))
     }
 
     fn ledger_of(&self, stream: &str) -> Option<String> {
@@ -283,10 +293,14 @@ impl SubagentHost {
         let Some(back) = host.injector_for(parent, &self.subagent_instance) else {
             return;
         };
-        // The expert's name IS the template name: what it may do is the set of
-        // components in it. Nothing here hands it a reader on its parent, which
-        // is the whole difference from a `/btw` stream — an expert starts blank.
-        let kernel = match host.open_detached(&work.child, expert) {
+        // Captured recipes are authoritative. Invalid snapshots fail rather
+        // than silently falling back to today's same-named template. Neither
+        // path hands the child a reader on its parent's conversation.
+        let opened = match body.get("execution") {
+            Some(snapshot) => host.open_captured(&work.child, snapshot),
+            None => host.open_detached(&work.child, expert),
+        };
+        let kernel = match opened {
             Ok(kernel) => kernel,
             Err(problem) => {
                 // A call always ends. Failing to open is an ending like any
@@ -646,6 +660,13 @@ impl Streams for MainAndChildren<'_> {
             return Err(format!("{stream} is the conversation itself"));
         }
         self.children.open_detached(stream, template)
+    }
+
+    fn open_captured(&mut self, stream: &str, snapshot: &Value) -> Result<Kernel, String> {
+        if stream == self.main_id {
+            return Err(format!("{stream} is the conversation itself"));
+        }
+        self.children.open_captured(stream, snapshot)
     }
 
     fn ledger_of(&self, stream: &str) -> Option<String> {

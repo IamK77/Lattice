@@ -123,10 +123,10 @@ fn complete_assembly_can_insert_a_required_gate_without_the_old_bypass() {
         "component": lattice::components::trust_policy::NAME, "config":{"stance":"deny"}, "requires":["policy"]
     });
     let wires = document["assembly"]["wires"].as_array_mut().unwrap();
-    wires.retain(|w| !(w["from"] == "loop.run" && w["to"] == "trust.review"));
+    wires.retain(|w| !(w["from"] == "loop.run" && w["to"] == "expert-review.review"));
     wires.extend([
         json!({"from":"loop.run", "to":"extra-gate.review"}),
-        json!({"from":"extra-gate.forward", "to":"trust.review"}),
+        json!({"from":"extra-gate.forward", "to":"expert-review.review"}),
         json!({"from":"extra-gate.verdict", "to":"loop.tools"}),
     ]);
     let path = dir.path().join("gated.json");
@@ -136,7 +136,7 @@ fn complete_assembly_can_insert_a_required_gate_without_the_old_bypass() {
     assert!(!assembly
         .wires
         .iter()
-        .any(|w| w.from == "loop.run" && w.to == "trust.review"));
+        .any(|w| w.from == "loop.run" && w.to == "expert-review.review"));
     let mut kernel = Kernel::start(
         &assembly,
         &registry,
@@ -159,9 +159,11 @@ fn complete_assembly_can_insert_a_required_gate_without_the_old_bypass() {
             .iter()
             .map(|e| e.source.as_str())
             .collect::<Vec<_>>(),
-        ["loop", "extra-gate", "trust"]
+        ["loop", "extra-gate", "expert-review", "trust"]
     );
-    assert_eq!(requests[2].causes, vec![requests[1].id.clone()]);
+    for pair in requests.windows(2) {
+        assert_eq!(pair[1].causes, vec![pair[0].id.clone()]);
+    }
     assert!(events
         .iter()
         .any(|e| e.event_type == ce::OUTPUT_REPLY && e.payload["text"] == "done"));

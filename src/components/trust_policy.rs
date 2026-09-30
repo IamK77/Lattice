@@ -278,7 +278,10 @@ impl TrustPolicy {
         };
 
         let key = admission_key(&event.payload["arguments"]);
-        let summary = admission_summary(&tool, &event.payload["arguments"]);
+        let summary = event.payload["admissionReview"]
+            .as_str()
+            .map(str::to_owned)
+            .unwrap_or_else(|| admission_summary(&tool, &event.payload["arguments"]));
         if self.granted(&key, &effects) {
             ctx.emit(
                 "forward",

@@ -167,6 +167,18 @@ impl StreamHost {
         self.streams.remove(stream_id)
     }
 
+    /// Startup policy shared by named templates and product-owned captured recipes.
+    pub(crate) fn kernel_options(&self, stream_id: &str) -> KernelOptions {
+        KernelOptions {
+            stream: Some(stream_id.to_string()),
+            log_file: (self.ledger_path)(stream_id),
+            child_env_deny: self.child_env_deny.clone(),
+            redact: self.redact.clone(),
+            stream_note: self.stream_note.clone(),
+            ..KernelOptions::default()
+        }
+    }
+
     fn open_inner(
         &mut self,
         stream_id: &str,
@@ -182,18 +194,11 @@ impl StreamHost {
                 },
             ]));
         }
+        let options = self.kernel_options(stream_id);
         let Some(template) = self.templates.get_mut(template) else {
             return Err(KernelError::MissingFactory(format!(
                 "unknown stream template: {template}"
             )));
-        };
-        let options = KernelOptions {
-            stream: Some(stream_id.to_string()),
-            log_file: (self.ledger_path)(stream_id),
-            child_env_deny: self.child_env_deny.clone(),
-            redact: self.redact.clone(),
-            stream_note: self.stream_note.clone(),
-            ..KernelOptions::default()
         };
         let mut kernel = Kernel::start_with_foreign(
             &template.assembly,

@@ -6,6 +6,7 @@ pub mod daemon;
 mod derived_pages;
 pub mod edit_diff;
 pub mod editor;
+pub mod experts;
 mod fetch;
 pub mod input_latency;
 pub mod kernel;

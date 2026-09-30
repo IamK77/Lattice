@@ -422,7 +422,7 @@ pub fn load_from(path: &std::path::Path) -> (Vec<Entry>, Vec<String>) {
 /// is deliberately unlike the assembly overlay, which is skipped whole — an
 /// assembly is one interlocking thing and half of it is dangerous, while a
 /// catalog is a list and one bad line costs one model.
-fn merge(document: &Value, here: &str) -> (Vec<Entry>, Vec<String>) {
+pub(crate) fn merge(document: &Value, here: &str) -> (Vec<Entry>, Vec<String>) {
     let mut said = Vec::new();
     let Some(models) = document.get("models").and_then(Value::as_object) else {
         if !document.is_null() {
