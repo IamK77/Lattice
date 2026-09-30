@@ -143,6 +143,71 @@ fn outcomes(kernel: &Kernel) -> Vec<EventEnvelope> {
         .collect()
 }
 #[test]
+fn overlapping_roots_cannot_mutate_a_personal_expert_through_a_project_alias() {
+    use super::catalog::mutation_arguments;
+    let (dir, original, candidate, _) = setup();
+    let mut config = original.config.clone();
+    config.workspace = config.home.clone();
+    config.defaults.workspace = Some(config.home.to_string_lossy().into_owned());
+    let catalog = Catalog::new(config).unwrap();
+    super::tests::put(
+        &catalog.definitions,
+        super::Scope::Personal,
+        &serde_json::to_vec(&candidate.definition).unwrap(),
+    );
+    let personal = catalog.inspect("personal:reviewer", None).unwrap();
+    let mut kernel = kernel(&catalog, &dir.path().join("overlap.jsonl"));
+    let mut activate = mutation_arguments(&personal, "activate").unwrap();
+    activate["reason"] = json!("Activate the personal definition");
+    call(&mut kernel, super::activation::ACTIVATE, activate);
+    let q = question(&kernel, trust::AUTH_REQUESTED);
+    answer(&mut kernel, &q, true);
+    let activated = outcomes(&kernel).last().unwrap().payload["result"]["details"].clone();
+    assert_eq!(activated["ready"], true);
+    let mut project_delete = mutation_arguments(&activated, "delete").unwrap();
+    project_delete["target"]["scope"] = json!("project");
+    project_delete["expectedActivation"] = Value::Null;
+    project_delete["reason"] = json!("Try deleting the same physical file through another scope");
+    call(&mut kernel, DELETE, project_delete);
+    let results = outcomes(&kernel);
+    assert_eq!(
+        results.len(),
+        2,
+        "the colliding scope must be rejected before deletion confirmation"
+    );
+    assert_eq!(results[1].payload["status"], "error");
+    assert!(catalog.resolve("personal:reviewer", None).is_ok());
+    assert!(catalog.inspect("project:reviewer", None).is_err());
+    assert_eq!(catalog.names().unwrap(), ["personal:reviewer"]);
+    assert_eq!(
+        catalog.management_listing(None).unwrap()["projectAvailable"],
+        false
+    );
+
+    let mut delete = mutation_arguments(&activated, "delete").unwrap();
+    delete["reason"] = json!("Delete through the valid personal identity");
+    call(&mut kernel, DELETE, delete);
+    let q = question(&kernel, provider::AUTH_REQUESTED);
+    answer(&mut kernel, &q, true);
+    assert_eq!(
+        outcomes(&kernel).last().unwrap().payload["result"]["deleted"],
+        true
+    );
+    let absent = catalog.inspect("personal:reviewer", None).unwrap();
+    let mut recreate = mutation_arguments(&absent, "put").unwrap();
+    recreate["definition"] = personal["definition"].clone();
+    recreate["reason"] = json!("Recreate identical content without reactivation");
+    call(&mut kernel, SAVE, recreate);
+    let q = question(&kernel, trust::AUTH_REQUESTED);
+    answer(&mut kernel, &q, true);
+    assert_eq!(
+        outcomes(&kernel).last().unwrap().payload["result"]["details"]["state"],
+        "pending"
+    );
+    assert!(catalog.resolve("personal:reviewer", None).is_err());
+}
+
+#[test]
 fn managed_results_chain_save_activate_and_delete_without_reinspection() {
     use super::catalog::mutation_arguments;
     let (dir, catalog, _, _) = setup();

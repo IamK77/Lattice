@@ -112,6 +112,25 @@ fn builtins_are_read_only_but_can_be_copied_without_their_identity() {
     assert_eq!(form.values[6], "Check boundaries");
 }
 #[test]
+fn overlapping_expert_roots_use_personal_scope_for_new_and_copied_definitions() {
+    let mut ui = ExpertControls {
+        listing: json!({"projectAvailable":false}),
+        details: Some(json!({"builtin":true,"copyTemplate":definition()})),
+        ..Default::default()
+    };
+    for key in [KeyCode::Char('n'), KeyCode::Char('c')] {
+        ui.key(key);
+        assert_eq!(ui.form.as_ref().unwrap().values[0], "personal");
+        ui.key(KeyCode::BackTab);
+        ui.key(KeyCode::Left);
+        ui.key(KeyCode::Char(' '));
+        assert_eq!(ui.form.as_ref().unwrap().values[0], "personal");
+        assert!(ui.notice.contains("roots coincide"));
+        ui.key(KeyCode::Esc);
+    }
+}
+
+#[test]
 fn selectors_only_accept_known_choices_and_paste_cannot_bypass_them() {
     let mut ui = ExpertControls {
         form: Some(Form::new(&definition(), None)),

@@ -333,6 +333,16 @@ impl ExpertControls {
             Err(error) => self.notice = error,
         }
     }
+    fn open_form(&mut self, definition: &Value, original: Option<Value>) {
+        let mut form = Form::new(definition, original);
+        self.notice.clear();
+        if form.original.is_none() && self.listing["projectAvailable"] == false {
+            form.values[0] = "personal".into();
+            self.notice = "Project and personal roots coincide; use personal scope.".into();
+        }
+        self.form = Some(form);
+    }
+
     pub fn key(&mut self, key: KeyCode) -> bool {
         if matches!(key, KeyCode::PageUp | KeyCode::PageDown) {
             return false;
@@ -354,6 +364,11 @@ impl ExpertControls {
                     let name = format!("{}:{}", form.values[0], form.values[1]);
                     self.request("inspect", json!({"expert":name}), "create-inspect");
                 }
+            } else if self.form.as_ref().unwrap().at == 0
+                && self.listing["projectAvailable"] == false
+                && matches!(key, KeyCode::Left | KeyCode::Right | KeyCode::Char(' '))
+            {
+                self.notice = "Project and personal roots coincide; use personal scope.".into();
             } else if self.form.as_ref().unwrap().at == 4
                 && matches!(key, KeyCode::Left | KeyCode::Right | KeyCode::Char(' '))
             {
@@ -404,8 +419,7 @@ impl ExpertControls {
                 }
             }
             KeyCode::Char('n') => {
-                self.form = Some(Form::new(&json!({"capabilities":["read"]}), None));
-                self.notice.clear();
+                self.open_form(&json!({"capabilities":["read"]}), None);
             }
             KeyCode::Char('e' | 'c') if self.details.is_some() => {
                 let details = self.details.as_ref().unwrap();
@@ -422,8 +436,7 @@ impl ExpertControls {
                         definition["id"] = json!("");
                         None
                     };
-                    self.form = Some(Form::new(&definition, original));
-                    self.notice.clear();
+                    self.open_form(&definition, original);
                 }
             }
             KeyCode::Char('a' | 'd') if self.details.is_some() => {

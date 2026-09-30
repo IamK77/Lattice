@@ -65,6 +65,9 @@ impl Catalog {
     pub fn names(&self) -> Result<Vec<String>, String> {
         let mut names = Vec::new();
         for (scope, prefix) in [(Scope::Project, "project"), (Scope::Personal, "personal")] {
+            if scope == Scope::Project && !self.definitions.project_available() {
+                continue;
+            }
             let path = self.definitions.path(scope, "placeholder")?;
             let entries = match std::fs::read_dir(path.parent().expect("definition has a parent")) {
                 Ok(entries) => entries,
@@ -140,8 +143,9 @@ impl Catalog {
             });
         Ok(
             json!({"experts":experts,"models":models.as_ref().ok(),"modelProblem":models.err(),"toolRoot":self.config.defaults.workspace,
-            "projectRoot":self.definitions.identity(Scope::Project,"placeholder")?.root,
-            "personalRoot":self.definitions.identity(Scope::Personal,"placeholder")?.root}),
+            "projectRoot":self.definitions.project,
+            "personalRoot":self.definitions.personal,
+            "projectAvailable":self.definitions.project_available()}),
         )
     }
 

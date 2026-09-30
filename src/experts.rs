@@ -157,8 +157,18 @@ impl Definitions {
         Ok(Self { project, personal })
     }
 
+    /// Home has one definition store, not two independent authorization domains.
+    pub fn project_available(&self) -> bool {
+        self.project != self.personal
+    }
+
     pub fn identity(&self, scope: Scope, id: &str) -> Result<Identity, String> {
         validate_id(id)?;
+        if scope == Scope::Project && !self.project_available() {
+            return Err(format!(
+                "project and personal expert roots overlap; use personal:{id}"
+            ));
+        }
         Ok(Identity {
             scope,
             root: match scope {
