@@ -29,12 +29,13 @@ use crate::contracts::core_events as ce;
 use crate::contracts::event::{EventDraft, EventEnvelope};
 use crate::kernel::host::{Component, Ctx};
 
-pub const NAME: &str = "fs-tools";
+pub const READER: &str = "fs-reader";
+pub const WRITER: &str = "fs-writer";
 
 /// The tool declarations, effect surfaces included so a policy can judge
 /// them. `None` means unconfined, and then the surface says `*` — the
 /// declaration has to widen with the reach, or the gate is judging a fiction.
-pub fn tool_decls(root: Option<&str>) -> Vec<Value> {
+pub fn read_decls(root: Option<&str>) -> Vec<Value> {
     let scope = root.unwrap_or("*");
     let where_paths = match root {
         Some(_) => "relative to the tool root (absolute paths and .. are refused)",
@@ -82,6 +83,16 @@ pub fn tool_decls(root: Option<&str>) -> Vec<Value> {
             },
             "effects": {"reads": [scope], "reversible": true},
         }),
+    ]
+}
+
+pub fn write_decls(root: Option<&str>) -> Vec<Value> {
+    let scope = root.unwrap_or("*");
+    let where_paths = match root {
+        Some(_) => "relative to the tool root (absolute paths and .. are refused)",
+        None => "absolute, or relative to the working directory",
+    };
+    vec![
         json!({
             "name": "Write",
             "description": format!("Write a whole UTF-8 text file, path {where_paths}, \
@@ -120,44 +131,58 @@ pub fn tool_decls(root: Option<&str>) -> Vec<Value> {
     ]
 }
 
-pub fn manifest() -> ComponentManifest {
-    // The surface here is the DEFAULT one, because a manifest is shared by
-    // every instance of this component and the kernel offers the model these
-    // declarations, not per-instance ones. Unconfined is the default, so `*`
-    // is the honest thing to say; a configured root only ever narrows the real
-    // reach, and a policy reading a surface wider than the truth errs the safe
-    // way. (Per-instance surfaces are worth having and are not here yet.)
+pub fn reader_manifest() -> ComponentManifest {
+    file_manifest(
+        READER,
+        read_decls(None),
+        EffectSurface {
+            reads: vec!["*".into()],
+            reversible: true,
+            ..Default::default()
+        },
+        "Carry a returned file version into expectedVersion when following a location; \
+         if it is stale, locate again. Pass knownRead only while the earlier content \
+         is still in context; after context loss, read the body again. For a condensed \
+         or truncated preview, follow the returned paths to saved logs or documents, \
+         or its audit-event pointer, and check completeness rather than assuming the \
+         preview is the whole result.",
+    )
+}
+
+pub fn writer_manifest() -> ComponentManifest {
+    file_manifest(
+        WRITER,
+        write_decls(None),
+        EffectSurface {
+            reads: vec!["*".into()],
+            writes: vec!["*".into()],
+            ..Default::default()
+        },
+        "Read a file before you edit it — `Edit` matches the text that is there \
+         now, not the text you remember writing.",
+    )
+}
+
+fn file_manifest(
+    name: &str,
+    tools: Vec<Value>,
+    effects: EffectSurface,
+    prompt: &str,
+) -> ComponentManifest {
     ComponentManifest {
-        name: NAME.to_string(),
+        name: name.to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         runtime: RuntimeKind::Inproc,
-        entry: format!("builtin:{NAME}"),
+        entry: format!("builtin:{name}"),
         inputs: vec![PortDecl::new("execute", &[ce::TOOL_EXEC_STARTED])],
         outputs: vec![PortDecl::new("outcome", &[ce::TOOL_EXEC_COMPLETED])],
         events: Vec::new(),
         default_wiring: Vec::new(),
-        // Whole-component surface: anywhere, unless an instance configures a root
-        capabilities: Some(EffectSurface {
-            reads: vec!["*".to_string()],
-            writes: vec!["*".to_string()],
-            ..Default::default()
-        }),
+        // Static declarations cover the default reach; configured roots narrow it.
+        capabilities: Some(effects),
         implements: vec!["tool-provider".to_string()],
-        tools: tool_decls(None),
-        prompt: Some(
-            // What the individual tool schemas cannot say: the ORDER. Each of
-            // them describes itself well enough; only a fragment can say that
-            // one comes before the other.
-            "Read a file before you edit it — `Edit` matches the text that is there \
-             now, not the text you remember writing. Carry a returned file version \
-             into expectedVersion when following a location; if it is stale, locate \
-             again. Pass knownRead only while the earlier content is still in context; \
-             after context loss, read the body again. For a condensed or truncated \
-             preview, follow the returned paths to saved logs or documents, or its \
-             audit-event pointer, and check completeness rather than assuming the \
-             preview is the whole result."
-                .to_string(),
-        ),
+        tools,
+        prompt: Some(prompt.to_string()),
         handle_timeout_ms: Some(10_000),
         // Several at once: a model that asks for three files in one turn
         // means them read together, not one after another. Safe here because
@@ -166,7 +191,21 @@ pub fn manifest() -> ComponentManifest {
     }
 }
 
-pub struct FsTools {
+pub struct FsReader(FileAccess);
+pub struct FsWriter(FileAccess);
+
+impl FsReader {
+    pub fn from_config(config: Option<&Value>) -> Self {
+        Self(FileAccess::from_config(config))
+    }
+}
+impl FsWriter {
+    pub fn from_config(config: Option<&Value>) -> Self {
+        Self(FileAccess::from_config(config))
+    }
+}
+
+struct FileAccess {
     /// `None` = unconfined: paths are taken as given. `Some` = every path must
     /// resolve inside this directory.
     root: Option<PathBuf>,
@@ -197,7 +236,7 @@ fn clamped_boundary(text: &str, at: usize) -> usize {
     at
 }
 
-impl FsTools {
+impl FileAccess {
     pub fn from_config(config: Option<&Value>) -> Self {
         let get = |key: &str| config.and_then(|c| c.get(key));
         Self {
@@ -251,7 +290,7 @@ impl FsTools {
         Ok(resolved)
     }
 
-    fn run(&self, tool: &str, args: &Value) -> Value {
+    fn read(&self, tool: &str, args: &Value) -> Value {
         let path = match args["path"].as_str() {
             Some(path) => path,
             None => return err("tool.bad_arguments", "missing 'path' argument"),
@@ -276,6 +315,20 @@ impl FsTools {
                 }
                 Err(e) => io_err(&e),
             },
+            _ => err("tool.unknown", &format!("unknown read tool: {tool}")),
+        }
+    }
+
+    fn write(&self, tool: &str, args: &Value) -> Value {
+        let path = match args["path"].as_str() {
+            Some(path) => path,
+            None => return err("tool.bad_arguments", "missing 'path' argument"),
+        };
+        let resolved = match self.resolve(path) {
+            Ok(resolved) => resolved,
+            Err(why) => return err("tool.path_refused", &why),
+        };
+        match tool {
             "Write" => {
                 let content = args["content"].as_str().unwrap_or("");
                 if content.len() > self.max_bytes {
@@ -601,32 +654,43 @@ fn io_err(e: &std::io::Error) -> Value {
     }})
 }
 
-impl Component for FsTools {
+impl Component for FsReader {
     fn handle(&mut self, _port: &str, event: &EventEnvelope, ctx: &mut Ctx) {
         let tool = event.payload["tool"].as_str().unwrap_or("");
-        let mine = matches!(tool, "Read" | "Ls" | "Write" | "Edit");
-        if !mine && !self.exclusive {
-            return; // someone else's tool; fan-out convention is silence
-        }
-        let mut payload = if mine {
-            self.run(tool, &event.payload["arguments"])
-        } else {
-            err("tool.unknown", &format!("unknown tool: {tool}"))
+        let payload = match tool {
+            "Read" | "Ls" => self.0.read(tool, &event.payload["arguments"]),
+            _ if self.0.exclusive => err("tool.unknown", &format!("unknown read tool: {tool}")),
+            _ => return,
         };
-        // A receipt is optional. Never reject a completed write merely because
-        // an unusually escaped path made its receipt exceed the schema limit.
-        if payload["modelText"]
-            .as_str()
-            .is_some_and(|text| text.len() > 8192)
-        {
-            payload.as_object_mut().unwrap().remove("modelText");
-        }
-        payload["call"] = event.payload["call"].clone();
-        ctx.emit(
-            "outcome",
-            EventDraft::new(ce::TOOL_EXEC_COMPLETED, &[&event.id], payload),
-        );
+        complete(event, ctx, payload);
     }
+}
+
+impl Component for FsWriter {
+    fn handle(&mut self, _port: &str, event: &EventEnvelope, ctx: &mut Ctx) {
+        let tool = event.payload["tool"].as_str().unwrap_or("");
+        let payload = match tool {
+            "Write" | "Edit" => self.0.write(tool, &event.payload["arguments"]),
+            _ if self.0.exclusive => err("tool.unknown", &format!("unknown write tool: {tool}")),
+            _ => return,
+        };
+        complete(event, ctx, payload);
+    }
+}
+
+fn complete(event: &EventEnvelope, ctx: &mut Ctx, mut payload: Value) {
+    // A receipt is optional; never reject a completed write for an oversized receipt.
+    if payload["modelText"]
+        .as_str()
+        .is_some_and(|text| text.len() > 8192)
+    {
+        payload.as_object_mut().unwrap().remove("modelText");
+    }
+    payload["call"] = event.payload["call"].clone();
+    ctx.emit(
+        "outcome",
+        EventDraft::new(ce::TOOL_EXEC_COMPLETED, &[&event.id], payload),
+    );
 }
 
 #[cfg(test)]
@@ -638,7 +702,7 @@ mod version_tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("code.rs");
         std::fs::write(&path, "one\ntwo\n").unwrap();
-        let tools = FsTools::from_config(None);
+        let tools = FileAccess::from_config(None);
         let first = tools.read_page("code.rs", &path, &json!({"versioned": true, "limit": 1}));
         assert_eq!(first["result"]["content"], "one\n");
         let args = json!({"limit": 1, "knownRead": first["result"]["readKey"]});

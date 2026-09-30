@@ -88,7 +88,7 @@ fn start(skills_dir: &std::path::Path, script: Value) -> Kernel {
         (silent_ui::NAME, silent_ui::manifest()),
         (minimal_loop::NAME, minimal_loop::manifest()),
         (scripted_model::NAME, scripted_model::manifest()),
-        (skill_library::NAME, skill_library::manifest()),
+        (skill_library::CONSUMER, skill_library::consumer_manifest()),
     ]
     .into_iter()
     .map(|(n, m)| (n.to_string(), m))
@@ -108,8 +108,8 @@ fn start(skills_dir: &std::path::Path, script: Value) -> Kernel {
         Box::new(|c| Box::new(scripted_model::ScriptedModel::from_config(c))),
     );
     factories.insert(
-        skill_library::NAME.to_string(),
-        Box::new(|c| Box::new(skill_library::SkillLibrary::from_config(c))),
+        skill_library::CONSUMER.to_string(),
+        Box::new(|c| Box::new(skill_library::SkillConsumer::from_config(c))),
     );
 
     let instance = |component: &str, config: Option<Value>| ComponentInstance {
@@ -128,7 +128,7 @@ fn start(skills_dir: &std::path::Path, script: Value) -> Kernel {
             (
                 "skills".to_string(),
                 instance(
-                    skill_library::NAME,
+                    skill_library::CONSUMER,
                     Some(json!({"dirs": [skills_dir.display().to_string()]})),
                 ),
             ),

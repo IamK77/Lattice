@@ -26,6 +26,20 @@ release. Published artifacts and their publication dates are recorded in
   distinguished from release builds; commit counts no longer change the version.
 - Use English Conventional Commits without a custom `Type:` trailer requirement.
 
+### Fixed
+
+- **Breaking:** split `fs-tools` into `fs-reader` / `fs-writer` and
+  `skill-library` into `skill-consumer` / `skill-installer`. Read-only experts
+  no longer inherit file mutation or skill installation; their tool catalogs
+  reflect only active providers. Combined constructors and process entrypoints
+  are removed. Custom assemblies and overlays require explicit migration; see
+  [the migration guide](docs/capability-split-migration.md). This is not an OS
+  sandbox and does not change runtime-owned persistence or network access.
+- Preserve expert failures and cancellations in both foreground and background
+  `ask` reports, including structured errors and child-ledger references. A
+  missing reply is no longer reported as success; valid empty replies remain
+  successful. Failed expert calls are not automatically retried.
+
 ### Security
 
 - Update the locked h2 dependency to 0.4.16 for RUSTSEC-2026-0258.

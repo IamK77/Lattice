@@ -16,6 +16,27 @@ use lattice::{
     Kernel, KernelOptions, Wire,
 };
 
+fn with_installer(mut assembly: AssemblyManifest) -> AssemblyManifest {
+    let mut config = assembly.instances["skills"].config.clone();
+    if let Some(config) = config.as_mut().and_then(Value::as_object_mut) {
+        config.remove("prompt");
+    }
+    assembly.instances.insert(
+        "installer".into(),
+        ComponentInstance {
+            component: skill_library::INSTALLER.into(),
+            config,
+            requires: vec![],
+        },
+    );
+    assembly.wires.extend([
+        Wire::new("loop.run", "installer.execute"),
+        Wire::new("installer.outcome", "loop.tools"),
+        Wire::new("installer.changed", "skills.refresh"),
+    ]);
+    assembly
+}
+
 fn write_skill(root: &Path, name: &str, frontmatter: &str, body: &str) {
     let dir = root.join(name);
     std::fs::create_dir_all(&dir).unwrap();
@@ -33,7 +54,14 @@ fn run_scripted(skills_root: &Path, script: Value) -> Vec<EventEnvelope> {
         (silent_ui::NAME.to_string(), silent_ui::manifest()),
         (minimal_loop::NAME.to_string(), minimal_loop::manifest()),
         (scripted_model::NAME.to_string(), scripted_model::manifest()),
-        (skill_library::NAME.to_string(), skill_library::manifest()),
+        (
+            skill_library::CONSUMER.to_string(),
+            skill_library::consumer_manifest(),
+        ),
+        (
+            skill_library::INSTALLER.to_string(),
+            skill_library::installer_manifest(),
+        ),
     ]
     .into();
     let displayed: Arc<Mutex<Vec<String>>> = Arc::default();
@@ -51,8 +79,12 @@ fn run_scripted(skills_root: &Path, script: Value) -> Vec<EventEnvelope> {
         Box::new(|c| Box::new(scripted_model::ScriptedModel::from_config(c))),
     );
     factories.insert(
-        skill_library::NAME.to_string(),
-        Box::new(|c| Box::new(skill_library::SkillLibrary::from_config(c))),
+        skill_library::INSTALLER.to_string(),
+        Box::new(|c| Box::new(skill_library::SkillInstaller::from_config(c))),
+    );
+    factories.insert(
+        skill_library::CONSUMER.to_string(),
+        Box::new(|c| Box::new(skill_library::SkillConsumer::from_config(c))),
     );
 
     let assembly = AssemblyManifest {
@@ -84,7 +116,7 @@ fn run_scripted(skills_root: &Path, script: Value) -> Vec<EventEnvelope> {
             (
                 "skills".to_string(),
                 ComponentInstance {
-                    component: skill_library::NAME.to_string(),
+                    component: skill_library::CONSUMER.to_string(),
                     requires: Vec::new(),
                     config: Some(json!({
                         "dirs": [skills_root.display().to_string()],
@@ -103,6 +135,7 @@ fn run_scripted(skills_root: &Path, script: Value) -> Vec<EventEnvelope> {
         ],
     };
 
+    let assembly = with_installer(assembly);
     let mut kernel = Kernel::start(
         &assembly,
         &registry,
@@ -123,7 +156,10 @@ fn run_scripted(skills_root: &Path, script: Value) -> Vec<EventEnvelope> {
 fn skill_completions(events: &[EventEnvelope]) -> Vec<&EventEnvelope> {
     events
         .iter()
-        .filter(|e| e.event_type == ce::TOOL_EXEC_COMPLETED && e.source == "skills")
+        .filter(|e| {
+            e.event_type == ce::TOOL_EXEC_COMPLETED
+                && matches!(e.source.as_str(), "skills" | "installer")
+        })
         .collect()
 }
 
@@ -422,7 +458,14 @@ fn a_new_skill_enters_the_resident_listing_only_when_the_cache_is_cold() {
         (minimal_loop::NAME.to_string(), minimal_loop::manifest()),
         (context_gate::NAME.to_string(), context_gate::manifest()),
         (scripted_model::NAME.to_string(), scripted_model::manifest()),
-        (skill_library::NAME.to_string(), skill_library::manifest()),
+        (
+            skill_library::CONSUMER.to_string(),
+            skill_library::consumer_manifest(),
+        ),
+        (
+            skill_library::INSTALLER.to_string(),
+            skill_library::installer_manifest(),
+        ),
     ]
     .into();
     let mut factories: HashMap<String, Factory> = HashMap::new();
@@ -443,8 +486,12 @@ fn a_new_skill_enters_the_resident_listing_only_when_the_cache_is_cold() {
         Box::new(|c| Box::new(scripted_model::ScriptedModel::from_config(c))),
     );
     factories.insert(
-        skill_library::NAME.to_string(),
-        Box::new(|c| Box::new(skill_library::SkillLibrary::from_config(c))),
+        skill_library::INSTALLER.to_string(),
+        Box::new(|c| Box::new(skill_library::SkillInstaller::from_config(c))),
+    );
+    factories.insert(
+        skill_library::CONSUMER.to_string(),
+        Box::new(|c| Box::new(skill_library::SkillConsumer::from_config(c))),
     );
 
     // Turn 1: install skill-b (cache WARM at 400), then answer with a COLD
@@ -503,7 +550,7 @@ fn a_new_skill_enters_the_resident_listing_only_when_the_cache_is_cold() {
             (
                 "skills".to_string(),
                 ComponentInstance {
-                    component: skill_library::NAME.to_string(),
+                    component: skill_library::CONSUMER.to_string(),
                     requires: Vec::new(),
                     config: Some(json!({
                         "dirs": dirs,
@@ -524,6 +571,7 @@ fn a_new_skill_enters_the_resident_listing_only_when_the_cache_is_cold() {
         ],
     };
 
+    let assembly = with_installer(assembly);
     let mut kernel = Kernel::start(
         &assembly,
         &registry,
@@ -596,7 +644,14 @@ fn a_folder_dropped_in_by_hand_refreshes_the_listing_without_a_model_turn() {
         (minimal_loop::NAME.to_string(), minimal_loop::manifest()),
         (context_gate::NAME.to_string(), context_gate::manifest()),
         (scripted_model::NAME.to_string(), scripted_model::manifest()),
-        (skill_library::NAME.to_string(), skill_library::manifest()),
+        (
+            skill_library::CONSUMER.to_string(),
+            skill_library::consumer_manifest(),
+        ),
+        (
+            skill_library::INSTALLER.to_string(),
+            skill_library::installer_manifest(),
+        ),
     ]
     .into();
     let mut factories: HashMap<String, Factory> = HashMap::new();
@@ -617,8 +672,12 @@ fn a_folder_dropped_in_by_hand_refreshes_the_listing_without_a_model_turn() {
         Box::new(|c| Box::new(scripted_model::ScriptedModel::from_config(c))),
     );
     factories.insert(
-        skill_library::NAME.to_string(),
-        Box::new(|c| Box::new(skill_library::SkillLibrary::from_config(c))),
+        skill_library::INSTALLER.to_string(),
+        Box::new(|c| Box::new(skill_library::SkillInstaller::from_config(c))),
+    );
+    factories.insert(
+        skill_library::CONSUMER.to_string(),
+        Box::new(|c| Box::new(skill_library::SkillConsumer::from_config(c))),
     );
 
     let script = json!({"script": [
@@ -668,7 +727,7 @@ fn a_folder_dropped_in_by_hand_refreshes_the_listing_without_a_model_turn() {
             (
                 "skills".to_string(),
                 ComponentInstance {
-                    component: skill_library::NAME.to_string(),
+                    component: skill_library::CONSUMER.to_string(),
                     requires: Vec::new(),
                     config: Some(json!({
                         "dirs": dirs,
@@ -692,6 +751,7 @@ fn a_folder_dropped_in_by_hand_refreshes_the_listing_without_a_model_turn() {
         ],
     };
 
+    let assembly = with_installer(assembly);
     let mut kernel = Kernel::start(
         &assembly,
         &registry,
@@ -842,7 +902,14 @@ fn slash_messages_expand_on_the_input_line_and_the_rest_pass_through() {
         (silent_ui::NAME.to_string(), silent_ui::manifest()),
         (minimal_loop::NAME.to_string(), minimal_loop::manifest()),
         (scripted_model::NAME.to_string(), scripted_model::manifest()),
-        (skill_library::NAME.to_string(), skill_library::manifest()),
+        (
+            skill_library::CONSUMER.to_string(),
+            skill_library::consumer_manifest(),
+        ),
+        (
+            skill_library::INSTALLER.to_string(),
+            skill_library::installer_manifest(),
+        ),
     ]
     .into();
     let displayed: Arc<Mutex<Vec<String>>> = Arc::default();
@@ -860,8 +927,12 @@ fn slash_messages_expand_on_the_input_line_and_the_rest_pass_through() {
         Box::new(|c| Box::new(scripted_model::ScriptedModel::from_config(c))),
     );
     factories.insert(
-        skill_library::NAME.to_string(),
-        Box::new(|c| Box::new(skill_library::SkillLibrary::from_config(c))),
+        skill_library::INSTALLER.to_string(),
+        Box::new(|c| Box::new(skill_library::SkillInstaller::from_config(c))),
+    );
+    factories.insert(
+        skill_library::CONSUMER.to_string(),
+        Box::new(|c| Box::new(skill_library::SkillConsumer::from_config(c))),
     );
     let assembly = AssemblyManifest {
         instances: [
@@ -896,7 +967,7 @@ fn slash_messages_expand_on_the_input_line_and_the_rest_pass_through() {
             (
                 "skills".to_string(),
                 ComponentInstance {
-                    component: skill_library::NAME.to_string(),
+                    component: skill_library::CONSUMER.to_string(),
                     requires: Vec::new(),
                     config: Some(json!({"dirs": [root.path().display().to_string()]})),
                 },
@@ -914,6 +985,7 @@ fn slash_messages_expand_on_the_input_line_and_the_rest_pass_through() {
             Wire::new("loop.out", "ui.display"),
         ],
     };
+    let assembly = with_installer(assembly);
     let mut kernel = Kernel::start(
         &assembly,
         &registry,
@@ -982,12 +1054,19 @@ fn the_menu_is_announced_on_change_and_silent_otherwise() {
     let ledger = tempfile::tempdir().unwrap();
     let ledger_path = ledger.path().join("stream.jsonl");
 
-    let boot = |script: Value| {
-        let registry: HashMap<String, ComponentManifest> = [
+    let boot = |script: Value, install: bool| {
+        let mut registry: HashMap<String, ComponentManifest> = [
             (silent_ui::NAME.to_string(), silent_ui::manifest()),
             (minimal_loop::NAME.to_string(), minimal_loop::manifest()),
             (scripted_model::NAME.to_string(), scripted_model::manifest()),
-            (skill_library::NAME.to_string(), skill_library::manifest()),
+            (
+                skill_library::CONSUMER.to_string(),
+                skill_library::consumer_manifest(),
+            ),
+            (
+                skill_library::INSTALLER.to_string(),
+                skill_library::installer_manifest(),
+            ),
         ]
         .into();
         let displayed: Arc<Mutex<Vec<String>>> = Arc::default();
@@ -1005,8 +1084,12 @@ fn the_menu_is_announced_on_change_and_silent_otherwise() {
             Box::new(|c| Box::new(scripted_model::ScriptedModel::from_config(c))),
         );
         factories.insert(
-            skill_library::NAME.to_string(),
-            Box::new(|c| Box::new(skill_library::SkillLibrary::from_config(c))),
+            skill_library::CONSUMER.to_string(),
+            Box::new(|c| Box::new(skill_library::SkillConsumer::from_config(c))),
+        );
+        factories.insert(
+            skill_library::INSTALLER.into(),
+            Box::new(|c| Box::new(skill_library::SkillInstaller::from_config(c))),
         );
         let assembly = AssemblyManifest {
             instances: [
@@ -1037,7 +1120,7 @@ fn the_menu_is_announced_on_change_and_silent_otherwise() {
                 (
                     "skills".to_string(),
                     ComponentInstance {
-                        component: skill_library::NAME.to_string(),
+                        component: skill_library::CONSUMER.to_string(),
                         requires: Vec::new(),
                         config: Some(json!({"dirs": [root.path().display().to_string()]})),
                     },
@@ -1053,6 +1136,12 @@ fn the_menu_is_announced_on_change_and_silent_otherwise() {
                 Wire::new("skills.outcome", "loop.tools"),
                 Wire::new("loop.out", "ui.display"),
             ],
+        };
+        let assembly = if install {
+            with_installer(assembly)
+        } else {
+            registry.remove(skill_library::INSTALLER);
+            assembly
         };
         Kernel::start(
             &assembly,
@@ -1087,7 +1176,7 @@ fn the_menu_is_announced_on_change_and_silent_otherwise() {
     let one_reply = || json!({"script": [{"status": "ok", "text": "pong"}]});
 
     // Boot 1: no skills — a skill-less library says nothing
-    let mut kernel = boot(one_reply());
+    let mut kernel = boot(one_reply(), false);
     fence(&mut kernel);
     assert_eq!(listings(&kernel.log().replay(1).unwrap()).len(), 0);
     kernel.shutdown();
@@ -1099,7 +1188,7 @@ fn the_menu_is_announced_on_change_and_silent_otherwise() {
         "name: greeting\ndescription: greet someone\n",
         "body",
     );
-    let mut kernel = boot(one_reply());
+    let mut kernel = boot(one_reply(), false);
     fence(&mut kernel);
     let seen = listings(&kernel.log().replay(1).unwrap());
     assert_eq!(seen.len(), 1);
@@ -1107,7 +1196,7 @@ fn the_menu_is_announced_on_change_and_silent_otherwise() {
     kernel.shutdown();
 
     // Boot 3: nothing changed — the menu is NOT repeated
-    let mut kernel = boot(one_reply());
+    let mut kernel = boot(one_reply(), false);
     fence(&mut kernel);
     assert_eq!(
         listings(&kernel.log().replay(1).unwrap()).len(),
@@ -1131,7 +1220,7 @@ fn the_menu_is_announced_on_change_and_silent_otherwise() {
         }}]},
         {"status": "ok", "text": "done"},
     ]});
-    let mut kernel = boot(script);
+    let mut kernel = boot(script, true);
     kernel.injector("ui").emit(
         "user",
         EventDraft::new(ce::USER_MESSAGE, &[], json!({"text": "install it"})),
@@ -1146,5 +1235,36 @@ fn the_menu_is_announced_on_change_and_silent_otherwise() {
         .map(|s| s["name"].as_str().unwrap())
         .collect();
     assert_eq!(names, vec!["farewell", "greeting"]);
+    kernel.shutdown();
+
+    // Reopen the same history without any installer declaration. A skill
+    // landed while the runtime was down: recovery discovers it from disk,
+    // including when its installation notification was never observed.
+    write_skill(
+        root.path(),
+        "offline",
+        "name: offline\ndescription: offline fixture\n",
+        "offline body",
+    );
+    let mut kernel = boot(one_reply(), false);
+    fence(&mut kernel);
+    let events = kernel.log().replay(1).unwrap();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| e.event_type == skill_library::SKILL_INSTALLED)
+            .count(),
+        1,
+        "restoring must not execute the old installation again"
+    );
+    let seen = listings(&events);
+    assert_eq!(seen.len(), 3);
+    assert!(seen
+        .last()
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|s| s["name"] == "offline"));
     kernel.shutdown();
 }

@@ -43,16 +43,26 @@ fn driver_manifest() -> ComponentManifest {
 fn fs_kernel(root: &std::path::Path) -> Kernel {
     let registry: HashMap<String, ComponentManifest> = [
         ("driver".to_string(), driver_manifest()),
-        (fs_tools::NAME.to_string(), fs_tools::manifest()),
+        (fs_tools::READER.to_string(), fs_tools::reader_manifest()),
+        (fs_tools::WRITER.to_string(), fs_tools::writer_manifest()),
     ]
     .into();
     let mut factories: HashMap<String, Factory> = HashMap::new();
     factories.insert("driver".to_string(), Box::new(|_| Box::new(Driver)));
     let root = root.to_path_buf();
+    let writer_root = root.clone();
     factories.insert(
-        fs_tools::NAME.to_string(),
+        fs_tools::WRITER.into(),
         Box::new(move |_| {
-            Box::new(fs_tools::FsTools::from_config(Some(&json!({
+            Box::new(fs_tools::FsWriter::from_config(Some(
+                &json!({"root":writer_root}),
+            )))
+        }),
+    );
+    factories.insert(
+        fs_tools::READER.to_string(),
+        Box::new(move |_| {
+            Box::new(fs_tools::FsReader::from_config(Some(&json!({
                 "root": root.to_string_lossy(),
             }))))
         }),
@@ -68,16 +78,27 @@ fn fs_kernel(root: &std::path::Path) -> Kernel {
                 },
             ),
             (
+                "fs-write".into(),
+                ComponentInstance {
+                    component: fs_tools::WRITER.into(),
+                    requires: vec![],
+                    config: None,
+                },
+            ),
+            (
                 "fs".to_string(),
                 ComponentInstance {
-                    component: fs_tools::NAME.to_string(),
+                    component: fs_tools::READER.to_string(),
                     requires: Vec::new(),
                     config: None,
                 },
             ),
         ]
         .into(),
-        wires: vec![Wire::new("driver.out", "fs.execute")],
+        wires: vec![
+            Wire::new("driver.out", "fs.execute"),
+            Wire::new("driver.out", "fs-write.execute"),
+        ],
     };
     Kernel::start(
         &assembly,
@@ -92,15 +113,20 @@ fn fs_kernel(root: &std::path::Path) -> Kernel {
 fn open_fs_kernel() -> Kernel {
     let registry: HashMap<String, ComponentManifest> = [
         ("driver".to_string(), driver_manifest()),
-        (fs_tools::NAME.to_string(), fs_tools::manifest()),
+        (fs_tools::READER.to_string(), fs_tools::reader_manifest()),
+        (fs_tools::WRITER.to_string(), fs_tools::writer_manifest()),
     ]
     .into();
     let mut factories: HashMap<String, Factory> = HashMap::new();
     factories.insert("driver".to_string(), Box::new(|_| Box::new(Driver)));
     factories.insert(
-        fs_tools::NAME.to_string(),
+        fs_tools::WRITER.into(),
+        Box::new(|c| Box::new(fs_tools::FsWriter::from_config(c))),
+    );
+    factories.insert(
+        fs_tools::READER.to_string(),
         // No config at all — this is what the preset now builds by default
-        Box::new(move |_| Box::new(fs_tools::FsTools::from_config(None))),
+        Box::new(move |_| Box::new(fs_tools::FsReader::from_config(None))),
     );
     let assembly = AssemblyManifest {
         instances: [
@@ -113,16 +139,27 @@ fn open_fs_kernel() -> Kernel {
                 },
             ),
             (
+                "fs-write".into(),
+                ComponentInstance {
+                    component: fs_tools::WRITER.into(),
+                    requires: vec![],
+                    config: None,
+                },
+            ),
+            (
                 "fs".to_string(),
                 ComponentInstance {
-                    component: fs_tools::NAME.to_string(),
+                    component: fs_tools::READER.to_string(),
                     requires: Vec::new(),
                     config: None,
                 },
             ),
         ]
         .into(),
-        wires: vec![Wire::new("driver.out", "fs.execute")],
+        wires: vec![
+            Wire::new("driver.out", "fs.execute"),
+            Wire::new("driver.out", "fs-write.execute"),
+        ],
     };
     Kernel::start(
         &assembly,
@@ -248,7 +285,8 @@ fn run_under_policy(tool: &str, args: serde_json::Value, allow_writes: bool) -> 
         (minimal_loop::NAME.to_string(), minimal_loop::manifest()),
         (scripted_model::NAME.to_string(), scripted_model::manifest()),
         (effects_policy::NAME.to_string(), effects_policy::manifest()),
-        (fs_tools::NAME.to_string(), fs_tools::manifest()),
+        (fs_tools::READER.to_string(), fs_tools::reader_manifest()),
+        (fs_tools::WRITER.to_string(), fs_tools::writer_manifest()),
     ]
     .into();
     let script = json!({"script": [
@@ -273,10 +311,19 @@ fn run_under_policy(tool: &str, args: serde_json::Value, allow_writes: bool) -> 
         effects_policy::NAME.to_string(),
         Box::new(|c| Box::new(effects_policy::EffectsPolicy::from_config(c))),
     );
+    let writer_root = root.clone();
     f.insert(
-        fs_tools::NAME.to_string(),
+        fs_tools::WRITER.into(),
         Box::new(move |_| {
-            Box::new(fs_tools::FsTools::from_config(Some(&json!({
+            Box::new(fs_tools::FsWriter::from_config(Some(
+                &json!({"root":writer_root}),
+            )))
+        }),
+    );
+    f.insert(
+        fs_tools::READER.to_string(),
+        Box::new(move |_| {
+            Box::new(fs_tools::FsReader::from_config(Some(&json!({
                 "root": root.to_string_lossy(),
             }))))
         }),
@@ -316,9 +363,17 @@ fn run_under_policy(tool: &str, args: serde_json::Value, allow_writes: bool) -> 
                 },
             ),
             (
+                "fs-write".into(),
+                ComponentInstance {
+                    component: fs_tools::WRITER.into(),
+                    requires: vec![],
+                    config: None,
+                },
+            ),
+            (
                 "fs".to_string(),
                 ComponentInstance {
-                    component: fs_tools::NAME.to_string(),
+                    component: fs_tools::READER.to_string(),
                     requires: Vec::new(),
                     config: None,
                 },
@@ -332,6 +387,8 @@ fn run_under_policy(tool: &str, args: serde_json::Value, allow_writes: bool) -> 
             // The gate sits on the tool wire: loop → policy → fs
             Wire::new("loop.run", "policy.review"),
             Wire::new("policy.forward", "fs.execute"),
+            Wire::new("policy.forward", "fs-write.execute"),
+            Wire::new("fs-write.outcome", "loop.tools"),
             Wire::new("policy.verdict", "loop.tools"),
             Wire::new("fs.outcome", "loop.tools"),
             Wire::new("loop.out", "ui.display"),
@@ -375,14 +432,14 @@ fn the_policy_lets_a_read_through_but_denies_a_write() {
     // The tool never ran — nothing was written
     assert!(!events
         .iter()
-        .any(|e| e.event_type == ce::TOOL_EXEC_COMPLETED && e.source == "fs"));
+        .any(|e| e.event_type == ce::TOOL_EXEC_COMPLETED && e.source == "fs-write"));
 
     // With writes allowed, the same write goes through and really runs
     let events = run_under_policy("Write", json!({"path": "ok.txt", "content": "z"}), true);
     assert!(events
         .iter()
         .any(|e| e.event_type == ce::TOOL_EXEC_COMPLETED
-            && e.source == "fs"
+            && e.source == "fs-write"
             && e.payload["status"] == "ok"));
 }
 
@@ -619,7 +676,10 @@ fn without_a_root_absolute_paths_and_dotdot_both_work() {
 fn the_declared_surface_widens_with_the_reach() {
     // The whole point: a gate must not be judging a narrower surface than the
     // tool actually has. Unconfined says so.
-    for decl in fs_tools::tool_decls(None) {
+    for decl in fs_tools::read_decls(None)
+        .into_iter()
+        .chain(fs_tools::write_decls(None))
+    {
         let effects = &decl["effects"];
         let named = if effects["writes"].is_array() {
             &effects["writes"]
@@ -629,7 +689,10 @@ fn the_declared_surface_widens_with_the_reach() {
         assert_eq!(named[0], "*", "{} declares {named}", decl["name"]);
     }
     // Configured, it says the root instead — narrower, and true.
-    for decl in fs_tools::tool_decls(Some("/srv/box")) {
+    for decl in fs_tools::read_decls(Some("/srv/box"))
+        .into_iter()
+        .chain(fs_tools::write_decls(Some("/srv/box")))
+    {
         let effects = &decl["effects"];
         let named = if effects["writes"].is_array() {
             &effects["writes"]
@@ -640,7 +703,12 @@ fn the_declared_surface_widens_with_the_reach() {
     }
     // And the manifest — what the kernel actually offers the model — carries
     // the default, which is the open one.
-    let manifest = fs_tools::manifest();
+    let manifest = fs_tools::writer_manifest();
+    assert!(fs_tools::reader_manifest()
+        .capabilities
+        .unwrap()
+        .writes
+        .is_empty());
     assert_eq!(manifest.capabilities.as_ref().unwrap().writes, vec!["*"]);
     for decl in &manifest.tools {
         let shown = decl["effects"].to_string();

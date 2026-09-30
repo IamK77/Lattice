@@ -292,7 +292,11 @@ impl SubagentHost {
                 // A call always ends. Failing to open is an ending like any
                 // other, and saying nothing would leave the round waiting on an
                 // expert that was never there.
-                back.emit_now(&work, None, json!({"job": job, "failed": problem}));
+                back.emit_now(
+                    &work,
+                    None,
+                    ExpertReport::failure("ask.no_stream", &problem),
+                );
                 return;
             }
         };
@@ -355,6 +359,49 @@ struct Work {
     child: String,
 }
 
+/// Keep the child's disposition separate from the presence of reply text.
+/// These are local host states, not new event types or an error taxonomy.
+#[derive(Debug)]
+enum ExpertOutcome {
+    Success(Value),
+    Failure(Value),
+    Cancelled(String),
+}
+
+#[derive(Debug)]
+struct ExpertReport {
+    origin: Option<String>,
+    outcome: ExpertOutcome,
+}
+
+impl ExpertReport {
+    fn from_reply(event: &EventEnvelope) -> Self {
+        let payload = &event.payload;
+        let outcome = if payload["cancelled"] == true {
+            ExpertOutcome::Cancelled("expert reported cancellation".into())
+        } else if let Some(error) = payload.get("error").filter(|error| !error.is_null()) {
+            // Preserve the original judgment fields, including optional hints.
+            ExpertOutcome::Failure(error.clone())
+        } else {
+            ExpertOutcome::Success(payload["text"].clone())
+        };
+        Self {
+            origin: Some(event.id.clone()),
+            outcome,
+        }
+    }
+
+    fn failure(code: &str, message: &str) -> Self {
+        Self {
+            origin: None,
+            outcome: ExpertOutcome::Failure(json!({
+                "code": code, "message": message, "blame": "environment",
+                "retryable": false, "transient": false,
+            })),
+        }
+    }
+}
+
 /// Run an expert to its answer, report, and let its stream go.
 fn run_expert(
     mut kernel: Kernel,
@@ -395,35 +442,20 @@ fn run_expert(
         let _ = kernel.run_until_quiescent();
     }
     let log = kernel.shutdown();
-    let (from, text, failure) = if cancellation.is_some() {
-        (log.reader().latest_id(), Value::Null, None)
-    } else {
-        match answer {
-            Ok(Some((id, text))) => (Some(id), text, None),
-            Ok(None) => (None, Value::Null, None),
-            Err(error) => (None, Value::Null, Some(error)),
+    let mut report = if let Some(reason) = cancellation {
+        ExpertReport {
+            origin: None,
+            outcome: ExpertOutcome::Cancelled(reason),
         }
+    } else {
+        answer.unwrap_or_else(|error| ExpertReport::failure("ask.execution_failed", &error))
     };
-    back.emit_now(
-        &work,
-        from,
-        json!({
-            "job": work.job,
-            "stream": work.child,
-            // Where to go and read what it actually did. An expert is gone
-            // after it answers and cannot be asked anything more, so the record
-            // is the only way back to the work.
-            "ledger": ledger,
-            "text": text,
-            "failed": failure,
-            "cancellation": cancellation.as_ref().map(|reason| json!({
-                "reason": reason,
-                "dispatchStopped": true,
-                "outcome": "unknown for in-flight side effects; uncooperative in-process work may still be running"
-            })),
-            "interrupted": cancellation.as_ref().map(|_| "cancelled"),
-        }),
-    );
+    // A reply keeps its exact origin. A host failure, missing reply, or accepted
+    // cancellation still points at the final recorded state of the child.
+    if report.origin.is_none() {
+        report.origin = log.reader().latest_id();
+    }
+    back.emit_now(&work, ledger, report);
     // The final report is sent after shutdown, not merely on accepting cancel.
 }
 
@@ -431,16 +463,19 @@ fn run_expert_turn(
     kernel: &mut Kernel,
     state: &Mutex<JobState>,
     mut wait_for_input: impl FnMut(&Kernel) -> bool,
-) -> Result<Option<(String, Value)>, String> {
+) -> Result<ExpertReport, String> {
     loop {
         let dispatched = kernel.run_until_quiescent();
-        if state
+        if let Some(reason) = state
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .cancellation
-            .is_some()
+            .clone()
         {
-            return Ok(None);
+            return Ok(ExpertReport {
+                origin: None,
+                outcome: ExpertOutcome::Cancelled(reason),
+            });
         }
         dispatched.map_err(|e| e.to_string())?;
         if kernel
@@ -453,7 +488,15 @@ fn run_expert_turn(
                 .log()
                 .reader()
                 .scan_back_types(&[ce::OUTPUT_REPLY], |event, _| {
-                    Ok(Some((event.id.clone(), event.payload["text"].clone())))
+                    Ok(Some(ExpertReport::from_reply(event)))
+                })
+                .map(|reply| {
+                    reply.unwrap_or_else(|| {
+                        ExpertReport::failure(
+                            "ask.no_reply",
+                            "expert turn completed without a reply",
+                        )
+                    })
                 })
                 .map_err(|e| e.to_string());
         }
@@ -464,7 +507,10 @@ fn run_expert_turn(
         // The host wake also carries cancellation, so an idle expert remains
         // cancellable without polling or depending on a particular loop type.
         if !wait_for_input(kernel) {
-            return Ok(None);
+            return Ok(ExpertReport::failure(
+                "ask.no_reply",
+                "expert input closed before producing a reply",
+            ));
         }
     }
 }
@@ -472,16 +518,38 @@ fn run_expert_turn(
 /// Put one answer on the parent's ledger — as the call's outcome if the call is
 /// still open, as a wake if it was answered with a job number long ago.
 trait Report {
-    fn emit_now(&self, work: &Work, from: Option<String>, body: Value);
+    fn emit_now(&self, work: &Work, ledger: Option<String>, report: ExpertReport);
 }
 
 impl Report for Injector {
-    fn emit_now(&self, work: &Work, from: Option<String>, body: Value) {
+    fn emit_now(&self, work: &Work, ledger: Option<String>, report: ExpertReport) {
         let job = work.job;
-        let failed = body
-            .get("failed")
-            .and_then(Value::as_str)
-            .map(str::to_string);
+        let ExpertReport {
+            origin: from,
+            outcome,
+        } = report;
+        let (text, error, cancellation) = match outcome {
+            ExpertOutcome::Success(text) => (text, None, None),
+            ExpertOutcome::Failure(error) => (Value::Null, Some(error), None),
+            ExpertOutcome::Cancelled(reason) => (Value::Null, None, Some(reason)),
+        };
+        let failed = error.as_ref().and_then(|e| e["message"].as_str());
+        // Keep the historical fields and add the full error. Foreground errors
+        // carry this context in details; adapters must still render the error.
+        let body = json!({
+            "job": job,
+            "stream": work.child,
+            "ledger": ledger,
+            "text": text,
+            "failed": failed,
+            "error": error,
+            "cancellation": cancellation.as_ref().map(|reason| json!({
+                "reason": reason,
+                "dispatchStopped": true,
+                "outcome": "unknown for in-flight side effects; uncooperative in-process work may still be running"
+            })),
+            "interrupted": cancellation.as_ref().map(|_| "cancelled"),
+        });
         // Across streams the tie is `origin` and only `origin` — `causes` is
         // checked against what the emitting stream witnessed, and an event in
         // another stream was witnessed by nobody there.
@@ -490,9 +558,12 @@ impl Report for Injector {
             None => draft,
         };
         if work.background {
-            let summary = match &failed {
-                Some(problem) => format!("job {job} could not start: {problem}"),
-                None if body["interrupted"].as_str().is_some() => {
+            let summary = match failed {
+                Some(problem) if error.as_ref().is_some_and(|e| e["code"] == "ask.no_stream") => {
+                    format!("job {job} could not start: {problem}")
+                }
+                Some(problem) => format!("job {job} failed: {problem}"),
+                None if cancellation.is_some() => {
                     format!("job {job} cancelled; in-flight effects may be unknown")
                 }
                 None => format!("job {job} finished"),
@@ -511,18 +582,19 @@ impl Report for Injector {
             );
             return;
         }
-        let payload = match failed {
-            Some(problem) => json!({
-                "call": work.call,
-                "status": "error",
-                "error": {
-                    "code": "ask.no_stream",
-                    "message": problem,
-                    "blame": "environment",
-                    "retryable": false,
-                    "transient": false,
-                },
-            }),
+        let payload = match error {
+            Some(mut error) => {
+                // Existing adapters render only error.message. Include the
+                // judgment fields and audit pointer there without changing the
+                // shared formatter; details.error retains the original object.
+                error["message"] = json!(format!("Expert call failed: {body}"));
+                json!({
+                    "call": work.call,
+                    "status": "error",
+                    "error": error,
+                    "details": body,
+                })
+            }
             None => json!({
                 "call": work.call,
                 "status": if body["interrupted"].as_str().is_some() { "cancelled" } else { "ok" },

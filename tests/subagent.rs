@@ -6,6 +6,9 @@
 //! parent), a subagent cannot start another subagent, and a job that was still
 //! running when the process died is settled rather than re-run.
 
+#[path = "subagent/outcomes.rs"]
+mod outcomes;
+
 use std::collections::HashMap;
 
 use serde_json::{json, Value};
