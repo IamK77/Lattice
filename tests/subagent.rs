@@ -8,6 +8,8 @@
 
 #[path = "subagent/outcomes.rs"]
 mod outcomes;
+#[path = "subagent/snapshot_probe.rs"]
+mod snapshot_probe;
 
 use std::collections::HashMap;
 
