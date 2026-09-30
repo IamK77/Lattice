@@ -29,6 +29,7 @@ use crate::components::trust_policy;
 use crate::contracts::core_events as ce;
 use crate::contracts::event::EventEnvelope;
 
+pub mod expert_panel;
 pub mod facts;
 pub mod history;
 use crate::derived_pages as pages;
@@ -591,8 +592,8 @@ pub trait View {
     }
 
     /// Frontend-owned expert management state, not conversation material.
-    fn expert_rows(&self) -> Vec<(String, String)> {
-        Vec::new()
+    fn expert_panel(&self) -> Option<expert_panel::Panel> {
+        None
     }
 
     /// A deletion waiting to be confirmed, named so the question can say what

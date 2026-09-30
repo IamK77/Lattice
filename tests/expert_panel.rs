@@ -29,8 +29,8 @@ fn panel_copy_save_activate_and_delete_use_real_authorization_without_model_turn
     );
     let screen = String::from_utf8(output.stdout).unwrap();
     for expected in [
-        "State: pending",
-        "State: ready",
+        "● Needs activation",
+        "● Ready",
         "Confirm expert deletion",
         "user refused expert deletion",
         "Deleted.",

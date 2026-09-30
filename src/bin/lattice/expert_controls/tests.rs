@@ -113,6 +113,80 @@ fn builtins_are_read_only_but_can_be_copied_without_their_identity() {
     assert_eq!(form.values[6], "Check boundaries");
 }
 #[test]
+fn selectors_only_accept_known_choices_and_paste_cannot_bypass_them() {
+    let mut ui = ExpertControls {
+        form: Some(Form::new(&definition(), None)),
+        listing: json!({"models":["alpha","beta"]}),
+        ..Default::default()
+    };
+    ui.key(KeyCode::BackTab);
+    ui.key(KeyCode::Right);
+    assert_eq!(ui.form.as_ref().unwrap().values[0], "personal");
+    ui.paste("invalid-scope");
+    assert_eq!(ui.form.as_ref().unwrap().values[0], "personal");
+    for _ in 0..4 {
+        ui.key(KeyCode::Tab);
+    }
+    ui.key(KeyCode::Right);
+    assert_eq!(ui.form.as_ref().unwrap().values[4], "alpha");
+    ui.key(KeyCode::Left);
+    assert_eq!(ui.form.as_ref().unwrap().values[4], "beta");
+    ui.paste("unknown-model");
+    ui.key(KeyCode::Char('x'));
+    ui.key(KeyCode::Backspace);
+    ui.key(KeyCode::Delete);
+    assert_eq!(ui.form.as_ref().unwrap().values[4], "beta");
+    ui.key(KeyCode::Tab);
+    ui.key(KeyCode::Right);
+    ui.key(KeyCode::Char(' '));
+    assert_eq!(ui.form.as_ref().unwrap().values[5], "read, write");
+    ui.key(KeyCode::Left);
+    ui.key(KeyCode::Char(' '));
+    ui.paste("invented-group");
+    assert_eq!(ui.form.as_ref().unwrap().values[5], "write");
+    assert!(ui.outgoing.is_empty());
+}
+
+#[test]
+fn instruction_cursor_moves_between_unicode_lines_without_splitting_characters() {
+    let mut form = Form::new(&definition(), None);
+    form.at = 6;
+    form.values[6] = "甲乙丙\n短\n第三行".into();
+    form.cursor = "甲乙".len();
+    form.key(KeyCode::Down);
+    assert_eq!(form.cursor, "甲乙丙\n短".len());
+    form.key(KeyCode::Down);
+    assert_eq!(form.cursor, "甲乙丙\n短\n第".len());
+    form.key(KeyCode::Up);
+    assert_eq!(form.cursor, "甲乙丙\n短".len());
+    form.key(KeyCode::Up);
+    assert_eq!(form.cursor, "甲".len());
+    form.key(KeyCode::Up);
+    assert_eq!(form.cursor, "甲".len());
+}
+
+#[test]
+fn expert_list_navigation_follows_the_visual_scope_order() {
+    let mut ui = ExpertControls::default();
+    ui.refresh();
+    ui.outgoing.clear();
+    deliver(
+        &mut ui,
+        json!({"status":"ok","result":{"experts":[{"name":"personal:a"},{"name":"project:z"},{"name":"builtin:explorer"}]}}),
+    );
+    assert_eq!(
+        ui.rows()
+            .iter()
+            .map(|row| row["name"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["builtin:explorer", "project:z", "personal:a"]
+    );
+    ui.key(KeyCode::Down);
+    ui.key(KeyCode::Enter);
+    assert_eq!(ui.outgoing[0].2["expert"], "project:z");
+}
+
+#[test]
 fn activation_refreshes_exact_state_instead_of_reusing_stale_delete_arguments() {
     let mut ui = ExpertControls {
         details: Some(details()),

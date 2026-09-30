@@ -32,6 +32,15 @@ fn saving_a_changed_definition_withdraws_availability_and_returns_activation_arg
     assert_eq!(result["saved"], true);
     assert_eq!(result["details"]["definition"], json!(proposed));
     assert_eq!(result["details"]["state"], "pending");
+    let listing = catalog.management_listing(None).unwrap();
+    let row = listing["experts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["name"] == "project:reviewer")
+        .unwrap();
+    assert_eq!(row["state"], "pending");
+    assert_eq!(row["displayName"], proposed.name);
     assert_eq!(
         result["details"]["activateArguments"]["expectedActivation"]["v"],
         2

@@ -333,8 +333,8 @@ impl View for Ui {
         self.controls.form().cloned()
     }
 
-    fn expert_rows(&self) -> Vec<(String, String)> {
-        self.experts.display()
+    fn expert_panel(&self) -> Option<view::expert_panel::Panel> {
+        Some(self.experts.display())
     }
 
     fn confirm_delete(&self) -> Option<String> {
@@ -791,7 +791,6 @@ fn started_live(tool: &str, args: &Value, result: &Value, tick: usize) -> Option
 fn panel_rows(at: (usize, usize), view: &dyn View, width: usize) -> Vec<(String, String)> {
     match at {
         AT_BACKGROUND => panels::background::rows(view, width),
-        panels::AT_EXPERTS => view.expert_rows(),
         AT_COMMANDS => panels::reference::commands(),
         (0, 1) => panels::reference::keys(),
         AT_CONFIG => {
@@ -2044,7 +2043,11 @@ where
         } else if view.panel().is_some() {
             (
                 vec![Span::styled(
-                    "↑↓ PgUp/PgDn scroll · ← → tabs · Esc close",
+                    if view.panel() == Some(panels::AT_EXPERTS) {
+                        "Experts · PgUp/PgDn scroll"
+                    } else {
+                        "↑↓ PgUp/PgDn scroll · ← → tabs · Esc close"
+                    },
                     dimmed,
                 )],
                 true,

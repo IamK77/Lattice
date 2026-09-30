@@ -86,7 +86,7 @@ impl Catalog {
     pub fn listing(&self, current: Option<&LogReader>) -> Result<Vec<Value>, String> {
         self.names()?.into_iter().map(|name| {
             let entry = match self.inspect(&name, current) {
-                Ok(details) => json!({"name":name,"description":details["definition"]["description"],"ready":details["ready"],"unavailable":details["unavailable"]}),
+                Ok(details) => json!({"name":name,"displayName":details["definition"]["name"],"state":details["state"],"description":details["definition"]["description"],"ready":details["ready"],"unavailable":details["unavailable"]}),
                 Err(error) => json!({"name":name,"ready":false,"unavailable":error}),
             };
             Ok(entry)

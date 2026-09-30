@@ -21,6 +21,7 @@ struct Form {
     at: usize,
     cursor: usize,
     original: Option<Value>,
+    access_at: usize,
 }
 impl Form {
     fn new(definition: &Value, original: Option<Value>) -> Self {
@@ -56,6 +57,7 @@ impl Form {
             at,
             cursor,
             original,
+            access_at: 0,
         }
     }
     fn definition(&self) -> Result<Value, String> {
@@ -68,6 +70,9 @@ impl Form {
         Ok(definition)
     }
     fn insert(&mut self, text: &str) -> Result<(), String> {
+        if matches!(self.at, 0 | 4 | 5) {
+            return Err("Use the arrow keys to select a value for this field".into());
+        }
         if text
             .chars()
             .any(|c| c.is_control() && !(self.at == 6 && matches!(c, '\n' | '\t' | '\r')))
@@ -80,6 +85,41 @@ impl Form {
         Ok(())
     }
     fn key(&mut self, key: KeyCode) {
+        if self.at == 0 && !matches!(key, KeyCode::Tab | KeyCode::BackTab) {
+            if matches!(key, KeyCode::Left | KeyCode::Right | KeyCode::Char(' ')) {
+                self.values[0] = if self.values[0] == "project" {
+                    "personal"
+                } else {
+                    "project"
+                }
+                .into();
+                self.cursor = self.values[0].len();
+            }
+            return;
+        }
+        if self.at == 5 && !matches!(key, KeyCode::Tab | KeyCode::BackTab) {
+            use lattice::view::expert_panel::ACCESS;
+            match key {
+                KeyCode::Left => self.access_at = self.access_at.saturating_sub(1),
+                KeyCode::Right => self.access_at = (self.access_at + 1).min(ACCESS.len() - 1),
+                KeyCode::Char(' ') => {
+                    let current: Vec<_> = self.values[5].split(',').map(str::trim).collect();
+                    let selected = ACCESS[self.access_at].0;
+                    self.values[5] = ACCESS
+                        .iter()
+                        .filter(|(id, _)| current.contains(id) != (*id == selected))
+                        .map(|(id, _)| *id)
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    self.cursor = self.values[5].len();
+                }
+                _ => {}
+            }
+            return;
+        }
+        if self.at == 4 && !matches!(key, KeyCode::Tab | KeyCode::BackTab) {
+            return;
+        }
         let text = &mut self.values[self.at];
         match key {
             KeyCode::Tab | KeyCode::BackTab => {
@@ -97,6 +137,31 @@ impl Form {
             }
             KeyCode::Right => {
                 self.cursor += text[self.cursor..].chars().next().map_or(0, char::len_utf8)
+            }
+            KeyCode::Up | KeyCode::Down if self.at == 6 => {
+                let start = text[..self.cursor].rfind('\n').map_or(0, |i| i + 1);
+                let column = text[start..self.cursor].chars().count();
+                let range = if key == KeyCode::Up && start > 0 {
+                    let end = start - 1;
+                    Some((text[..end].rfind('\n').map_or(0, |i| i + 1), end))
+                } else if key == KeyCode::Down {
+                    text[self.cursor..].find('\n').map(|i| {
+                        let next = self.cursor + i + 1;
+                        (
+                            next,
+                            next + text[next..].find('\n').unwrap_or(text.len() - next),
+                        )
+                    })
+                } else {
+                    None
+                };
+                if let Some((start, end)) = range {
+                    self.cursor = start
+                        + text[start..end]
+                            .char_indices()
+                            .nth(column)
+                            .map_or(end - start, |(i, _)| i);
+                }
             }
             KeyCode::Home => self.cursor = text[..self.cursor].rfind('\n').map_or(0, |i| i + 1),
             KeyCode::End => {
@@ -203,6 +268,15 @@ impl ExpertControls {
         match intent.as_str() {
             "list" => {
                 self.listing = result.clone();
+                if let Some(rows) = self.listing["experts"].as_array_mut() {
+                    rows.sort_by_key(|row| {
+                        match row["name"].as_str().unwrap_or_default().split(':').next() {
+                            Some("builtin") => 0,
+                            Some("project") => 1,
+                            _ => 2,
+                        }
+                    });
+                }
                 self.selected = self.selected.min(self.rows().len().saturating_sub(1));
                 self.notice = "Choose an expert or create your own.".into();
             }
@@ -282,6 +356,30 @@ impl ExpertControls {
                     let name = format!("{}:{}", form.values[0], form.values[1]);
                     self.request("inspect", json!({"expert":name}), "create-inspect");
                 }
+            } else if self.form.as_ref().unwrap().at == 4
+                && matches!(key, KeyCode::Left | KeyCode::Right | KeyCode::Char(' '))
+            {
+                let choices: Vec<_> = self.listing["models"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .collect();
+                let form = self.form.as_mut().unwrap();
+                if choices.is_empty() {
+                    self.notice = "No configured models. Add one with /model first.".into();
+                } else {
+                    let current = choices.iter().position(|id| *id == form.values[4]);
+                    let at = current.map_or(0, |i| {
+                        (i + if key == KeyCode::Left {
+                            choices.len() - 1
+                        } else {
+                            1
+                        }) % choices.len()
+                    });
+                    form.values[4] = choices[at].into();
+                    form.cursor = form.values[4].len();
+                }
             } else {
                 self.form.as_mut().unwrap().key(key);
             }
@@ -353,100 +451,30 @@ impl ExpertControls {
         }
         true
     }
-    pub fn display(&self) -> Vec<(String, String)> {
-        let mut rows = vec![
-            (
-                "Experts".into(),
-                "Reusable specialists · project / personal / built-in".into(),
-            ),
-            ("Status".into(), self.notice.clone()),
-        ];
-        if let Some(form) = &self.form {
-            rows.push(("Edit".into(), "Tab / Shift-Tab fields · F2 save · Esc discard · Enter inserts an instruction line".into()));
-            rows.push((
-                "Models".into(),
-                self.listing["models"]
-                    .as_array()
-                    .map(|a| {
-                        a.iter()
-                            .filter_map(Value::as_str)
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    })
-                    .unwrap_or_default(),
-            ));
-            rows.push((
-                "Groups".into(),
-                "read, write, web, commands, skill-install (comma-separated)".into(),
-            ));
-            for (i, field) in FIELDS.iter().enumerate() {
-                let mut value = form.values[i].clone();
-                if i == form.at {
-                    value.insert(form.cursor, '|');
-                }
-                rows.push((
-                    format!("{}{}", if i == form.at { "> " } else { "" }, field),
-                    value,
-                ));
+    pub fn display(&self) -> lattice::view::expert_panel::Panel {
+        use lattice::view::expert_panel::{Mode, Panel};
+        let mode = if let Some(form) = &self.form {
+            Mode::Form {
+                values: form.values.clone(),
+                active: form.at,
+                cursor: form.cursor,
+                editing: form.original.is_some(),
+                access_at: form.access_at,
             }
         } else if let Some(details) = &self.details {
-            rows.push((
-                "Actions".into(),
-                "e edit · c copy · a activate · d delete (confirmation) · Esc list".into(),
-            ));
-            rows.push((
-                "State".into(),
-                details["state"].as_str().unwrap_or("unavailable").into(),
-            ));
-            let definition = details
-                .get("copyTemplate")
-                .unwrap_or(&details["definition"]);
-            for key in [
-                "id",
-                "name",
-                "description",
-                "model",
-                "capabilities",
-                "instructions",
-            ] {
-                let value = &definition[key];
-                rows.push((
-                    key.into(),
-                    value
-                        .as_str()
-                        .map(str::to_owned)
-                        .unwrap_or_else(|| value.to_string()),
-                ));
-            }
-            if let Some(error) = details["error"].as_str() {
-                rows.push(("Problem".into(), error.into()));
+            Mode::Detail {
+                details: details.clone(),
             }
         } else {
-            rows.push((
-                "Actions".into(),
-                "↑/↓ select · Enter details · n new · F5 refresh · Esc close".into(),
-            ));
-            for (i, expert) in self.rows().iter().enumerate() {
-                rows.push((
-                    format!(
-                        "{}{}",
-                        if i == self.selected { "> " } else { "" },
-                        expert["name"].as_str().unwrap_or("?")
-                    ),
-                    format!(
-                        "{} — {}",
-                        expert["state"]
-                            .as_str()
-                            .unwrap_or(if expert["ready"] == true {
-                                "ready"
-                            } else {
-                                "pending"
-                            }),
-                        expert["description"].as_str().unwrap_or_default()
-                    ),
-                ));
+            Mode::List {
+                rows: self.rows().to_vec(),
+                selected: self.selected,
             }
+        };
+        Panel {
+            mode,
+            notice: self.notice.clone(),
+            waiting: self.pending.is_some(),
         }
-        rows
     }
 }
