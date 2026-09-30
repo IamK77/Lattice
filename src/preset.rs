@@ -310,6 +310,8 @@ pub const FRAGMENTS_HEADING: &str = "# Your setup";
 /// install more of its own at any time, which is exactly why the list must not
 /// be allowed to grow without bound inside the cached prefix.
 pub const DEFERRED_TOOLS: &[&str] = &[
+    "InspectExpert",
+    "ActivateExpert",
     "CancelExpert",
     "Browser",
     "Desktop",
