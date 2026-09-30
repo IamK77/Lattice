@@ -890,12 +890,20 @@ fn the_project_rules_ride_in_the_prompt_behind_the_environment() {
         &"zz-project-rules",
         "and the rules come last, so nothing is printed under their headings: {order:?}"
     );
-    // This repository has a CLAUDE.md, so the fragment carries its text.
+    // Compare the actual body, not a phrase tied to one wording or language.
+    let expected =
+        std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("CLAUDE.md"))
+            .unwrap();
+    assert!(!expected.trim().is_empty(), "the fixture has rules to load");
     let (_, rules) = fragments.last().unwrap();
-    assert!(
-        rules.contains("代码内一律英文"),
-        "the rules themselves are in it, not a pointer to them"
-    );
+    // Heading levels are deliberately demoted in the prompt. Each original
+    // nonempty line must still be present, including the complete prose.
+    for line in expected.lines().filter(|line| !line.trim().is_empty()) {
+        assert!(
+            rules.contains(line),
+            "the rules themselves are in it, not a pointer to them: missing {line:?}"
+        );
+    }
 }
 
 /// Agent identity is separate from the selected model and from names in
