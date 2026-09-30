@@ -2,6 +2,21 @@ use super::*;
 use ratatui::crossterm::event::KeyEvent;
 
 #[test]
+fn expert_completion_uses_exp_without_taking_the_existing_ex_exit_prefix() {
+    for command in ["/exp", "/experts"] {
+        let mut ui = Ui::replayed(&[]);
+        ui.draft.edit().set(command);
+        assert!(!on_key(
+            &mut ui,
+            None,
+            KeyEvent::from(KeyCode::Enter),
+            &Hit::default()
+        ));
+        assert_eq!(ui.panel.active(), Some(panels::AT_EXPERTS));
+    }
+}
+
+#[test]
 fn expert_panel_keyboard_and_multiline_render_preserve_the_conversation_draft() {
     let mut ui = Ui::replayed(&[]);
     ui.draft.edit().set("unsent conversation");
