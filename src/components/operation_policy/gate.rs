@@ -374,10 +374,15 @@ impl OperationPolicy {
             }
             return Ok(());
         }
-        if answer.payload["channel"] != trust_policy::AUTH_CHANNEL {
+        let scoped = answer.payload["channel"] == super::ANSWER_CHANNEL;
+        if !scoped && answer.payload["channel"] != trust_policy::AUTH_CHANNEL {
             return Ok(());
         }
-        if let Some(scope) = answer.payload.get("scope") {
+        if let Some(scope) = answer
+            .payload
+            .get("scope")
+            .or_else(|| scoped.then_some(&Value::Null))
+        {
             if !matches!(scope.as_str(), Some("once" | "flow")) {
                 ctx.emit(
                     "decision",
@@ -457,6 +462,7 @@ impl OperationPolicy {
                 return Ok(());
             }
             let mut payload = answer.payload.clone();
+            payload["channel"] = json!(trust_policy::AUTH_CHANNEL);
             if payload["approve"] == true && payload["scope"] == "flow" {
                 let tool = request.payload["tool"]
                     .as_str()

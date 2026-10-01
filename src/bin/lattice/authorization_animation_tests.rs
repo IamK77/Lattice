@@ -3,7 +3,11 @@ use super::*;
 use lattice::components::{browser_tools, expert_definitions};
 use ratatui::backend::TestBackend;
 
-const SOURCES: [(&str, &str); 3] = [
+const SOURCES: [(&str, &str); 4] = [
+    (
+        lattice::components::operation_policy::AUTH_REQUESTED,
+        lattice::components::operation_policy::DECISION,
+    ),
     (trust_policy::AUTH_REQUESTED, trust_policy::DECISION),
     (browser_tools::AUTH_REQUESTED, browser_tools::DECISION),
     (

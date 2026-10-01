@@ -7,7 +7,9 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::json;
 
-use lattice::components::{minimal_loop, scripted_model, silent_ui};
+use lattice::components::{
+    interface_permissions, minimal_loop, operation_policy, scripted_model, silent_ui,
+};
 
 mod common;
 use common::calc_tools;
@@ -149,7 +151,20 @@ fn build_with_model(
     render_tx: std::sync::mpsc::Sender<RenderEvent>,
     model: Factory,
 ) -> Result<Kernel, lattice::KernelError> {
+    build_with_authorities(render_tx, model, false)
+}
+
+fn build_with_authorities(
+    render_tx: std::sync::mpsc::Sender<RenderEvent>,
+    model: Factory,
+    permissions: bool,
+) -> Result<Kernel, lattice::KernelError> {
     let registry: HashMap<String, ComponentManifest> = [
+        (
+            interface_permissions::NAME.into(),
+            interface_permissions::manifest(),
+        ),
+        (operation_policy::NAME.into(), operation_policy::manifest()),
         (silent_ui::NAME.to_string(), silent_ui::manifest()),
         (minimal_loop::NAME.to_string(), minimal_loop::manifest()),
         (scripted_model::NAME.to_string(), scripted_model::manifest()),
@@ -172,11 +187,19 @@ fn build_with_model(
         Box::new(|c| Box::new(calc_tools::CalcTools::from_config(c))),
     );
 
+    factories.insert(
+        interface_permissions::NAME.into(),
+        Box::new(|c| Box::new(interface_permissions::InterfacePermissions::from_config(c))),
+    );
+    factories.insert(
+        operation_policy::NAME.into(),
+        Box::new(|c| Box::new(operation_policy::OperationPolicy::from_config(c))),
+    );
     let script = json!({"script": [
         {"status": "ok", "toolCalls": [{"id": "t1", "tool": "calc", "arguments": {"numbers": [4, 7]}}]},
         {"status": "ok", "text": "4 + 7 = 11"},
     ]});
-    let assembly = AssemblyManifest {
+    let mut assembly = AssemblyManifest {
         instances: [
             (
                 "ui".to_string(),
@@ -222,6 +245,25 @@ fn build_with_model(
             Wire::new("loop.out", "ui.display"),
         ],
     };
+    if permissions {
+        for (id, component) in [
+            ("permissions", interface_permissions::NAME),
+            ("operations", operation_policy::NAME),
+        ] {
+            assembly.instances.insert(
+                id.into(),
+                ComponentInstance {
+                    component: component.into(),
+                    requires: vec![],
+                    config: None,
+                },
+            );
+        }
+        assembly.wires.extend([
+            Wire::new("ui.answer", "permissions.control"),
+            Wire::new("ui.answer", "operations.answer"),
+        ]);
+    }
     let mut kernel = Kernel::start(
         &assembly,
         &registry,
@@ -240,6 +282,107 @@ fn build_with_model(
         });
     });
     Ok(kernel)
+}
+
+#[test]
+fn unsupported_permission_controls_do_not_emit_unhandled_commands() {
+    let session = Session::spawn("ui", build_scripted_kernel).unwrap();
+    assert!(session.interface_id().is_none());
+    assert!(!session.supports_operation_authorization());
+    assert!(session.set_permission(true).is_err());
+    assert!(session.authorize_once("missing").is_err());
+    assert!(session.authorize_flow("missing").is_err());
+    assert!(session.revoke_grant("missing").is_err());
+    assert!(session
+        .log_reader()
+        .scan_back_types(&[ce::EXTERNAL_INPUT], |event, _| Ok(Some(event.id.clone())))
+        .unwrap()
+        .is_none());
+    session.shutdown();
+}
+
+#[test]
+fn live_permission_changes_reach_the_authority_during_an_active_model_call() {
+    struct Held(std::sync::mpsc::Sender<lattice::EventEnvelope>);
+    impl lattice::Component for Held {
+        fn handle(&mut self, port: &str, event: &lattice::EventEnvelope, ctx: &mut lattice::Ctx) {
+            if port != "request" {
+                return;
+            }
+            self.0.send(event.clone()).unwrap();
+            let cancellation = ctx.cancellation();
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_time()
+                .build()
+                .unwrap();
+            assert!(
+                runtime
+                    .block_on(async {
+                        tokio::time::timeout(
+                            std::time::Duration::from_secs(10),
+                            cancellation.cancelled(),
+                        )
+                        .await
+                    })
+                    .is_ok(),
+                "fixture was not released by shutdown"
+            );
+            ctx.emit(
+                "result",
+                lattice::EventDraft::new(
+                    ce::MODEL_CALL_COMPLETED,
+                    &[&event.id],
+                    json!({"status":"cancelled"}),
+                ),
+            );
+        }
+    }
+    let (entered_tx, entered) = std::sync::mpsc::channel();
+    let (state_tx, states) = std::sync::mpsc::channel();
+    let session = Session::spawn("ui", move |tx| {
+        let mut kernel = build_with_authorities(
+            tx,
+            Box::new(move |_| Box::new(Held(entered_tx.clone()))),
+            true,
+        )?;
+        kernel.subscribe_log(move |event| {
+            if event.event_type == interface_permissions::STATE {
+                let _ = state_tx.send(event.clone());
+            }
+        });
+        Ok(kernel)
+    })
+    .unwrap();
+    let id = session.interface_id().unwrap().to_owned();
+    assert!(session.supports_operation_authorization());
+    session.send_text("keep this call active");
+    let request = entered
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap();
+    let input = session
+        .log_reader()
+        .get(request.payload["workInputs"][0].as_str().unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(input.payload["interface"], id);
+    for enabled in [true, false] {
+        session.set_permission(enabled).unwrap();
+        loop {
+            let state = states
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("permission change must bypass the active model's command queue");
+            if state.payload["action"] == "set"
+                && state.payload["interfaces"][&id]["enabled"] == enabled
+            {
+                assert_eq!(state.payload["accepted"], true);
+                break;
+            }
+        }
+    }
+    session.request_shutdown();
+    assert!(session.set_permission(true).is_err());
+    assert!(session.authorize_once("missing").is_err());
+    session.shutdown();
 }
 
 #[test]

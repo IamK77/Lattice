@@ -118,6 +118,9 @@ fn start_with_trust(
             Wire::new("operations.forward", "trust.review"),
             Wire::new("trust.forward", "tools.execute"),
             Wire::new("operations.answered", "trust.answer"),
+            // A custom assembly may retain this legacy route. Scoped answers
+            // must not be consumed here before the operation service sees them.
+            Wire::new("ui.answer", "trust.answer"),
         ]);
     }
     Kernel::start(
@@ -164,7 +167,7 @@ fn call(kernel: &mut Kernel, id: &str, script: &str) {
 }
 fn answer(kernel: &mut Kernel, question: &EventEnvelope, approve: bool, scope: &str) {
     kernel.injector("ui").emit("answer", EventDraft::new(ce::EXTERNAL_INPUT, &[],
-        json!({"channel":trust_policy::AUTH_CHANNEL,"request":question.id,"approve":approve,"scope":scope})));
+        json!({"channel":op::ANSWER_CHANNEL,"request":question.id,"approve":approve,"scope":scope})));
     settle(kernel);
 }
 fn executed(kernel: &Kernel) -> Vec<String> {
@@ -412,7 +415,7 @@ fn malformed_scope_cannot_fall_back_to_permanent_trust_or_consume_the_question()
     let question = latest(&kernel, trust_policy::AUTH_REQUESTED);
     for scope in [json!("oncc"), Value::Null, json!(true)] {
         kernel.injector("ui").emit("answer", EventDraft::new(ce::EXTERNAL_INPUT, &[],
-            json!({"channel":trust_policy::AUTH_CHANNEL,"request":question.id,"approve":true,"scope":scope})));
+            json!({"channel":op::ANSWER_CHANNEL,"request":question.id,"approve":true,"scope":scope})));
         kernel.run_until_quiescent().unwrap();
         assert!(executed(&kernel).is_empty());
         assert!(!grants.exists());
@@ -425,7 +428,7 @@ fn malformed_scope_cannot_fall_back_to_permanent_trust_or_consume_the_question()
         3
     );
     kernel.injector("ui").emit("answer", EventDraft::new(ce::EXTERNAL_INPUT, &[],
-        json!({"channel":trust_policy::AUTH_CHANNEL,"request":question.id,"approve":true,"scope":"once"})));
+        json!({"channel":op::ANSWER_CHANNEL,"request":question.id,"approve":true,"scope":"once"})));
     kernel.run_until_quiescent().unwrap();
     assert_eq!(executed(&kernel), ["first"]);
     assert!(!grants.exists());

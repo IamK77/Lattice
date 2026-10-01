@@ -114,7 +114,8 @@ impl Authorizations {
             .collect();
     }
     pub fn observe(&mut self, event: &EventEnvelope) {
-        if event.event_type == trust_policy::AUTH_REQUESTED
+        if event.event_type == lattice::components::operation_policy::AUTH_REQUESTED
+            || event.event_type == trust_policy::AUTH_REQUESTED
             || event.event_type == browser_tools::AUTH_REQUESTED
             || event.event_type == lattice::components::expert_definitions::AUTH_REQUESTED
         {
@@ -132,7 +133,8 @@ impl Authorizations {
                     &event.payload,
                 )),
             });
-        } else if event.event_type == trust_policy::DECISION
+        } else if event.event_type == lattice::components::operation_policy::DECISION
+            || event.event_type == trust_policy::DECISION
             || event.event_type == browser_tools::DECISION
             || event.event_type == lattice::components::expert_definitions::DECISION
             || ce::is_outcome(&event.event_type)

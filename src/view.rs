@@ -775,7 +775,8 @@ pub fn ingest(entries: &mut Vec<Entry>, event: &EventEnvelope) -> bool {
                 }
             }
         }
-        t if t == trust_policy::AUTH_REQUESTED
+        t if t == crate::components::operation_policy::AUTH_REQUESTED
+            || t == trust_policy::AUTH_REQUESTED
             || t == crate::components::browser_tools::AUTH_REQUESTED
             || t == crate::components::expert_definitions::AUTH_REQUESTED =>
         {
@@ -1049,6 +1050,20 @@ mod tests {
                 .all(|e| !matches!(e, Entry::Tool(c) if c.status == ToolStatus::Running)),
             "nothing keeps spinning after the completion"
         );
+    }
+
+    #[test]
+    fn operation_questions_are_visible_as_approval_cards() {
+        let mut entries = Vec::new();
+        let question = ev(
+            crate::components::operation_policy::AUTH_REQUESTED,
+            json!({"tool":"Run","summary":"Execute git push origin main","grants":[]}),
+        );
+        assert!(ingest(&mut entries, &question));
+        assert!(
+            matches!(entries.first(), Some(Entry::Approval(text)) if text.contains("git push origin main"))
+        );
+        assert!(crate::session::render_line(&question).is_some());
     }
 
     #[test]

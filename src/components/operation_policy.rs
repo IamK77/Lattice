@@ -16,3 +16,6 @@ pub const AUTH_REQUESTED: &str = "operation.authorization_requested";
 pub const DECISION: &str = "operation.authorization_decided";
 pub const STATE: &str = "operation.authorization.state";
 pub const CHANNEL: &str = "operation.authorization";
+/// Scoped answers go to the operation service first, even when a custom
+/// assembly retains a direct legacy UI-to-provider answer wire.
+pub const ANSWER_CHANNEL: &str = "operation.authorization.answer";

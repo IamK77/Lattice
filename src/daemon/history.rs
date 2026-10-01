@@ -6,6 +6,59 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn old_checkpoints_cannot_hide_operation_questions() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut declarations = ce::core_event_decls();
+        declarations.extend(crate::components::operation_policy::manifest().events);
+        let mut log = EventLog::open_segmented(
+            declarations,
+            "operations",
+            dir.path().join("history.ledger"),
+            4096,
+        )
+        .unwrap();
+        let request = log
+            .append(
+                EventDraft::new(
+                    ce::TOOL_EXEC_STARTED,
+                    &[],
+                    json!({"call":"test","tool":"Run","arguments":{"command":"git status"}}),
+                ),
+                "loop",
+            )
+            .unwrap();
+        let question = log.append(EventDraft::new(crate::components::operation_policy::AUTH_REQUESTED, &[&request.id],
+            json!({"request":request.id,"held":request.id,"tool":"Run","summary":"test","grants":[]})), "operations").unwrap();
+        // Version one did not recognize operation questions but could advance
+        // its cursor past them. Reusing it would permanently lose this card.
+        let old = Projection {
+            through: question.seq,
+            state: StreamState::default(),
+        };
+        log.reader()
+            .save_checkpoint("daemon-current-state", 1, old.through, &old)
+            .unwrap();
+        let recovered = Projection::recover(&log.reader()).unwrap();
+        assert_eq!(recovered.state.pending_auth.len(), 1);
+        assert_eq!(recovered.state.pending_auth[0].request, question.id);
+        log.append(
+            EventDraft::new(
+                crate::components::operation_policy::DECISION,
+                &[&request.id],
+                json!({"held":request.id,"verdict":"denied"}),
+            )
+            .with_reason("The user refused"),
+            "operations",
+        )
+        .unwrap();
+        assert!(Projection::recover(&log.reader())
+            .unwrap()
+            .state
+            .pending_auth
+            .is_empty());
+    }
+
+    #[test]
     fn recovery_matches_full_fold_and_pages_obey_both_limits() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("history.ledger");
@@ -70,7 +123,7 @@ pub struct Projection {
 impl Projection {
     pub fn recover(reader: &LogReader) -> io::Result<Self> {
         let end = reader.snapshot_end();
-        let checkpoint = reader.load_checkpoint::<Self>("daemon-current-state", 1, end)?;
+        let checkpoint = reader.load_checkpoint::<Self>("daemon-current-state", 2, end)?;
         let mut projection = checkpoint
             .state
             .filter(|state| state.through == checkpoint.through)
@@ -109,7 +162,8 @@ impl Projection {
             self.state.waiting = true;
         }
         match event.event_type.as_str() {
-            "trust.authorization_requested"
+            "operation.authorization_requested"
+            | "trust.authorization_requested"
             | "browser.authorization_requested"
             | "experts.authorization_requested" => {
                 if !self
@@ -127,7 +181,8 @@ impl Projection {
                     });
                 }
             }
-            "trust.gate.decision"
+            "operation.authorization_decided"
+            | "trust.gate.decision"
             | "browser.authorization_decided"
             | "experts.authorization_decided"
             | ce::INTERRUPTED
@@ -151,7 +206,7 @@ impl Projection {
     }
 
     pub fn save(&self, reader: &LogReader) {
-        if let Err(error) = reader.save_checkpoint("daemon-current-state", 1, self.through, self) {
+        if let Err(error) = reader.save_checkpoint("daemon-current-state", 2, self.through, self) {
             eprintln!("cannot save daemon current state: {error}");
         }
     }
