@@ -1,13 +1,32 @@
 //! Frontend controls send decisions; only ledger state confirms their effect.
 use super::*;
 
+pub(super) fn key_hint(base: &str, width: u16) -> String {
+    // Keep whole shortcuts at narrow widths rather than cutting a key's tail.
+    for hint in ["Shift+Tab permission", "⇧Tab perms", "⇧Tab"] {
+        let text = format!("{base} · {hint}");
+        if lattice::wrap::str_cols(&text) + 4 <= width as usize {
+            return text;
+        }
+    }
+    base.to_owned()
+}
+
+pub(super) fn is_shortcut(key: ratatui::crossterm::event::KeyEvent) -> bool {
+    match key.code {
+        KeyCode::BackTab => key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT,
+        KeyCode::Tab => key.modifiers == KeyModifiers::SHIFT,
+        _ => false,
+    }
+}
+
 pub(super) fn permission(session: Option<&Session>, argument: &str) -> String {
     let Some(session) = session else {
         return "No live session".into();
     };
     match argument {
         "" => match session.permission_enabled() {
-            Ok(Some(enabled)) => format!("Interface permission: {}. Applies only to this interface's contributing work; closing it ends permission. Use /permission on or /permission off.", if enabled { "ON" } else { "OFF" }),
+            Ok(Some(enabled)) => format!("Interface permission: {}. Applies only to this interface's contributing work; closing it ends permission. Shift+Tab toggles; /permission on or /permission off also work.", if enabled { "ON" } else { "OFF" }),
             Ok(None) => "Interface permission is unavailable or has not been acknowledged yet".into(),
             Err(error) => format!("Cannot read interface permission: {error}"),
         },

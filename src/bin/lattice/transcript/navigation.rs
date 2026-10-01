@@ -10,8 +10,12 @@ use lattice::view::{TranscriptBlock as Block, TranscriptPosition as Position};
 pub(crate) struct Located {
     pub row: Row,
     pub position: Position,
+    // Only an actual running tool's heading can animate, never matching text
+    // in a user's message or in tool arguments/output.
+    pub spinner_span: Option<usize>,
 }
 
+#[derive(Clone)]
 pub(crate) struct Page {
     pub rows: Vec<Located>,
     pub before: bool,
@@ -31,13 +35,20 @@ struct Cursor<'a> {
     height: usize,
     block: Block,
     end: usize,
-    rows: Vec<Located>,
+    rows: std::sync::Arc<Vec<Located>>,
+    cache: Option<&'a mut super::cache::Groups>,
     at: usize,
     groups_built: usize,
 }
 
 impl<'a> Cursor<'a> {
-    fn new(view: &'a dyn View, spinner: char, width: usize, height: usize) -> Self {
+    fn new(
+        view: &'a dyn View,
+        spinner: char,
+        width: usize,
+        height: usize,
+        cache: Option<&'a mut super::cache::Groups>,
+    ) -> Self {
         Self {
             view,
             spinner,
@@ -45,7 +56,8 @@ impl<'a> Cursor<'a> {
             height,
             block: Block::Streaming,
             end: view.entry_count(),
-            rows: Vec::new(),
+            rows: Default::default(),
+            cache,
             at: 0,
             groups_built: 0,
         }
@@ -54,6 +66,7 @@ impl<'a> Cursor<'a> {
     fn load(&mut self, block: Block) -> io::Result<()> {
         self.block = block;
         self.at = 0;
+        let mut spinning = std::collections::HashSet::new();
         let logical = match block {
             Block::Welcome => {
                 self.rows = crate::terminal_host::brand::brand_art(
@@ -74,8 +87,10 @@ impl<'a> Cursor<'a> {
                         line,
                         byte: 0,
                     },
+                    spinner_span: None,
                 })
-                .collect();
+                .collect::<Vec<_>>()
+                .into();
                 return Ok(());
             }
             Block::Streaming => {
@@ -90,6 +105,14 @@ impl<'a> Cursor<'a> {
                 render_transcript_group(self.view, self.spinner, self.width, &loaded, true)
             }
             Block::Entries(first) if first < self.view.entry_count() => {
+                if let Some((first, end, rows)) =
+                    self.cache.as_ref().and_then(|cache| cache.get(first))
+                {
+                    self.block = Block::Entries(first);
+                    self.end = end;
+                    self.rows = rows;
+                    return Ok(());
+                }
                 let loaded = self.view.transcript_group(first)?;
                 let end = loaded
                     .first
@@ -113,21 +136,47 @@ impl<'a> Cursor<'a> {
                 self.block = Block::Entries(loaded.first);
                 self.end = end;
                 self.groups_built += 1;
+                for (offset, entry) in loaded.entries.iter().enumerate() {
+                    if matches!(entry, lattice::view::Entry::Tool(card) if card.status == lattice::view::ToolStatus::Running)
+                    {
+                        spinning.insert(loaded.first + offset);
+                    }
+                }
                 render_transcript_group(self.view, self.spinner, self.width, &loaded, false)
             }
             Block::Entries(_) => return self.load(Block::Streaming),
         };
         self.rows = wrap_positioned(logical, self.width)
             .into_iter()
-            .map(|located| Located {
-                row: located.row,
-                position: Position {
-                    block: located.entry.map(Block::Entries).unwrap_or(self.block),
-                    line: located.line,
-                    byte: located.byte,
-                },
+            .map(|located| {
+                let spinner_span = located
+                    .entry
+                    .filter(|entry| spinning.contains(entry))
+                    .and_then(|entry| {
+                        let span = located
+                            .row
+                            .line
+                            .spans
+                            .iter()
+                            .position(|span| span.content.starts_with(self.spinner))?;
+                        spinning.remove(&entry);
+                        Some(span)
+                    });
+                Located {
+                    row: located.row,
+                    position: Position {
+                        block: located.entry.map(Block::Entries).unwrap_or(self.block),
+                        line: located.line,
+                        byte: located.byte,
+                    },
+                    spinner_span,
+                }
             })
-            .collect();
+            .collect::<Vec<_>>()
+            .into();
+        if let (Some(cache), Block::Entries(first)) = (self.cache.as_mut(), self.block) {
+            cache.insert(first, self.end, self.rows.clone());
+        }
         Ok(())
     }
 
@@ -259,6 +308,16 @@ pub(crate) fn page(
     width: usize,
     height: usize,
 ) -> io::Result<Page> {
+    page_cached(view, spinner, width, height, None)
+}
+
+pub(super) fn page_cached(
+    view: &dyn View,
+    spinner: char,
+    width: usize,
+    height: usize,
+    mut cache: Option<&mut super::cache::Groups>,
+) -> io::Result<Page> {
     if height == 0 || (view.panel().is_some() && view.pending_auth().is_none()) {
         return Ok(Page {
             rows: Vec::new(),
@@ -268,7 +327,7 @@ pub(crate) fn page(
             groups_built: 0,
         });
     }
-    let mut cursor = Cursor::new(view, spinner, width, height);
+    let mut cursor = Cursor::new(view, spinner, width, height, cache.as_deref_mut());
     if let Some((position, shift)) = view.transcript_position().filter(|_| view.scroll() > 0) {
         cursor.seek(position)?;
         cursor.shift(shift.unsigned_abs(), shift >= 0)?;
@@ -277,7 +336,7 @@ pub(crate) fn page(
         if page.rows.len() == height {
             return Ok(page);
         }
-        let mut cursor = Cursor::new(view, spinner, width, height);
+        let mut cursor = Cursor::new(view, spinner, width, height, cache);
         cursor.end()?;
         cursor.shift(height - 1, false)?;
         return cursor.collect();

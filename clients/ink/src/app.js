@@ -249,8 +249,15 @@ export function App({ connection, stream, title }) {
       exit();
       return;
     }
+    if (key.tab && key.shift && !key.ctrl && !key.meta) {
+      const message = ['on', 'off'].includes(cur.permission)
+        ? authorizationCommand('permission', cur.permission === 'on' ? 'off' : 'on', cur, connection)
+        : 'Interface permission is unavailable or has not been acknowledged yet.';
+      dispatch({ type: 'LOCAL_NOTICE', id: cur.id, message });
+      return;
+    }
     if (key.tab) {
-      dispatch({ type: 'CYCLE', by: key.shift ? -1 : 1 });
+      dispatch({ type: 'CYCLE', by: 1 });
       return;
     }
     if (key.escape) {
@@ -318,7 +325,7 @@ export function App({ connection, stream, title }) {
 
       ${cur.pendingAuth?.length && authorizationDetails(cur.pendingAuth[0])
         ? html`<${Text} color=${theme.dim}>${authorizationDetails(cur.pendingAuth[0])}<//>` : null}
-      ${cur.authorization ? html`<${Text} color=${theme.dim}>${`This interface permission: ${cur.permission} · /permission on|off · /grants · /revoke <id>`}<//>` : null}
+      ${cur.authorization ? html`<${Text} color=${theme.dim}>${`This interface permission: ${cur.permission} · Shift+Tab toggles · /grants · /revoke <id>`}<//>` : null}
       <${Box}
         marginTop=${1}
         borderStyle="round"

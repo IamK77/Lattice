@@ -42,6 +42,7 @@ impl Main {
             links: link_actions::LinkOpener::default(),
             event_facts: None,
             cards: None,
+            transcript_cache: Default::default(),
             navigation: None,
             tab_line: String::new(),
             replayed_through: 0,

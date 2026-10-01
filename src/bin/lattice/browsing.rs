@@ -10,6 +10,7 @@ pub(super) struct Browsing {
     offset: usize,
     anchor: Option<Anchor>,
     expanded: HashSet<String>,
+    folds_revision: u64,
 }
 
 impl Browsing {
@@ -32,7 +33,11 @@ impl Browsing {
     pub fn forget_position(&mut self) {
         self.anchor = None;
     }
+    pub fn folds_revision(&self) -> u64 {
+        self.folds_revision
+    }
     pub fn toggle(&mut self, id: String) {
+        self.folds_revision = self.folds_revision.wrapping_add(1);
         if !self.expanded.remove(&id) {
             self.expanded.insert(id);
         }
@@ -84,6 +89,7 @@ impl Browsing {
     }
     #[cfg(test)]
     pub fn expand(&mut self, id: String) {
+        self.folds_revision = self.folds_revision.wrapping_add(1);
         self.expanded.insert(id);
     }
 }

@@ -24,7 +24,7 @@ npm start
 ```
 
 - `Enter` sends · `Esc` interrupts a running turn · `Ctrl-C` quits
-- `Tab` / `Shift+Tab` cycle tabs
+- `Tab` cycles tabs; `Shift+Tab` toggles this interface's temporary permission without submitting or clearing the draft
 - Slashes are parsed in the driver (the core knows none of them):
   - `/new [name]` — open a new conversation in a new tab
   - `/btw [question]` — open a **sidechannel** derived from the current tab: a

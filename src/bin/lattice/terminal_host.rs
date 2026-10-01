@@ -243,6 +243,7 @@ struct Ui {
     /// Persistent dependency lookup and fallible rebuilding stay at the ingress.
     event_facts: Option<view::facts::EventFacts>,
     cards: Option<std::cell::RefCell<cards::Cards>>,
+    transcript_cache: std::cell::RefCell<transcript::Cache>,
     draft: Draft,
     live_output: live_output::LiveOutput,
     /// Advances every loop tick (~50ms), so the spinner spins even while idle.
@@ -440,6 +441,7 @@ impl Ui {
             links: link_actions::LinkOpener::default(),
             event_facts: None,
             cards: None,
+            transcript_cache: Default::default(),
             navigation: None,
             tab_line: String::new(),
             replayed_through: 0,
@@ -571,6 +573,7 @@ impl Ui {
     }
 
     fn clear_cards(&mut self) {
+        self.transcript_cache.get_mut().invalidate();
         if let Some(cards) = &mut self.cards {
             if let Err(error) = cards.get_mut().clear() {
                 self.flash = Some(format!("Cannot clear displayed cards: {error}"));
@@ -582,6 +585,7 @@ impl Ui {
     }
 
     fn push_local_card(&mut self, entry: Entry) {
+        self.transcript_cache.get_mut().invalidate();
         match &mut self.cards {
             Some(cards) => cards.get_mut().push_local(entry),
             None => self.entries.push(entry),
@@ -608,6 +612,7 @@ impl Ui {
         if self.replayed_through > 0 && event.seq <= self.replayed_through {
             return Ok(());
         }
+        self.transcript_cache.get_mut().invalidate();
         // Finish all fallible reads before changing counters, authorization,
         // or cards. Historical dependencies never survive this one fold.
         let mut rebuilt = None;
@@ -732,6 +737,7 @@ impl Ui {
         if self.replayed_through > 0 && event.seq <= self.replayed_through {
             return;
         }
+        self.transcript_cache.get_mut().invalidate();
         self.absorb_state(event, tick, trace.as_deref_mut());
         if self.cards.is_none() && measure!(Stage::Cards, view::ingest(&mut self.entries, event)) {
             self.live_output
@@ -1016,13 +1022,9 @@ fn tui_loop(
             }
             let session = tabs.session();
 
-            // Only when the frame would differ. Building one re-renders the WHOLE
-            // transcript — every code block highlighted again from scratch — and
-            // this loop comes round twenty times a second whether or not anything
-            // happened. Measured on an idle session: 17% of a core, spent
-            // producing a frame identical to the one already on screen, and the
-            // bill grows with the conversation because the whole of it is rebuilt
-            // every time.
+            // Only draw when the visible frame can differ. Transcript layout
+            // is cached separately from the input and animation glyphs, so a
+            // keystroke does not rematerialize a long unchanged work group.
             if folded || redraw || animating(&ui) {
                 redraw = false;
                 hit =
@@ -1143,6 +1145,7 @@ impl RenderCost {
 /// caller which waits for a specific event (rather than taking whatever has
 /// arrived) folds through the same code instead of a copy of it.
 fn fold_render(ui: &mut Ui, render: RenderEvent) -> std::io::Result<()> {
+    ui.transcript_cache.get_mut().invalidate_page();
     match render {
         // Turn boundaries ride in the event stream, so ANY turn source — a
         // user message OR a background/timer wake — lights the line. Every
@@ -1247,6 +1250,15 @@ fn on_key(
     if key.kind != KeyEventKind::Press {
         return false;
     }
+    // Normalize terminal encodings before modal routing drops modifiers.
+    let key = if key.code == KeyCode::Tab && key.modifiers == KeyModifiers::SHIFT {
+        ratatui::crossterm::event::KeyEvent {
+            code: KeyCode::BackTab,
+            ..key
+        }
+    } else {
+        key
+    };
     // The last command's receipt goes as soon as you touch a key — it answered
     // the previous keystroke, and by now you have moved on. Cleared HERE and
     // not in the event loop so a test can drive it; and cleared BEFORE the key
@@ -1255,6 +1267,10 @@ fn on_key(
     if ui.pending_auth().is_some() {
         // Authorization owns the keyboard, including modified edit/submit keys.
         // Scrolling remains available to inspect the complete request above.
+        if permission_actions::is_shortcut(key) {
+            ack(ui, permission_actions::toggle_permission(session));
+            return false;
+        }
         if key.modifiers.is_empty() {
             match key.code {
                 KeyCode::Up => ui.domain.authorizations.select_allow(true),
@@ -1304,6 +1320,11 @@ fn on_key(
         KeyCode::PageDown if ctrl => ui.navigation = Some(tabs::Navigation::Next),
         KeyCode::PageUp if ctrl => ui.navigation = Some(tabs::Navigation::Previous),
         _ if route_modal(ui, session, key.code) => {}
+        // Forms keep their backwards-field navigation; the composer and
+        // authorization cards use Shift+Tab without consuming the draft.
+        _ if permission_actions::is_shortcut(key) => {
+            ack(ui, permission_actions::toggle_permission(session));
+        }
         // Ctrl-D quits. Ctrl-C interrupts a running turn, else clears the input
         // line. Esc interrupts, else drops back to the latest when scrolled up.
         KeyCode::Char('d') if ctrl => return true,
@@ -1350,6 +1371,7 @@ fn on_key(
                 submission::Intent::Empty => return false,
                 submission::Intent::Command(line) => return run_slash(ui, &line, session),
                 submission::Intent::SkillCandidate(name) => {
+                    ui.transcript_cache.get_mut().invalidate();
                     ui.live_output.submitted();
                     ui.browsing.pin();
                     ui.domain.turns.optimistic_activity();
@@ -1363,6 +1385,7 @@ fn on_key(
             };
             // Don't echo locally: the USER_MESSAGE we inject comes straight back
             // from the ledger and `ingest` renders it — one source of truth.
+            ui.transcript_cache.get_mut().invalidate();
             ui.live_output.submitted();
             ui.browsing.pin(); // jump back to the latest to watch the reply
                                // Optimistic: light up immediately. The USER_MESSAGE event coming
@@ -1664,7 +1687,11 @@ fn draw_ui<B: ratatui::backend::Backend>(
 where
     B::Error: backend_error::IntoIoError,
 {
-    let hit = draw(term, ui)?;
+    let hit = draw_cached(
+        term,
+        ui,
+        Some((&ui.transcript_cache, ui.browsing.folds_revision())),
+    )?;
     if ui.panel.active().is_none() {
         if let Some(top) = hit.top {
             ui.browsing.drawn(top, hit.more_below);
@@ -1676,6 +1703,17 @@ where
 fn draw<B: ratatui::backend::Backend>(
     term: &mut Terminal<B>,
     view: &dyn View,
+) -> std::io::Result<Hit>
+where
+    B::Error: backend_error::IntoIoError,
+{
+    draw_cached(term, view, None)
+}
+
+fn draw_cached<B: ratatui::backend::Backend>(
+    term: &mut Terminal<B>,
+    view: &dyn View,
+    cache: Option<(&std::cell::RefCell<transcript::Cache>, u64)>,
 ) -> std::io::Result<Hit>
 where
     B::Error: backend_error::IntoIoError,
@@ -1802,7 +1840,12 @@ where
                                                                 // The welcome scene rides at the top and scrolls with the talk; it fills
                                                                 // the transcript (bar the label lines) so a fresh screen is all globe.
         let art_h = content.height as usize;
-        let page = match transcript::page(view, spinner, inner_w, art_h) {
+        let page = match match cache {
+            Some((cache, folds)) => cache
+                .borrow_mut()
+                .page(view, spinner, inner_w, art_h, folds),
+            None => transcript::page(view, spinner, inner_w, art_h),
+        } {
             Ok(page) => page,
             Err(error) => {
                 transcript_error = Some(error);
@@ -2113,14 +2156,29 @@ where
                 true,
             )
         } else if view.busy() {
-            (vec![Span::styled("Esc interrupt", dimmed)], false)
+            (
+                vec![Span::styled(
+                    permission_actions::key_hint("Esc interrupt", areas[6].width),
+                    dimmed,
+                )],
+                false,
+            )
         } else if !view.input().is_empty() {
             (
-                vec![Span::styled("Ctrl-C clear · ⌥⏎ newline", dimmed)],
+                vec![Span::styled(
+                    permission_actions::key_hint("Ctrl-C clear · ⌥⏎ newline", areas[6].width),
+                    dimmed,
+                )],
                 false,
             )
         } else {
-            (vec![Span::styled("Ctrl-D quit", dimmed)], false)
+            (
+                vec![Span::styled(
+                    permission_actions::key_hint("Ctrl-D quit", areas[6].width),
+                    dimmed,
+                )],
+                false,
+            )
         };
 
         let bar = areas[6];
@@ -2956,6 +3014,7 @@ mod tests {
             links: link_actions::LinkOpener::default(),
             event_facts: None,
             cards: None,
+            transcript_cache: Default::default(),
             navigation: None,
             tab_line: String::new(),
             replayed_through: 0,
@@ -6123,10 +6182,15 @@ mod tests {
         // is the point.)
         let session = scripted_session();
         run_slash(&mut u, "/model sonnet", Some(&session));
-        // Waited on causally: the session answers with a notice and then goes
-        // quiet, so the quiet IS the signal that the answer has arrived.
-        while let Some(render) = session.next_render() {
-            let done = matches!(render, RenderEvent::Quiescent);
+        // Startup and interface control can also become quiescent. Wait for
+        // this command's receipt, not an unrelated earlier quiet notification.
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            let render = session
+                .next_render_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+                .expect("model swap must produce a receipt");
+            let done = matches!(&render, RenderEvent::Notice { source, payload }
+                if source == "model" && payload["note"].is_string());
             fold_render(&mut u, render).unwrap();
             if done {
                 break;

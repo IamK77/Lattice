@@ -137,6 +137,57 @@ fn permission_commands_and_modal_toggle_change_only_the_live_interface() {
 }
 
 #[test]
+fn shift_tab_toggles_permission_with_a_draft_and_a_pending_question() {
+    test_support::isolated(|| {
+        let (mut ui, live) = fixture();
+        for character in "keep this draft".chars() {
+            press(&mut ui, &live, KeyCode::Char(character));
+        }
+        let cursor = ui.cursor();
+        // Terminals report Shift+Tab either as BackTab or as shifted Tab.
+        for (code, modifiers, enabled) in [
+            (KeyCode::BackTab, KeyModifiers::SHIFT, true),
+            (KeyCode::Tab, KeyModifiers::SHIFT, false),
+            (KeyCode::BackTab, KeyModifiers::NONE, true),
+            (KeyCode::BackTab, KeyModifiers::SHIFT, false),
+        ] {
+            assert!(!on_key(
+                &mut ui,
+                Some(live.session()),
+                KeyEvent::new(code, modifiers),
+                &Hit::default()
+            ));
+            until(&mut ui, &live, |e| {
+                e.event_type == ip::STATE && e.payload["action"] == "set"
+            });
+            assert_eq!(live.session().permission_enabled().unwrap(), Some(enabled));
+            assert_eq!(ui.input(), "keep this draft");
+            assert_eq!(ui.cursor(), cursor);
+            assert!(
+                !ui.domain.turns.busy(),
+                "toggling must not submit the draft"
+            );
+        }
+        live.session().send_text("ask for a command");
+        let question = until(&mut ui, &live, |e| e.event_type == op::AUTH_REQUESTED);
+        on_key(
+            &mut ui,
+            Some(live.session()),
+            KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT),
+            &Hit::default(),
+        );
+        until(&mut ui, &live, |e| {
+            e.event_type == ip::STATE && e.payload["action"] == "set"
+        });
+        assert_eq!(live.session().permission_enabled().unwrap(), Some(true));
+        assert_eq!(ui.pending_auth(), Some(question.id.as_str()));
+        assert_eq!(ui.input(), "keep this draft");
+        assert_eq!(ui.cursor(), cursor);
+        assert!(live.session().flow_grants().unwrap().grants.is_empty());
+    });
+}
+
+#[test]
 fn flow_key_and_grant_commands_manage_a_real_persistent_scope() {
     test_support::isolated(|| {
         let (mut ui, live) = fixture();

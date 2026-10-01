@@ -86,9 +86,28 @@ test('negotiated permission controls and approval shortcuts reach the current bi
     await until(() => conn.permissions.length === 1);
     assert.deepEqual(conn.permissions[0], ['main', 'token', true]);
     assert.match(lastFrame(), /permission: unknown/);
+    stdin.write('\u001b[Z');
+    await until(() => lastFrame().includes('not been acknowledged yet'));
+    assert.equal(conn.permissions.length, 1, 'unknown authority state cannot be toggled');
     conn.emit('message', { appended: { stream: 'main', event: { id: 'enabled', seq: 11, source: 'permissions',
       type: 'interface.permission.state', causes: [], payload: { interfaces: { own: { open: true, enabled: true } } } } } });
     await until(() => lastFrame().includes('permission: on'));
+    stdin.write('keep');
+    await until(() => lastFrame().includes('keep'));
+    stdin.write('\u001b[Z');
+    await until(() => conn.permissions.length === 2);
+    assert.deepEqual(conn.permissions[1], ['main', 'token', false]);
+    assert.match(lastFrame(), /keep/);
+    assert.match(lastFrame(), /permission: on/, 'state is not changed optimistically');
+    assert.equal(conn.approvals.length, 4, 'the pending question is not answered by toggling');
+    conn.emit('message', { appended: { stream: 'main', event: { id: 'disabled', seq: 12, source: 'permissions',
+      type: 'interface.permission.state', causes: [], payload: { interfaces: { own: { open: true, enabled: false } } } } } });
+    await until(() => lastFrame().includes('permission: off'));
+    stdin.write('\u001b[Z');
+    await until(() => conn.permissions.length === 3);
+    assert.deepEqual(conn.permissions[2], ['main', 'token', true]);
+    for (let i = 0; i < 4; i++) stdin.write('\u007f');
+    await until(() => lastFrame().includes('Type a message'));
     await command('/grants');
     await until(() => lastFrame().includes('No flow grants'));
     await command('/permission bad');
@@ -98,7 +117,7 @@ test('negotiated permission controls and approval shortcuts reach the current bi
     await until(() => conn.attached.length === 2);
     await command('/permission on');
     await until(() => lastFrame().includes('Authorization controls unavailable'));
-    assert.equal(conn.permissions.length, 1, 'the replaced binding cannot send another control');
+    assert.equal(conn.permissions.length, 3, 'the replaced binding cannot send another control');
     conn.emit('message', { attached: { stream: 'main', replay: [question] } });
     await until(() => lastFrame().includes('legacy service semantics'));
     assert.doesNotMatch(lastFrame(), /y once/);
