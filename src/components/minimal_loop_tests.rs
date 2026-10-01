@@ -84,7 +84,8 @@ fn checkpoint_tail_matches_cold_material_and_never_restores_execution() {
         expected
     );
     assert_eq!(log.reader().snapshot_end(), before);
-    assert!(!resumed.awaiting_model && !resumed.round_open() && !resumed.unseen_input);
+    assert!(!resumed.awaiting_model && !resumed.round_open());
+    assert!(resumed.unseen_inputs.is_empty() && resumed.work_inputs.is_empty());
     assert!(resumed.gathered.is_empty());
     // Duplicate delivery is idempotent for the material projection.
     resumed.sync_material(&log.reader(), before).unwrap();

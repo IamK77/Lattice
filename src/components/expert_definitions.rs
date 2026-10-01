@@ -83,6 +83,7 @@ pub struct ExpertDefinitions {
     catalog: Result<Catalog, String>,
     handled: HashSet<String>,
     pending: HashMap<String, EventEnvelope>,
+    authorization: super::operation_policy::AuthorizationSources,
 }
 
 impl ExpertDefinitions {
@@ -97,6 +98,7 @@ impl ExpertDefinitions {
             catalog,
             handled: HashSet::new(),
             pending: HashMap::new(),
+            authorization: super::operation_policy::AuthorizationSources::from_config(config),
         }
     }
 }
@@ -179,7 +181,17 @@ impl Component for ExpertDefinitions {
                             .into());
                     }
                     let summary = catalog.review_mutation(arguments)?;
-                    Self::audit_reference(event, reader)?;
+                    let audit = Self::audit_reference(event, reader)?;
+                    if let Some(authorization) = self
+                        .authorization
+                        .allowance(reader, event)
+                        .map_err(|e| e.to_string())?
+                    {
+                        ctx.emit("decision", EventDraft::new(DECISION, &[&event.id], json!({
+                            "held":event.id,"verdict":"granted","authorization":authorization,
+                        })).with_reason("The expert deletion is covered by flow authorization or a source interface's live permission"));
+                        return catalog.apply_mutation(arguments, audit).map(Some);
+                    }
                     self.pending.insert(event.id.clone(), event.clone());
                     ctx.emit("request", EventDraft::new(AUTH_REQUESTED, &[&event.id], json!({
                         "request":event.id,"held":event.id,"tool":DELETE,"confirmation":"expert-delete",

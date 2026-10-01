@@ -97,11 +97,12 @@ pub struct MinimalLoop {
     /// would put a second assistant turn on the record before the first was
     /// answered — the shape that makes a conversation unsendable.
     awaiting_model: bool,
-    /// Something arrived since the last question went out (a typed line, a
-    /// background wake). It is already in `parts`; this remembers that the
-    /// model has not been shown it yet, so the round does not end quietly on
-    /// top of it.
-    unseen_input: bool,
+    /// Inputs not consumed by a model request yet. Keep their identities, not
+    /// just a boolean: an interjection must become a cause of the next ask.
+    unseen_inputs: Vec<String>,
+    /// Inputs supporting the active work, separate from historical material.
+    /// Tool continuations retain them; a final reply or parked wait ends them.
+    work_inputs: Vec<String>,
     /// Whether `parts` has been rebuilt from the ledger. The ledger survives
     /// a restart; component memory does not — on the first delivery the loop
     /// re-derives its material list from the record (it IS just pointers, so
@@ -135,7 +136,8 @@ impl MinimalLoop {
             gathered: Vec::new(),
             only_wait_receipts: false,
             awaiting_model: false,
-            unseen_input: false,
+            unseen_inputs: Vec::new(),
+            work_inputs: Vec::new(),
             rebuilt: false,
         }
     }
@@ -170,7 +172,16 @@ impl MinimalLoop {
             }
         };
         self.awaiting_model = true;
-        self.unseen_input = false;
+        let new_inputs = std::mem::take(&mut self.unseen_inputs);
+        let mut causes = causes.to_vec();
+        for id in &new_inputs {
+            if !self.work_inputs.contains(id) {
+                self.work_inputs.push(id.clone());
+            }
+            if !causes.contains(&id.as_str()) {
+                causes.push(id.as_str());
+            }
+        }
         // The offered tools are whatever the assembled providers declare
         // (collected by the kernel, provider-stamped, refreshed on hot
         // install) plus any hand-written extras from this loop's config
@@ -180,11 +191,12 @@ impl MinimalLoop {
             "ask",
             EventDraft::new(
                 ce::MODEL_CALL_STARTED,
-                causes,
+                &causes,
                 json!({
                     "model": self.model,
                     "input": input,
                     "tools": tools,
+                    "workInputs": self.work_inputs,
                 }),
             ),
         );
@@ -213,9 +225,13 @@ impl Component for MinimalLoop {
             // NEXT question this loop asks carries it, which is the earliest
             // moment it could be heard. Until then it is merely unseen.
             "input" if self.awaiting_model || self.round_open() => {
-                self.unseen_input = true;
+                self.unseen_inputs.push(event.id.clone());
             }
-            "input" => self.ask(&[&event.id], ctx),
+            "input" => {
+                self.work_inputs.clear();
+                self.unseen_inputs.push(event.id.clone());
+                self.ask(&[&event.id], ctx);
+            }
             "model" => {
                 self.awaiting_model = false;
                 match event.payload["toolCalls"].as_array() {
@@ -276,7 +292,8 @@ impl Component for MinimalLoop {
                         // reply above belongs to what was asked before it; this
                         // asks again so the newcomer is answered too, rather than
                         // lying in the material unread until someone types again.
-                        if self.unseen_input {
+                        self.work_inputs.clear();
+                        if !self.unseen_inputs.is_empty() {
                             self.ask(&[&event.id], ctx);
                         }
                     }
@@ -310,6 +327,7 @@ impl Component for MinimalLoop {
                     .any(|started| started.event_type == ce::MODEL_CALL_STARTED)
                 {
                     self.awaiting_model = false;
+                    self.work_inputs.clear();
                     self.pending_calls.clear();
                     self.pending_unnamed = 0;
                     self.gathered.clear();
@@ -373,7 +391,8 @@ impl Component for MinimalLoop {
                     // A wake can beat its receipt to this component. Likewise,
                     // a person may have spoken while the tools were running.
                     // Never park on top of input the model has not seen.
-                    if self.only_wait_receipts && !self.unseen_input {
+                    if self.only_wait_receipts && self.unseen_inputs.is_empty() {
+                        self.work_inputs.clear();
                         ctx.emit("state", EventDraft::new(WAITING, &causes, json!({}))
                             .with_reason("Only waiting receipts arrived; yield until new input instead of polling"));
                     } else {
