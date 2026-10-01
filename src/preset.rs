@@ -622,6 +622,14 @@ pub(crate) fn builtin_implementations(
             skill_library::installer_manifest(),
         ),
         (trust_policy::NAME, trust_policy::manifest()),
+        (
+            crate::components::operation_policy::NAME,
+            crate::components::operation_policy::manifest(),
+        ),
+        (
+            crate::components::interface_permissions::NAME,
+            crate::components::interface_permissions::manifest(),
+        ),
     ]
     .into_iter()
     .map(|(name, manifest)| (name.to_string(), manifest))
@@ -754,6 +762,18 @@ pub(crate) fn builtin_implementations(
     factories.insert(
         trust_policy::NAME.to_string(),
         Box::new(|c| Box::new(trust_policy::TrustPolicy::from_config(c))),
+    );
+    factories.insert(
+        crate::components::operation_policy::NAME.to_string(),
+        Box::new(|c| {
+            Box::new(crate::components::operation_policy::OperationPolicy::from_config(c))
+        }),
+    );
+    factories.insert(
+        crate::components::interface_permissions::NAME.to_string(),
+        Box::new(|c| {
+            Box::new(crate::components::interface_permissions::InterfacePermissions::from_config(c))
+        }),
     );
     factories.insert(
         workshop_sink::NAME.to_string(),
@@ -960,15 +980,23 @@ pub fn standard_at_depth(cfg: &PresetConfig, depth: u64) -> Result<StandardAssem
                 "expert-ui".to_string(),
                 instance(crate::components::expert_ui::NAME, None, &[]),
             ),
-            // The frontends can answer the authorization pair (ui.answer →
-            // trust.answer below), so the gate ASKS: an ungranted admission
-            // puts a card in front of the human and the turn waits. Headless
-            // runs that want refusal instead: config {"stance": "deny"}.
+            // Main-stream frontends answer through the operation broker.
+            // Independent unattended templates deny new questions rather
+            // than waiting for a person who is not attached to their stream.
+            (
+                "permissions".to_string(),
+                instance(crate::components::interface_permissions::NAME, None, &[]),
+            ),
+            (
+                "operations".to_string(),
+                instance(crate::components::operation_policy::NAME,
+                    Some(json!({"stance": if depth == 0 { "ask" } else { "deny" }})), &[]),
+            ),
             (
                 "trust".to_string(),
                 instance(
                     trust_policy::NAME,
-                    Some(json!({"stance": "ask"})),
+                    Some(json!({"stance": if depth == 0 { "ask" } else { "deny" }})),
                     &["policy"],
                 ),
             ),
@@ -1043,19 +1071,14 @@ fn check_ask_has_an_answerer(
     assembly: &AssemblyManifest,
 ) -> Result<(), String> {
     for (name, inst) in &assembly.instances {
-        let asks = inst.component == trust_policy::NAME
+        let asks = (inst.component == trust_policy::NAME
+            || inst.component == crate::components::operation_policy::NAME)
             && inst.config.as_ref().and_then(|c| c["stance"].as_str()) == Some("ask");
         if !asks {
             continue;
         }
         let answer_port = format!("{name}.answer");
-        let answered = assembly.wires.iter().any(|wire| {
-            wire.to == answer_port
-                && crate::contracts::assembly::parse_endpoint(&wire.from)
-                    .and_then(|(src, _)| assembly.instances.get(src))
-                    .and_then(|i| registry.get(&i.component))
-                    .is_some_and(|m| m.implements.iter().any(|p| p == "frontend-authorize"))
-        });
+        let answered = has_authorization_frontend(registry, assembly, &answer_port);
         if !answered {
             return Err(format!(
                 "assembly contradiction: trust instance \"{name}\" has stance \"ask\", but no \
@@ -1066,6 +1089,44 @@ fn check_ask_has_an_answerer(
         }
     }
     Ok(())
+}
+
+// The operation broker relays answers, but is not itself a frontend. Only
+// traverse its declared answer route; an arbitrary component's input does not
+// promise to relay human decisions. The visited set also rejects broker cycles.
+fn has_authorization_frontend(
+    registry: &HashMap<String, ComponentManifest>,
+    assembly: &AssemblyManifest,
+    answer_port: &str,
+) -> bool {
+    let mut pending = vec![answer_port.to_string()];
+    let mut visited = std::collections::HashSet::new();
+    while let Some(port) = pending.pop() {
+        if !visited.insert(port.clone()) {
+            continue;
+        }
+        for wire in assembly.wires.iter().filter(|wire| wire.to == port) {
+            let Some((source, output)) = crate::contracts::assembly::parse_endpoint(&wire.from)
+            else {
+                continue;
+            };
+            let Some(instance) = assembly.instances.get(source) else {
+                continue;
+            };
+            if registry
+                .get(&instance.component)
+                .is_some_and(|m| m.implements.iter().any(|p| p == "frontend-authorize"))
+            {
+                return true;
+            }
+            if instance.component == crate::components::operation_policy::NAME
+                && output == "answered"
+            {
+                pending.push(format!("{source}.answer"));
+            }
+        }
+    }
+    false
 }
 
 /// Every wire of the standard assembly, in black and white.
@@ -1086,12 +1147,18 @@ fn standard_wires() -> Vec<Wire> {
         // forwarded untouched (the audit-visible hop), install-class
         // calls only when granted
         Wire::new("loop.run", "expert-review.review"),
-        Wire::new("expert-review.forward", "trust.review"),
+        Wire::new("expert-review.forward", "operations.review"),
+        Wire::new("operations.forward", "trust.review"),
+        Wire::new("operations.verdict", "loop.tools"),
+        Wire::new("operations.interrupted", "loop.faults"),
+        Wire::new("ui.interrupt", "operations.control"),
         Wire::new("expert-review.verdict", "loop.tools"),
         Wire::new("trust.verdict", "loop.tools"),
-        // The human's authorization answers reach the gate
-        Wire::new("ui.answer", "trust.answer"),
-        Wire::new("ui.answer", "web-browser.answer"),
+        // Scoped answers pass through the operation broker before admission.
+        Wire::new("ui.answer", "operations.answer"),
+        Wire::new("ui.answer", "permissions.control"),
+        Wire::new("operations.answered", "trust.answer"),
+        Wire::new("operations.answered", "web-browser.answer"),
         Wire::new("trust.forward", "web-browser.execute"),
         Wire::new("web-browser.outcome", "loop.tools"),
         Wire::new("web-browser.interrupted", "loop.faults"),
@@ -1131,12 +1198,14 @@ fn standard_wires() -> Vec<Wire> {
         Wire::new("subagent.outcome", "loop.tools"),
         Wire::new("trust.forward", "expert-definitions.execute"),
         Wire::new("expert-definitions.outcome", "loop.tools"),
-        Wire::new("ui.answer", "expert-definitions.answer"),
+        Wire::new("operations.answered", "expert-definitions.answer"),
         Wire::new("ui.interrupt", "expert-definitions.control"),
         Wire::new("expert-definitions.interrupted", "loop.faults"),
         Wire::new("ui.answer", "expert-ui.input"),
         Wire::new("expert-ui.run", "expert-review.review"),
         Wire::new("expert-review.verdict", "expert-ui.completed"),
+        Wire::new("operations.verdict", "expert-ui.completed"),
+        Wire::new("operations.interrupted", "expert-ui.completed"),
         Wire::new("trust.verdict", "expert-ui.completed"),
         Wire::new("expert-definitions.outcome", "expert-ui.completed"),
         Wire::new("expert-definitions.interrupted", "expert-ui.completed"),
@@ -1188,6 +1257,8 @@ const EXPERT_CORE: &[&str] = &[
     "env",
     "zz-project-rules",
     "trust",
+    "operations",
+    "permissions",
     "expert-review",
     "tool-catalog",
     // Structural, not a tool: what the user says reaches the loop THROUGH it

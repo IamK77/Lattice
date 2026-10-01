@@ -775,6 +775,29 @@ pub fn ingest(entries: &mut Vec<Entry>, event: &EventEnvelope) -> bool {
                 }
             }
         }
+        t if t == crate::components::interface_permissions::STATE => {
+            if let Some(id) = event.payload["interface"].as_str() {
+                if event.payload["accepted"] == false {
+                    entries.push(Entry::Notice(format!(
+                        "Permission change refused: {}",
+                        event.payload["error"].as_str().unwrap_or("see ledger")
+                    )));
+                    return true;
+                }
+                if matches!(event.payload["action"].as_str(), Some("set" | "close")) {
+                    let enabled = event.payload["interfaces"][id]["enabled"] == true;
+                    entries.push(Entry::Notice(format!("Interface {id}: permission {}. Flow grants and permanent trust are separate.", if enabled { "ON" } else { "OFF" })));
+                    return true;
+                }
+            }
+        }
+        t if t == crate::components::operation_policy::STATE && !event.causes.is_empty() => {
+            entries.push(Entry::Notice(format!(
+                "{} — /grants to inspect",
+                event.reason.as_deref().unwrap_or("Flow grants changed")
+            )));
+            return true;
+        }
         t if t == crate::components::operation_policy::AUTH_REQUESTED
             || t == trust_policy::AUTH_REQUESTED
             || t == crate::components::browser_tools::AUTH_REQUESTED
@@ -913,6 +936,29 @@ fn approval_text(payload: &Value) -> String {
 pub fn authorization_description(payload: &Value) -> String {
     let tool = payload["tool"].as_str().unwrap_or("something");
     let summary = payload["summary"].as_str().unwrap_or_default();
+    if let Some(grants) = payload["grants"].as_array() {
+        let mut details = format!("Approve {tool} operation\n    {summary}");
+        if grants.is_empty() {
+            details.push_str("\n    This configured rule requires approval each time.");
+        } else {
+            details.push_str("\n    Proposed flow grant (survives reopening):");
+            for grant in grants {
+                match grant["kind"].as_str() {
+                    Some("command_prefix") => details.push_str(&format!(
+                        "\n    {} argv prefix: {}",
+                        grant["tool"].as_str().unwrap_or(tool),
+                        grant["prefix"]
+                    )),
+                    Some("exact_arguments") => {
+                        details.push_str("\n    Exact arguments of this request only")
+                    }
+                    _ => details.push_str(&format!("\n    {grant}")),
+                }
+            }
+            details.push_str("\n    Prefixes do not restrict trailing arguments, directory, remote identity, or executable contents.");
+        }
+        return details;
+    }
     if payload["confirmation"] == "expert-delete" {
         return format!("Confirm expert deletion\n    {summary}");
     }
@@ -1050,6 +1096,20 @@ mod tests {
                 .all(|e| !matches!(e, Entry::Tool(c) if c.status == ToolStatus::Running)),
             "nothing keeps spinning after the completion"
         );
+    }
+
+    #[test]
+    fn operation_details_show_the_proposed_scope_and_its_limits() {
+        let details =
+            authorization_description(&json!({"tool":"Run", "summary":"git push origin main",
+            "grants":[{"kind":"command_prefix","tool":"Run","prefix":["git","push","origin"]}]}));
+        assert!(details.contains("[\"git\",\"push\",\"origin\"]"));
+        assert!(details.contains("survives reopening"));
+        assert!(details.contains("do not restrict trailing arguments"));
+        assert!(!details.contains("admit new"));
+        let forced = authorization_description(&json!({"tool":"Run","grants":[]}));
+        assert!(forced.contains("requires approval each time"));
+        assert!(!forced.contains("Proposed flow grant"));
     }
 
     #[test]

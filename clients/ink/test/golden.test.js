@@ -28,6 +28,11 @@ const golden = Object.fromEntries(
 test('every client message we send matches the pinned wire shape', () => {
   const built = {
     history: encode.history('main', { stream: 'main', generation: 1, through: 200, before: 73 }),
+    'attach-permissions': encode.attach('main', { capabilities: ['authorize', 'history-pages', 'operation-permissions-v1'] }),
+    'set-permission': encode.setPermission('main', 'binding-1', true),
+    'authorize-once': encode.authorizeOperation('main', 'binding-1', 'ev_9_feed0004', true, 'once'),
+    'authorize-flow': encode.authorizeOperation('main', 'binding-1', 'ev_9_feed0004', true, 'flow'),
+    'revoke-grant': encode.revokeGrant('main', 'binding-1', 'grant-1'),
     'attach-basic': encode.attach('main'),
     'attach-derived': encode.attach('btw-1', { template: 'chat', deriveFrom: 'main' }),
     'attach-with-capabilities': encode.attach('main', { capabilities: ['authorize'] }),
@@ -44,6 +49,8 @@ test('every client message we send matches the pinned wire shape', () => {
 test('every pinned server message decodes to the tag the app routes on', () => {
   const wantTag = {
     'attached-paged': 'attached',
+    'attached-permissions': 'attached_v2',
+    'attached-permissions-unavailable': 'attached_v2',
     'history-page': 'history_page',
     'history-error': 'history_error',
     'attached-with-replay': 'attached',
@@ -80,11 +87,9 @@ test('the pinned full envelope renders by the re-emission rule', () => {
 test('the golden file covers every message the client can produce', () => {
   // A new encode.* helper without a pinned golden entry means the contract
   // grew silently — this catches the omission on the Node side
-  const clientLabels = Object.keys(golden).filter((l) =>
-    ['attach', 'send_text', 'authorize', 'detach', 'interrupt', 'history'].includes(
-      Object.keys(golden[l])[0],
-    ),
-  );
-  assert.equal(clientLabels.length, Object.keys(encode).length + 2, // attach appears thrice
-    'encode helpers and pinned client messages disagree — regenerate the golden deliberately');
+  const clientTags = Object.keys(encode).map((name) => name.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`));
+  const pinnedTags = new Set(Object.values(golden).map((message) => Object.keys(message)[0]));
+  for (const tag of clientTags) {
+    assert.ok(pinnedTags.has(tag), `missing golden coverage for encoder ${tag}`);
+  }
 });

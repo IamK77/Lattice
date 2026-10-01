@@ -5,9 +5,12 @@
 // an object with exactly one key, e.g. { "appended": { ... } }. This file is
 // the client's entire knowledge of the core; it never touches Rust.
 
+import { validateAuthorization } from './authorization.js';
+
 /// Decode an externally-tagged message into { tag, body }.
 export function decode(message) {
   const tag = Object.keys(message)[0];
+  if (tag === 'attached_v2') validateAuthorization(message[tag]?.authorization);
   return { tag, body: message[tag] };
 }
 
@@ -28,6 +31,12 @@ export const encode = {
   }),
   sendText: (stream, text) => ({ send_text: { stream, text } }),
   authorize: (stream, request, approve) => ({ authorize: { stream, request, approve } }),
+  setPermission: (stream, attachment, enabled) => ({ set_permission: { stream, attachment, enabled } }),
+  authorizeOperation: (stream, attachment, request, approve, scope) => {
+    if (!['once', 'flow'].includes(scope)) throw new Error('approval scope must be once or flow');
+    return { authorize_operation: { stream, attachment, request, approve, scope } };
+  },
+  revokeGrant: (stream, attachment, grant) => ({ revoke_grant: { stream, attachment, grant } }),
   detach: (stream) => ({ detach: { stream } }),
   interrupt: (stream) => ({ interrupt: { stream } }),
 };
@@ -71,15 +80,22 @@ export function renderLine(event) {
         call: p.call ?? null,
         text: `${p.tool ?? '?'} ${JSON.stringify(p.arguments ?? {})}`,
       };
+    case 'operation.authorization_requested':
     case 'experts.authorization_requested':
     case 'browser.authorization_requested':
     case 'trust.authorization_requested':
       return {
         who: 'notice',
-        text: `authorization required: ${p.summary ?? 'an admission'} — allow? (y/n)`,
+        text: `authorization required: ${p.summary ?? 'an operation'}`,
       };
+    case 'operation.authorization_decided':
+    case 'experts.authorization_decided':
     case 'browser.authorization_decided':
-      return { who: 'notice', text: `browser: ${event.reason ?? ''}` };
+      return { who: 'notice', text: `authorization: ${event.reason ?? p.error ?? ''}` };
+    case 'operation.authorization.state':
+      return event.causes?.length ? { who: 'notice', text: `${event.reason ?? 'Flow grants changed'} — /grants to inspect` } : null;
+    case 'interface.permission.state':
+      return p.accepted === false ? { who: 'error', text: p.error ?? 'Permission change refused' } : null;
     case 'trust.gate.decision':
       return {
         who: 'notice',

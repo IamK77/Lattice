@@ -9,7 +9,7 @@ use serde::Serialize;
 
 use crate::{core_events as ce, EventEnvelope, LogReader};
 
-use super::{InterfaceState, STATE};
+use super::current_snapshot;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct PermissionEvidence {
@@ -28,14 +28,7 @@ pub fn allowance(
     request: &EventEnvelope,
     source: &str,
 ) -> io::Result<Option<PermissionEvidence>> {
-    let snapshot = reader.scan_back_types(&[STATE], |event, _| {
-        if event.source != source {
-            return Ok(None);
-        }
-        let state: InterfaceState = serde_json::from_value(event.payload.clone())
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-        Ok(Some((event.id.clone(), state)))
-    })?;
+    let snapshot = current_snapshot(reader, source)?;
     let Some((id, state)) = snapshot else {
         return Ok(None);
     };

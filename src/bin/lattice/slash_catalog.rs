@@ -24,6 +24,18 @@ pub(super) const SLASH: &[Slash] = &[
         summary: "how full the context window is",
     },
     Slash {
+        name: "/permission",
+        summary: "show or set this interface's temporary permission (/permission on|off)",
+    },
+    Slash {
+        name: "/grants",
+        summary: "inspect this flow's persistent operation grants",
+    },
+    Slash {
+        name: "/revoke",
+        summary: "remove a flow grant (/revoke <grant-id>); no rollback",
+    },
+    Slash {
         name: "/compact",
         summary: "request one compaction attempt, including when automatic compaction is paused",
     },

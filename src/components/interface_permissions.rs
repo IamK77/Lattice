@@ -137,14 +137,52 @@ pub fn read_state(
     log: &crate::kernel::log::LogReader,
     source: &str,
 ) -> std::io::Result<Option<InterfaceState>> {
-    log.scan_back_types(&[STATE], |event, _| {
-        if event.source != source {
-            return Ok(None);
-        }
-        serde_json::from_value(event.payload.clone())
-            .map(Some)
-            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
-    })
+    Ok(current_snapshot(log, source)?.map(|(_, state)| state))
+}
+
+// The first relevant record wins. An authority that cannot process `close`
+// must not keep granting permission from its last enabled snapshot. A new
+// runtime is also a boundary, even before its restore snapshot reaches disk.
+fn current_snapshot(
+    log: &crate::kernel::log::LogReader,
+    source: &str,
+) -> std::io::Result<Option<(String, InterfaceState)>> {
+    use crate::core_events as ce;
+    Ok(log
+        .scan_back_types(
+            &[
+                STATE,
+                ce::COMPONENT_CRASHED,
+                ce::COMPONENT_REMOVED,
+                ce::ERROR,
+                ce::STREAM_OPENED,
+                ce::STREAM_RESUMED,
+            ],
+            |event, _| {
+                if event.event_type == STATE && event.source == source {
+                    let state = serde_json::from_value(event.payload.clone()).map_err(|error| {
+                        std::io::Error::new(std::io::ErrorKind::InvalidData, error)
+                    })?;
+                    return Ok(Some(Some((event.id.clone(), state))));
+                }
+                if event.source == "core"
+                    && match event.event_type.as_str() {
+                        ce::COMPONENT_CRASHED => event.payload["component"] == source,
+                        ce::COMPONENT_REMOVED => event.payload["instance"] == source,
+                        ce::ERROR => {
+                            event.payload["code"] == "core.component_failed"
+                                && event.payload["detail"]["component"] == source
+                        }
+                        ce::STREAM_OPENED | ce::STREAM_RESUMED => true,
+                        _ => false,
+                    }
+                {
+                    return Ok(Some(None));
+                }
+                Ok(None)
+            },
+        )?
+        .flatten())
 }
 
 pub struct InterfacePermissions {

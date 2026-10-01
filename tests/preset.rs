@@ -159,7 +159,7 @@ fn complete_assembly_can_insert_a_required_gate_without_the_old_bypass() {
             .iter()
             .map(|e| e.source.as_str())
             .collect::<Vec<_>>(),
-        ["loop", "extra-gate", "expert-review", "trust"]
+        ["loop", "extra-gate", "expert-review", "operations", "trust"]
     );
     for pair in requests.windows(2) {
         assert_eq!(pair[1].causes, vec![pair[0].id.clone()]);
@@ -521,6 +521,72 @@ fn only_a_successfully_merged_overlay_grants_removal_provenance() {
         }
         kernel.shutdown();
     }
+}
+
+#[test]
+fn authorization_brokers_require_a_real_frontend_not_a_cycle() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = scripted_config();
+    let mut document = preset::assembly_document(&cfg).unwrap();
+    let wires = document["assembly"]["wires"].as_array_mut().unwrap();
+    wires.retain(|w| !(w["from"] == "ui.answer" && w["to"] == "operations.answer"));
+    wires.push(json!({"from":"operations.answered","to":"operations.answer"}));
+    let path = dir.path().join("baseline.json");
+    std::fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
+    cfg.assembly = Some(path.clone());
+    let error = standard(&cfg)
+        .err()
+        .expect("a broker cycle cannot answer a question");
+    assert!(error.contains("frontend-authorize"), "{error}");
+    document["assembly"]["wires"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"from":"ui.answer","to":"operations.answer"}));
+    std::fs::write(path, serde_json::to_vec(&document).unwrap()).unwrap();
+    standard(&cfg).expect("the real frontend answers through the broker");
+}
+
+#[test]
+fn unattended_defaults_deny_new_command_and_admission_questions() {
+    for depth in [0, 1, 2] {
+        let cfg = scripted_config();
+        let (_, _, assembly) = preset::standard_at_depth(&cfg, depth).unwrap();
+        for gate in ["operations", "trust"] {
+            assert_eq!(
+                assembly.instances[gate].config.as_ref().unwrap()["stance"],
+                if depth == 0 { "ask" } else { "deny" }
+            );
+        }
+    }
+    let mut cfg = scripted_config();
+    cfg.scripted = Some(json!({"script":[
+        {"status":"ok","toolCalls":[{"id":"test-run","tool":"Run","arguments":{"command":"printf must-not-run"}}]},
+        {"status":"ok","text":"handled refusal"}
+    ]}));
+    let (registry, mut factories, assembly) = preset::standard_at_depth(&cfg, 1).unwrap();
+    let mut kernel = Kernel::start(
+        &assembly,
+        &registry,
+        &mut factories,
+        KernelOptions::default(),
+    )
+    .unwrap();
+    kernel.injector("ui").emit(
+        "user",
+        EventDraft::new(ce::USER_MESSAGE, &[], json!({"text":"work"})),
+    );
+    kernel.run_until_quiescent().unwrap();
+    let events = kernel.log().replay(1).unwrap();
+    assert!(!events
+        .iter()
+        .any(|e| e.event_type == lattice::components::operation_policy::AUTH_REQUESTED));
+    assert!(events
+        .iter()
+        .any(|e| e.event_type == ce::TOOL_EXEC_COMPLETED
+            && e.payload["error"]["code"] == "operation.denied"));
+    assert!(!events
+        .iter()
+        .any(|e| e.source == "shell" && e.event_type == ce::TOOL_EXEC_COMPLETED));
 }
 
 /// The assembler's stance-ask rule: an overlay may add a second trust gate,

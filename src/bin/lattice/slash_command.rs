@@ -15,6 +15,9 @@ pub(super) enum Intent<'a> {
     Effort(&'a str),
     Model(&'a str),
     Compact,
+    Permission(&'a str),
+    Grants,
+    Revoke(&'a str),
     Uninstall(&'a str),
     Notice(String),
 }
@@ -44,6 +47,10 @@ pub(super) fn parse(line: &str) -> Intent<'_> {
         "/model" => Intent::Model(rest),
         "/compact" if !rest.is_empty() => Intent::Notice("usage: /compact (no arguments)".into()),
         "/compact" => Intent::Compact,
+        "/permission" => Intent::Permission(rest),
+        "/grants" if rest.is_empty() => Intent::Grants,
+        "/grants" => Intent::Notice("usage: /grants".into()),
+        "/revoke" => Intent::Revoke(rest),
         "/uninstall" | "/remove" if rest.is_empty() => {
             Intent::Notice("usage: /uninstall <instance>  — the name an install gave it".into())
         }

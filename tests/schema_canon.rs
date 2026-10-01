@@ -149,8 +149,15 @@ fn golden_wire_envelopes_satisfy_the_canon_and_round_trip() {
     for line in golden.lines().filter(|l| !l.trim().is_empty()) {
         let entry: Value = serde_json::from_str(line).expect("golden lines are valid JSON");
         let message = &entry["message"];
-        if let Some(replay) = message["attached"]["replay"].as_array() {
-            envelopes.extend(replay.iter().cloned());
+        for kind in ["attached", "attached_v2", "history_page"] {
+            if let Some(replay) = message[kind]["replay"].as_array() {
+                envelopes.extend(replay.iter().cloned());
+            }
+        }
+        if let Some(questions) =
+            message["attached_v2"]["authorization"]["pending_authorizations"].as_array()
+        {
+            envelopes.extend(questions.iter().cloned());
         }
         if message["appended"]["event"].is_object() {
             envelopes.push(message["appended"]["event"].clone());
@@ -183,6 +190,8 @@ fn golden_wire_envelopes_satisfy_the_canon_and_round_trip() {
 fn every_builtin_manifest_satisfies_the_canon() {
     let canon = component_validator();
     let manifests: Vec<ComponentManifest> = vec![
+        lattice::components::operation_policy::manifest(),
+        lattice::components::interface_permissions::manifest(),
         silent_ui::manifest(),
         minimal_loop::manifest(),
         context_gate::manifest(),

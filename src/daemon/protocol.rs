@@ -47,6 +47,24 @@ pub enum ClientMessage {
         request: String,
         approve: bool,
     },
+    /// Controls negotiated by this exact attachment, never an arbitrary interface id.
+    SetPermission {
+        stream: String,
+        attachment: String,
+        enabled: bool,
+    },
+    AuthorizeOperation {
+        stream: String,
+        attachment: String,
+        request: String,
+        approve: bool,
+        scope: ApprovalScope,
+    },
+    RevokeGrant {
+        stream: String,
+        attachment: String,
+        grant: String,
+    },
     /// Manage experts through the same audited provider and authorization
     /// route as the terminal UI. Results arrive as experts.ui.result events.
     ManageExperts {
@@ -60,6 +78,28 @@ pub enum ClientMessage {
     Detach { stream: String },
     /// Interrupt a running turn in a stream — reaches it immediately.
     Interrupt { stream: String },
+}
+
+pub const PERMISSIONS_CAPABILITY: &str = "operation-permissions-v1";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalScope {
+    Once,
+    Flow,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthorizationAttachment {
+    pub attachment: String,
+    pub interface: Option<String>,
+    pub interface_service: Option<String>,
+    pub operation_service: Option<String>,
+    pub through: u64,
+    pub grants: crate::components::operation_policy::GrantState,
+    /// Current unresolved questions, including those outside the replay page.
+    pub pending_authorizations: Vec<EventEnvelope>,
 }
 
 /// A cursor belongs to one attachment, not merely to a stream name.
@@ -114,6 +154,15 @@ pub enum ServerMessage {
         warnings: Vec<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         history: Option<AttachmentHistory>,
+    },
+    /// Sent only when operation-permissions-v1 was negotiated. The old strict
+    /// history structure remains unchanged for older clients.
+    AttachedV2 {
+        stream: String,
+        replay: Vec<EventEnvelope>,
+        warnings: Vec<String>,
+        history: Option<AttachmentHistory>,
+        authorization: AuthorizationAttachment,
     },
     /// One older page, tied to the exact request cursor.
     HistoryPage {

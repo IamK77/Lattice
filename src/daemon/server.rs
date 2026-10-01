@@ -43,7 +43,7 @@ type Outbox = mpsc::Sender<ServerMessage>;
 
 /// The clients watching one stream, tagged with connection ids so a repeated
 /// attach replaces a subscription instead of doubling it
-type Watchers = Arc<Mutex<Vec<(u64, Outbox)>>>;
+type Watchers = Arc<super::bindings::Bindings>;
 
 /// What the core loop (and the wake forwarder) send a stream's driver thread.
 enum DriverCmd {
@@ -56,6 +56,7 @@ enum DriverCmd {
     Stop,
     Subscribe {
         client_id: u64,
+        attachment: String,
         outbox: Outbox,
         /// The client's self-declared capabilities from the handshake;
         /// mismatches against what the assembly expects come back as
@@ -70,18 +71,6 @@ enum DriverCmd {
         cursor: HistoryCursor,
         outbox: Outbox,
     },
-    /// Inject a user message. Does NOT run the turn itself — the injection
-    /// fires a wake, which arrives as `Wake` and runs it. One path for every
-    /// injection (user text, interrupts, and future background/timer sources).
-    UserText {
-        text: String,
-    },
-    /// Inject the user's answer to an authorization request (external input
-    /// on the trust gate's channel). Same wake path as user text.
-    Authorize {
-        request: String,
-        approve: bool,
-    },
     /// Run the stream to quiescence and broadcast it. Sent by the wake
     /// forwarder whenever anything is injected into this stream — this is the
     /// push loop: any injection ⇒ a turn.
@@ -94,6 +83,9 @@ enum DriverCmd {
 struct StreamDriver {
     cmd: mpsc::Sender<DriverCmd>,
     reader: LogReader,
+    injector: Injector,
+    bindings: Watchers,
+    provenance: Option<(String, String)>,
     /// Kept so a stopping daemon can WAIT for this stream to wind down.
     /// Without it the process simply ended and every stream's kernel was
     /// still holding its in-flight work — no stop protocol, no sealing.
@@ -105,6 +97,7 @@ struct StreamDriver {
 /// client per stream) and reply to it directly.
 struct CoreCommand {
     client_id: u64,
+    alive: Arc<AtomicBool>,
     message: ClientMessage,
     outbox: Outbox,
 }
@@ -114,6 +107,7 @@ struct CoreCommand {
 /// stopped while it is blocked waiting for the next command.
 enum CoreMessage {
     Client(Box<CoreCommand>),
+    Disconnected(u64),
     Shutdown,
 }
 
@@ -272,6 +266,9 @@ fn serve_client(
         Ok(half) => half,
         Err(_) => return,
     };
+    let alive = Arc::new(AtomicBool::new(true));
+    let writer_alive = alive.clone();
+    let writer_core = cmd_tx.clone();
     std::thread::spawn(move || {
         while let Ok(message) = out_rx.recv() {
             let Ok(line) = serde_json::to_string(&message) else {
@@ -281,6 +278,9 @@ fn serve_client(
                 break;
             }
         }
+        writer_alive.store(false, Ordering::Release);
+        let _ = write_half.shutdown(std::net::Shutdown::Both);
+        let _ = writer_core.send(CoreMessage::Disconnected(client_id));
     });
 
     std::thread::spawn(move || {
@@ -313,6 +313,7 @@ fn serve_client(
             if cmd_tx
                 .send(CoreMessage::Client(Box::new(CoreCommand {
                     client_id,
+                    alive: alive.clone(),
                     message,
                     outbox: out_tx.clone(),
                 })))
@@ -321,8 +322,14 @@ fn serve_client(
                 break;
             }
         }
+        alive.store(false, Ordering::Release);
+        let _ = cmd_tx.send(CoreMessage::Disconnected(client_id));
     });
 }
+
+#[cfg(test)]
+#[path = "server_tests.rs"]
+mod tests;
 
 /// The core loop: instantiates streams on demand and routes each command to
 /// the right stream's driver. It never runs a turn itself, so no stream can
@@ -337,10 +344,20 @@ fn core_loop(
     while let Ok(incoming) = cmd_rx.recv() {
         let CoreCommand {
             client_id,
+            alive,
             message,
             outbox,
         } = match incoming {
             CoreMessage::Client(command) => *command,
+            CoreMessage::Disconnected(client) => {
+                for driver in drivers.values() {
+                    driver.bindings.detach(client);
+                    let _ = driver
+                        .cmd
+                        .send(DriverCmd::Unsubscribe { client_id: client });
+                }
+                continue;
+            }
             // Wind every stream down before the process goes: drop the
             // command channels so each driver leaves its loop and calls
             // `Kernel::shutdown`, then WAIT for them. Stopping used to be a
@@ -349,6 +366,9 @@ fn core_loop(
             // protocol happened at all.
             CoreMessage::Shutdown => break,
         };
+        // EOF ends a binding, not commands already parsed from the socket.
+        // Bindings independently reject dead subscriptions and scoped controls;
+        // ordinary accepted input still reaches the flow without live permission.
         match message {
             ClientMessage::Attach {
                 stream,
@@ -378,8 +398,16 @@ fn core_loop(
                         }
                     }
                 }
-                let _ = drivers[&stream].cmd.send(DriverCmd::Subscribe {
+                let driver = &drivers[&stream];
+                let attachment = driver.bindings.prepare(
                     client_id,
+                    outbox.clone(),
+                    &capabilities,
+                    alive.clone(),
+                );
+                let _ = driver.cmd.send(DriverCmd::Subscribe {
+                    client_id,
+                    attachment,
                     outbox,
                     capabilities,
                 });
@@ -400,9 +428,19 @@ fn core_loop(
                     });
                 }
             },
-            ClientMessage::SendText { stream, text } => match drivers.get(&stream) {
+            ClientMessage::SendText { stream, text } => match drivers.get_mut(&stream) {
                 Some(driver) => {
-                    let _ = driver.cmd.send(DriverCmd::UserText { text });
+                    // Legacy detached writers remain supported, but have no
+                    // live interface permission to contribute.
+                    let payload =
+                        json!({"text":text,"interface":driver.bindings.source(client_id)});
+                    let draft = match driver.provenance.take() {
+                        Some((parent, event)) => {
+                            StreamHost::derived_root(ce::USER_MESSAGE, &parent, &event, payload)
+                        }
+                        None => EventDraft::new(ce::USER_MESSAGE, &[], payload),
+                    };
+                    driver.injector.emit("user", draft);
                 }
                 None => {
                     let _ = outbox.send(ServerMessage::Error {
@@ -417,7 +455,10 @@ fn core_loop(
                 approve,
             } => match drivers.get(&stream) {
                 Some(driver) => {
-                    let _ = driver.cmd.send(DriverCmd::Authorize { request, approve });
+                    driver.injector.emit("answer", EventDraft::new(ce::EXTERNAL_INPUT, &[], json!({
+                        "channel":crate::components::trust_policy::AUTH_CHANNEL,
+                        "request":request,"approve":approve,"interface":driver.bindings.source(client_id),
+                    })));
                 }
                 None => {
                     let _ = outbox.send(ServerMessage::Error {
@@ -426,6 +467,53 @@ fn core_loop(
                     });
                 }
             },
+            ClientMessage::SetPermission {
+                stream,
+                attachment,
+                enabled,
+            } => {
+                let result = drivers.get(&stream).ok_or_else(|| "unknown stream - attach first".to_string())
+                    .and_then(|driver| driver.bindings.control(client_id, &attachment,
+                        json!({"channel":crate::components::interface_permissions::CHANNEL,"action":"set","enabled":enabled}), true));
+                if let Err(message) = result {
+                    let _ = outbox.send(ServerMessage::Error {
+                        stream: Some(stream),
+                        message,
+                    });
+                }
+            }
+            ClientMessage::AuthorizeOperation {
+                stream,
+                attachment,
+                request,
+                approve,
+                scope,
+            } => {
+                let result = drivers.get(&stream).ok_or_else(|| "unknown stream - attach first".to_string())
+                    .and_then(|driver| driver.bindings.control(client_id, &attachment,
+                        json!({"channel":crate::components::operation_policy::ANSWER_CHANNEL,"request":request,"approve":approve,"scope":scope}), false));
+                if let Err(message) = result {
+                    let _ = outbox.send(ServerMessage::Error {
+                        stream: Some(stream),
+                        message,
+                    });
+                }
+            }
+            ClientMessage::RevokeGrant {
+                stream,
+                attachment,
+                grant,
+            } => {
+                let result = drivers.get(&stream).ok_or_else(|| "unknown stream - attach first".to_string())
+                    .and_then(|driver| driver.bindings.control(client_id, &attachment,
+                        json!({"channel":crate::components::operation_policy::CHANNEL,"action":"revoke","grant":grant}), false));
+                if let Err(message) = result {
+                    let _ = outbox.send(ServerMessage::Error {
+                        stream: Some(stream),
+                        message,
+                    });
+                }
+            }
             ClientMessage::ManageExperts {
                 stream,
                 request,
@@ -442,7 +530,9 @@ fn core_loop(
                             &[],
                             json!({
                                 "channel":crate::components::expert_ui::CHANNEL,
-                                "request":request,"operation":operation,"arguments":arguments
+                                "request":request,"operation":operation,"arguments":arguments,
+                                "interface":drivers.get(&stream).and_then(|driver| driver.bindings.source(client_id)),
+                                "workInput":true
                             }),
                         ),
                     );
@@ -455,6 +545,7 @@ fn core_loop(
             }
             ClientMessage::Detach { stream } => {
                 if let Some(driver) = drivers.get(&stream) {
+                    driver.bindings.detach(client_id);
                     let _ = driver.cmd.send(DriverCmd::Unsubscribe { client_id });
                 }
             }
@@ -472,6 +563,7 @@ fn core_loop(
     // mean it has finished rather than that it was told to.
     for (_, mut driver) in drivers.drain() {
         let thread = driver.thread.take();
+        driver.bindings.close_all();
         let _ = driver.cmd.send(DriverCmd::Stop);
         drop(driver);
         if let Some(thread) = thread {
@@ -491,12 +583,15 @@ fn open_driver(
     interrupters: &Arc<Mutex<HashMap<String, Injector>>>,
 ) -> Result<StreamDriver, String> {
     // Wire this stream's ledger + notice bypass into its watcher list
-    let watchers: Watchers = Arc::default();
-    let subs_log = Arc::clone(&watchers);
+    let configured = Arc::new(std::sync::OnceLock::<Watchers>::new());
+    let slot = configured.clone();
     let log_stream = stream.to_string();
-    let subs_notice = Arc::clone(&watchers);
     let notice_stream = stream.to_string();
     let configure = move |kernel: &mut Kernel| {
+        let watchers = Arc::new(super::bindings::Bindings::new(kernel));
+        assert!(slot.set(watchers.clone()).is_ok());
+        let subs_log = watchers.clone();
+        let subs_notice = watchers;
         kernel.subscribe_log(move |event| {
             broadcast(
                 &subs_log,
@@ -582,14 +677,19 @@ fn open_driver(
     });
 
     let stream_id = stream.to_string();
-    let thread = std::thread::spawn(move || {
-        drive_stream(
-            stream_id, kernel, injector, watchers, cmd_rx, provenance, projection,
-        )
-    });
+    let bindings = configured
+        .get()
+        .expect("configured stream bindings")
+        .clone();
+    let watchers = bindings.clone();
+    let thread =
+        std::thread::spawn(move || drive_stream(stream_id, kernel, watchers, cmd_rx, projection));
     Ok(StreamDriver {
         cmd: cmd_tx,
         reader,
+        injector,
+        bindings,
+        provenance,
         thread: Some(thread),
     })
 }
@@ -602,12 +702,8 @@ fn open_driver(
 fn drive_stream(
     stream: String,
     mut kernel: Kernel,
-    injector: Injector,
     watchers: Watchers,
     commands: mpsc::Receiver<DriverCmd>,
-    // Which event in which parent stream this sidechannel came out of, for
-    // the ONE event that can carry it: the first thing said here.
-    mut provenance: Option<(String, String)>,
     projection: Arc<Mutex<Projection>>,
 ) {
     // The daemon is a host: it owns a kernel, so it is the one that can rewire
@@ -620,9 +716,13 @@ fn drive_stream(
         match command {
             DriverCmd::Subscribe {
                 client_id,
+                attachment,
                 outbox,
                 capabilities,
             } => {
+                if !watchers.current(client_id, &attachment) {
+                    continue;
+                }
                 let reader = kernel.log().reader();
                 let through = reader.snapshot_end();
                 let prepared = (|| -> std::io::Result<_> {
@@ -683,22 +783,31 @@ fn drive_stream(
                 if let Some(cursor) = &older {
                     cursors.insert(client_id, cursor.clone());
                 }
-                let _ = outbox.send(ServerMessage::Attached {
-                    stream: stream.clone(),
-                    replay: page.iter().map(|event| event.as_ref().clone()).collect(),
-                    warnings: capability_warnings(&kernel, &capabilities),
-                    history: paged.then_some(AttachmentHistory {
+                if let Err(message) = watchers.attach(
+                    client_id,
+                    &attachment,
+                    super::bindings::PreparedAttachment {
+                        stream: stream.clone(),
+                        replay: page.iter().map(|event| event.as_ref().clone()).collect(),
+                        warnings: capability_warnings(&kernel, &capabilities),
+                        pending_auth: state.pending_auth.clone(),
+                        history: paged.then_some(AttachmentHistory {
+                            through,
+                            older,
+                            state,
+                        }),
                         through,
-                        older,
-                        state,
-                    }),
-                });
-                let mut w = watchers.lock().unwrap();
-                w.retain(|(id, _)| *id != client_id);
-                w.push((client_id, outbox.clone()));
+                    },
+                ) {
+                    let _ = outbox.send(ServerMessage::Error {
+                        stream: Some(stream.clone()),
+                        message,
+                    });
+                }
             }
             DriverCmd::Unsubscribe { client_id } => {
-                watchers.lock().unwrap().retain(|(id, _)| *id != client_id);
+                // The core already ended the binding immediately, even if
+                // this cleanup sat behind a running model.
                 cursors.remove(&client_id);
             }
             DriverCmd::History {
@@ -706,7 +815,7 @@ fn drive_stream(
                 cursor,
                 outbox,
             } => {
-                if cursors.get(&client_id) != Some(&cursor) {
+                if !watchers.active(client_id) || cursors.get(&client_id) != Some(&cursor) {
                     let _ = outbox.send(ServerMessage::HistoryError {
                         stream: stream.clone(),
                         cursor,
@@ -746,43 +855,6 @@ fn drive_stream(
                         });
                     }
                 }
-            }
-            DriverCmd::UserText { text } => {
-                // Only inject; the injection fires a wake that arrives as
-                // `Wake` and runs the turn — same path as every other source.
-                //
-                // The FIRST thing said in a derived stream carries `origin`:
-                // it is the root event, and origin is meaningful on root
-                // events. That link is the only thing tying a sidechannel to
-                // the conversation it grew out of — the kernel deliberately
-                // does not check it, so where nobody writes it there is
-                // simply no link, which is what this path had. A `/btw`
-                // stream recorded nothing about which conversation it was an
-                // aside to.
-                let draft = match provenance.take() {
-                    Some((parent, event)) => StreamHost::derived_root(
-                        ce::USER_MESSAGE,
-                        &parent,
-                        &event,
-                        json!({"text": text}),
-                    ),
-                    None => EventDraft::new(ce::USER_MESSAGE, &[], json!({"text": text})),
-                };
-                injector.emit("user", draft);
-            }
-            DriverCmd::Authorize { request, approve } => {
-                injector.emit(
-                    "answer",
-                    EventDraft::new(
-                        ce::EXTERNAL_INPUT,
-                        &[],
-                        json!({
-                            "channel": crate::components::trust_policy::AUTH_CHANNEL,
-                            "request": request,
-                            "approve": approve,
-                        }),
-                    ),
-                );
             }
             DriverCmd::Stop => break,
             DriverCmd::Wake => {
@@ -834,8 +906,5 @@ fn capability_warnings(kernel: &Kernel, capabilities: &[String]) -> Vec<String> 
 
 /// Fan one message out to every watcher, pruning any whose socket has closed.
 fn broadcast(watchers: &Watchers, message: ServerMessage) {
-    watchers
-        .lock()
-        .unwrap()
-        .retain(|(_, client)| client.send(message.clone()).is_ok());
+    watchers.broadcast(message);
 }

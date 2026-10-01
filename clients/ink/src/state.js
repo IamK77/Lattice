@@ -33,6 +33,10 @@ function newStream(id, kind, parent) {
     // the y/n answer must name. Opened by the request event, closed by the
     // gate's decision — derived from the ledger, like busy.
     pendingAuth: [],
+    connected: false,
+    authorization: null,
+    permission: 'unavailable',
+    grants: {},
     // The invokable-skills menu, folded off skill.listing events:
     // [{ name, description }] — feeds the `/` palette
     skills: [],
@@ -50,14 +54,14 @@ function newStream(id, kind, parent) {
 //
 // A card holds the id of the call it is about (the request's cause), because
 // a decision names the call it reviewed, not the question asked about it.
-export function authPhase(prev, event) {
+export function authPhase(prev, event, includeDetails = false) {
   const open = prev ?? [];
-  if (['trust.authorization_requested', 'browser.authorization_requested', 'experts.authorization_requested'].includes(event.type)) {
+  if (['operation.authorization_requested', 'trust.authorization_requested', 'browser.authorization_requested', 'experts.authorization_requested'].includes(event.type)) {
     const held = event.payload?.held ?? event.causes?.[0] ?? null;
     if (open.some((card) => card.request === event.id)) return open;
-    return [...open, { request: event.id, held }];
+    return [...open, { request: event.id, held, ...(includeDetails ? { question: event } : {}) }];
   }
-  if (['trust.gate.decision', 'browser.authorization_decided', 'experts.authorization_decided', 'core.control.interrupted', 'core.tool.exec_completed'].includes(event.type)) {
+  if (['operation.authorization_decided', 'trust.gate.decision', 'browser.authorization_decided', 'experts.authorization_decided', 'core.control.interrupted', 'core.tool.exec_completed'].includes(event.type)) {
     const settled = [...(event.causes ?? []), event.payload?.held].filter(Boolean);
     return open.filter((card) => !settled.includes(card.held));
   }
@@ -142,6 +146,31 @@ export function turnPhase(prevBusy, eventType, causes, payload) {
   }
 }
 
+function authorizationState(st, event) {
+  const binding = st.authorization;
+  if (!binding || !st.connected) return {};
+  if (event.type === 'interface.permission.state' && event.source === binding.interface_service) {
+    const own = event.payload?.interfaces?.[binding.interface];
+    return { permission: own?.open === true && own?.enabled === true ? 'on' : 'off' };
+  }
+  if (event.type === 'operation.authorization.state' && event.source === binding.operation_service) {
+    return { grants: event.payload?.grants ?? {} };
+  }
+  if (event.source === 'core') {
+    const retired = event.type === 'core.control.component_removed' ? event.payload?.instance
+      : event.type === 'core.control.component_crashed' ? event.payload?.component
+        : event.type === 'core.control.error' && event.payload?.code === 'core.component_failed'
+          ? event.payload?.detail?.component : null;
+    if (retired && retired === binding.interface_service) return {
+      permission: 'unavailable', authorization: { ...binding, interface_service: null },
+    };
+    if (retired && retired === binding.operation_service) return {
+      operationUnavailable: true, authorization: { ...binding, operation_service: null },
+    };
+  }
+  return {};
+}
+
 export function reduce(state, action) {
   switch (action.type) {
     case 'OPEN': {
@@ -174,15 +203,27 @@ export function reduce(state, action) {
     }
     case 'STATUS':
       return patch(state, action.id, { status: action.status });
+    case 'REBIND':
+      return patch(state, action.id, { connected: false, authorization: null, permission: 'unavailable' });
+    case 'DISCONNECTED':
+      return { ...state, streams: Object.fromEntries(Object.entries(state.streams).map(([id, st]) => [id,
+        { ...st, connected: false, authorization: null, permission: 'unavailable', status: action.status }])) };
     case 'ATTACHED':
       // Current controls come from the complete-prefix projection, never
       // from a tail page whose opening authorization may be out of view.
       return patch(state, action.id, (st) => ({
         busy: action.history?.state.busy ?? action.busy ?? false,
         waiting: action.history?.state.waiting ?? action.waiting ?? false,
-        pendingAuth: action.history?.state.pending_auth ?? action.pendingAuth ?? [],
+        pendingAuth: action.authorization
+          ? action.authorization.pending_authorizations.reduce((cards, event) => authPhase(cards, event, true), [])
+          : action.history?.state.pending_auth ?? action.pendingAuth ?? [],
+        connected: true,
+        operationUnavailable: false,
+        authorization: action.authorization ?? null,
+        permission: action.authorization?.interface_service ? 'unknown' : 'unavailable',
+        grants: action.authorization?.grants.grants ?? {},
         skills: action.history?.state.skills ?? st.skills,
-        lastSeq: action.history?.through ?? 0,
+        lastSeq: action.authorization?.through ?? action.history?.through ?? 0,
         historyCursor: action.history?.older ?? null,
         historyBoundary: action.lines[0] ?? null,
         historyLoading: false,
@@ -238,14 +279,16 @@ export function reduce(state, action) {
         const skills = event.type === 'skill.listing' ? event.payload?.skills ?? [] : st.skills;
         const busy = turnPhase(st.busy, event.type, event.causes, event.payload);
         const waiting = waitingPhase(st.waiting, event);
-        const pendingAuth = authPhase(st.pendingAuth, event);
-        if (!action.line) return { busy, waiting, pendingAuth, lastSeq, skills, streaming: waiting ? '' : st.streaming };
+        const pendingAuth = authPhase(st.pendingAuth, event, st.authorization !== null);
+        const authorization = authorizationState(st, event);
+        if (!action.line) return { ...authorization, busy, waiting, pendingAuth, lastSeq, skills, streaming: waiting ? '' : st.streaming };
         // A gated assembly records one tool request twice (the loop's
         // emission and the gate's forward) — one line is the truth
         if (repeatsLastCall(st.transcript, action.line)) {
-          return { busy, waiting, pendingAuth, lastSeq, skills };
+          return { ...authorization, busy, waiting, pendingAuth, lastSeq, skills };
         }
         return {
+          ...authorization,
           lastSeq,
           skills,
           streaming: '',
@@ -266,11 +309,12 @@ export function reduce(state, action) {
       return patch(state, action.id, (st) => ({ streaming: st.streaming + action.chunk }));
     case 'QUIESCENT':
       return patch(state, action.id, { busy: false });
+    case 'LOCAL_NOTICE':
     case 'ERROR': {
       const key = `x-${state.keys}`;
       return {
         ...patch(state, action.id, (st) => ({
-          transcript: [...st.transcript, { who: 'error', text: action.message, key }].slice(-MAX_TRANSCRIPT),
+          transcript: [...st.transcript, { who: action.type === 'ERROR' ? 'error' : 'notice', text: action.message, key }].slice(-MAX_TRANSCRIPT),
         })),
         keys: state.keys + 1,
       };
@@ -279,10 +323,9 @@ export function reduce(state, action) {
       // The menu follows the ledger: each listing replaces it wholesale
       return patch(state, action.id, { skills: action.skills ?? [] });
     case 'AUTH_SENT':
-      // Optimistic: the card just answered goes; the gate's decision
-      // confirms it. Only the FIRST — the one the keystroke was aimed at —
-      // because any others are still open questions.
-      return patch(state, action.id, (st) => ({ pendingAuth: st.pendingAuth.slice(1) }));
+      // Legacy clients advance locally. Negotiated controls can be rejected
+      // (for example a stale token), so only the authority retires those cards.
+      return patch(state, action.id, (st) => st.authorization ? {} : { pendingAuth: st.pendingAuth.slice(1) });
     case 'SENT':
       // The user's line is NOT echoed locally: the daemon broadcasts it back
       // the moment it is recorded, and the ledger is the single source of

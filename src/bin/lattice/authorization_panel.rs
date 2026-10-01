@@ -8,7 +8,8 @@ use ratatui::{
 };
 
 pub(super) const HEIGHT: u16 = 7;
-pub(super) const KEYS: &str = "Up/Down choose · Enter confirm · Esc refuse · PgUp/PgDn details";
+pub(super) const KEYS: &str =
+    "Up/Down choose · Enter confirm · f flow grant · p permanent trust · i interface permission · Esc refuse";
 
 pub(super) fn lines(
     prompt: &AuthorizationPrompt,

@@ -87,6 +87,11 @@ mod event_inputs;
 mod live_output;
 #[path = "model_state.rs"]
 mod model_state;
+#[path = "permission_actions.rs"]
+mod permission_actions;
+#[cfg(test)]
+#[path = "permission_actions/entry_tests.rs"]
+mod permission_entry_tests;
 use model_state::ModelState;
 #[path = "modal_keys.rs"]
 mod modal_keys;
@@ -933,6 +938,9 @@ fn run_slash(ui: &mut Ui, line: &str, session: Option<&Session>) -> bool {
             run_model_action(ui, session, model_actions::Action::Effort(rest));
         }
         Intent::Model(rest) => run_model_action(ui, session, model_actions::Action::Model(rest)),
+        Intent::Permission(rest) => ack(ui, permission_actions::permission(session, rest)),
+        Intent::Grants => ack(ui, permission_actions::grants(session)),
+        Intent::Revoke(id) => ack(ui, permission_actions::revoke(session, id)),
         Intent::Compact => match session {
             Some(session) => {
                 session.request_compaction();
@@ -1255,12 +1263,30 @@ fn on_key(
                     if key.code == KeyCode::Esc {
                         ui.domain.authorizations.select_allow(false);
                     }
-                    if let Some((request, allow)) = ui.domain.authorizations.answer_selected() {
-                        if let Some(session) = session {
-                            session.authorize(&request, allow);
+                    if let Some((request, allow)) = ui.domain.authorizations.selected() {
+                        let result = match session {
+                            Some(session)
+                                if allow && session.supports_operation_authorization() =>
+                            {
+                                session.authorize_once(&request)
+                            }
+                            Some(session) => {
+                                session.authorize(&request, allow);
+                                Ok(())
+                            }
+                            None => Ok(()),
+                        };
+                        match result {
+                            Ok(()) => {
+                                ui.domain.authorizations.answer_oldest();
+                            }
+                            Err(error) => ack(ui, &error),
                         }
                     }
                 }
+                KeyCode::Char('f') => permission_actions::scoped_answer(ui, session, false),
+                KeyCode::Char('p') => permission_actions::scoped_answer(ui, session, true),
+                KeyCode::Char('i') => ack(ui, permission_actions::toggle_permission(session)),
                 KeyCode::PageUp => scroll_by(ui, SCROLL_PAGE as isize, hit),
                 KeyCode::PageDown => scroll_by(ui, -(SCROLL_PAGE as isize), hit),
                 _ => {}

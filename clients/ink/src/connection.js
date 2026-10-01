@@ -67,6 +67,15 @@ export class Connection extends EventEmitter {
   authorize(stream, request, approve) {
     this._send(encode.authorize(stream, request, approve));
   }
+  setPermission(stream, attachment, enabled) {
+    this._send(encode.setPermission(stream, attachment, enabled));
+  }
+  authorizeOperation(stream, attachment, request, approve, scope) {
+    this._send(encode.authorizeOperation(stream, attachment, request, approve, scope));
+  }
+  revokeGrant(stream, attachment, grant) {
+    this._send(encode.revokeGrant(stream, attachment, grant));
+  }
   detach(stream) {
     this._send(encode.detach(stream));
   }

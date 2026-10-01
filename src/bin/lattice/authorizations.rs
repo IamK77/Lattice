@@ -67,13 +67,18 @@ impl Authorizations {
         }
     }
 
-    pub fn answer_selected(&mut self) -> Option<(String, bool)> {
-        let allow = self
-            .questions
+    pub fn selected(&self) -> Option<(String, bool)> {
+        self.questions
             .iter()
-            .find(|q| !q.answered_locally)?
-            .allow_selected;
-        self.answer_oldest().map(|request| (request, allow))
+            .find(|q| !q.answered_locally)
+            .map(|q| (q.request.clone(), q.allow_selected))
+    }
+
+    #[cfg(test)]
+    pub fn answer_selected(&mut self) -> Option<(String, bool)> {
+        let selected = self.selected()?;
+        self.answer_oldest();
+        Some(selected)
     }
 
     pub fn next(&self) -> Option<&str> {

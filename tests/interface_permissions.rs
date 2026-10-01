@@ -11,6 +11,20 @@ use lattice::{
 };
 use serde_json::{json, Value};
 
+struct FailingAuthority(permissions::InterfacePermissions);
+impl lattice::Component for FailingAuthority {
+    fn restore(&mut self, ctx: &mut lattice::Ctx) {
+        self.0.restore(ctx);
+    }
+    fn handle(&mut self, port: &str, event: &EventEnvelope, ctx: &mut lattice::Ctx) {
+        match event.payload["action"].as_str() {
+            Some("panic") => panic!("injected authority crash"),
+            Some("fail") => ctx.fail("test", "injected authority retirement", &[]),
+            _ => self.0.handle(port, event, ctx),
+        }
+    }
+}
+
 fn start(path: Option<&Path>) -> Kernel {
     let mut ui = silent_ui::manifest();
     ui.outputs
@@ -31,7 +45,11 @@ fn start(path: Option<&Path>) -> Kernel {
     );
     factories.insert(
         permissions::NAME.into(),
-        Box::new(|config| Box::new(permissions::InterfacePermissions::from_config(config))),
+        Box::new(|config| {
+            Box::new(FailingAuthority(
+                permissions::InterfacePermissions::from_config(config),
+            ))
+        }),
     );
     let assembly = AssemblyManifest {
         instances: [
@@ -144,6 +162,59 @@ fn work(kernel: &mut Kernel, inputs: &[&EventEnvelope]) -> EventEnvelope {
 }
 
 #[test]
+fn a_retired_authority_cannot_keep_granting_its_last_permission() {
+    for ending in ["remove", "panic", "fail"] {
+        let mut kernel = start(None);
+        change(&mut kernel, "ui", "a", "open", Value::Null);
+        change(&mut kernel, "ui", "a", "set", json!(true));
+        let message = input(&mut kernel, "a");
+        let request = work(&mut kernel, &[&message]);
+        let reader = kernel.log().reader();
+        assert!(permissions::allowance(&reader, &request, "permissions")
+            .unwrap()
+            .is_some());
+        // Removing an unrelated instance must not invalidate this authority.
+        kernel
+            .uninstall("other", "test unrelated removal", &[])
+            .unwrap();
+        assert!(permissions::read_state(&reader, "permissions")
+            .unwrap()
+            .unwrap()
+            .permits("a"));
+        if ending == "remove" {
+            kernel
+                .uninstall("permissions", "test authority removal", &[])
+                .unwrap();
+            let removed = last(&kernel, ce::COMPONENT_REMOVED);
+            assert_eq!(removed.payload["instance"], "permissions");
+            assert_eq!(removed.payload["component"], permissions::NAME);
+        } else {
+            kernel.injector("ui").emit(
+                "answer",
+                EventDraft::new(
+                    ce::EXTERNAL_INPUT,
+                    &[],
+                    json!({"channel":permissions::CHANNEL,"action":ending}),
+                ),
+            );
+            kernel.run_until_quiescent().unwrap();
+        }
+        assert!(
+            permissions::read_state(&reader, "permissions")
+                .unwrap()
+                .is_none(),
+            "{ending}"
+        );
+        assert!(
+            permissions::allowance(&reader, &request, "permissions")
+                .unwrap()
+                .is_none(),
+            "{ending}"
+        );
+    }
+}
+
+#[test]
 fn only_contributing_live_interfaces_supply_permission() {
     let mut kernel = start(None);
     change(&mut kernel, "ui", "a", "open", Value::Null);
@@ -228,6 +299,13 @@ fn permission_is_not_restored_with_the_ledger() {
         assert!(state(&kernel).permits("a"));
     }
     let mut resumed = start(Some(&path));
+    // The runtime boundary already invalidates permission before the new
+    // authority's restore snapshot has been drained into the ledger.
+    assert!(
+        permissions::read_state(&resumed.log().reader(), "permissions")
+            .unwrap()
+            .is_none()
+    );
     resumed.run_until_quiescent().unwrap();
     assert!(!state(&resumed).permits("a"));
     change(&mut resumed, "ui", "b", "open", Value::Null);

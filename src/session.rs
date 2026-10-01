@@ -351,6 +351,7 @@ pub struct Session {
     interrupter: Injector,
     interface_id: Option<String>,
     operation_authorization: bool,
+    authorization_sources: crate::components::operation_policy::AuthorizationSources,
     stop: crate::kernel::host::StopHandle,
     startup_cost: crate::startup::Timings,
     reader: crate::kernel::log::LogReader,
@@ -411,6 +412,7 @@ impl Session {
                     Vec<crate::Assembled>,
                     Option<String>,
                     bool,
+                    crate::components::operation_policy::AuthorizationSources,
                 ),
                 String,
             >,
@@ -432,35 +434,35 @@ impl Session {
                 }
             };
             let injector = kernel.injector(&ui_instance);
-            let has_answer_service = |state: &str| {
-                kernel.assembly().wires.iter().any(|wire| {
+            let answer_service = |state: &str| {
+                kernel.assembly().wires.iter().find_map(|wire| {
                     if wire.from != format!("{ui_instance}.answer") {
-                        return false;
+                        return None;
                     }
-                    let Some((instance, _)) = wire.to.rsplit_once('.') else {
-                        return false;
-                    };
-                    kernel
-                        .assembly()
-                        .instances
-                        .get(instance)
-                        .and_then(|spec| kernel.component_registry().get(&spec.component))
-                        .is_some_and(|manifest| {
-                            manifest
-                                .outputs
-                                .iter()
-                                .any(|port| port.events.iter().any(|kind| kind == state))
-                        })
+                    let (instance, _) = wire.to.rsplit_once('.')?;
+                    let spec = kernel.assembly().instances.get(instance)?;
+                    let manifest = kernel.component_registry().get(&spec.component)?;
+                    manifest
+                        .outputs
+                        .iter()
+                        .any(|port| port.events.iter().any(|kind| kind == state))
+                        .then(|| instance.to_owned())
                 })
             };
-            let operation_authorization =
-                has_answer_service(crate::components::operation_policy::STATE);
-            let interface_id = has_answer_service(crate::components::interface_permissions::STATE)
-                .then(|| {
-                    crate::components::interface_permissions::new_instance_id(
-                        &kernel.log().reader(),
-                    )
-                });
+            let operations = answer_service(crate::components::operation_policy::STATE);
+            let interfaces = answer_service(crate::components::interface_permissions::STATE);
+            let operation_authorization = operations.is_some();
+            let interface_id = interfaces.as_ref().map(|_| {
+                crate::components::interface_permissions::new_instance_id(&kernel.log().reader())
+            });
+            let mut authorization_sources =
+                crate::components::operation_policy::AuthorizationSources::default();
+            if let Some(source) = operations {
+                authorization_sources.operations = source;
+            }
+            if let Some(source) = interfaces {
+                authorization_sources.interfaces = source;
+            }
             // Built here, on the thread, for the same reason the kernel is.
             let mut subagents = experts.map(|(_main_id, build)| {
                 // Only the kernel knows the stream it actually opened. A new
@@ -517,6 +519,7 @@ impl Session {
                     parts.clone(),
                     interface_id.clone(),
                     operation_authorization,
+                    authorization_sources,
                 )))
                 .is_err()
             {
@@ -756,9 +759,11 @@ impl Session {
                 initial_parts,
                 interface_id,
                 operation_authorization,
+                authorization_sources,
             ))) => Ok(Self {
                 interface_id,
                 operation_authorization,
+                authorization_sources,
                 stop,
                 initial_parts,
                 startup_cost,
@@ -963,6 +968,31 @@ impl Session {
         self.operation_authorization
     }
 
+    /// Read the authority's acknowledgement, not a locally predicted toggle.
+    pub fn permission_enabled(&self) -> std::io::Result<Option<bool>> {
+        let Some(id) = self.interface_id.as_deref() else {
+            return Ok(None);
+        };
+        crate::components::interface_permissions::read_state(
+            &self.reader,
+            &self.authorization_sources.interfaces,
+        )
+        .map(|state| state.map(|state| state.permits(id)))
+    }
+
+    pub fn flow_grants(&self) -> std::io::Result<crate::components::operation_policy::GrantState> {
+        if !self.operation_authorization {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "This assembly does not support operation authorization",
+            ));
+        }
+        crate::components::operation_policy::read_grants(
+            &self.reader,
+            &self.authorization_sources.operations,
+        )
+    }
+
     fn require_operation_authorization(&self) -> Result<(), String> {
         if self.stopping.load(Ordering::Acquire) {
             return Err("This interface is closing".into());
@@ -1017,10 +1047,20 @@ impl Session {
 
     /// Answer an authorization request (y/n on the trust gate's card).
     pub fn authorize(&self, request: impl Into<String>, approve: bool) {
-        let _ = self.commands.send(FrontendCommand::Authorize {
-            request: request.into(),
-            approve,
-        });
+        if self.stopping.load(Ordering::Acquire) {
+            return;
+        }
+        self.interrupter.emit(
+            "answer",
+            EventDraft::new(
+                ce::EXTERNAL_INPUT,
+                &[],
+                json!({
+                    "channel":crate::components::trust_policy::AUTH_CHANNEL,
+                    "request":request.into(),"approve":approve,"interface":self.interface_id,
+                }),
+            ),
+        );
     }
 
     /// Interrupt a running turn — reaches the kernel immediately, mid model
