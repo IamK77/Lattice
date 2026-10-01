@@ -70,6 +70,9 @@ mod tool_card;
 
 #[path = "accounting.rs"]
 mod accounting;
+#[cfg(test)]
+#[path = "authorization_animation_tests.rs"]
+mod authorization_animation_tests;
 #[path = "authorization_panel.rs"]
 mod authorization_panel;
 #[path = "authorizations.rs"]
@@ -1085,7 +1088,9 @@ fn drain_render(ui: &mut Ui, session: &Session) -> std::io::Result<bool> {
 /// crossing the phrase while a turn runs, and the "Done" line settling for a
 /// moment after it ends.
 fn animating(ui: &Ui) -> bool {
-    ui.domain.turns.busy()
+    // Match the rendered busy state: unanswered authorization still animates
+    // even when the runtime has no work it can execute until the user answers.
+    ui.busy()
         || matches!(ui.domain.turns.done_at(), Some(at) if ui.tick.wrapping_sub(at) <= DONE_SETTLE)
 }
 
