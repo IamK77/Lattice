@@ -62,8 +62,6 @@ use activity::DONE_SETTLE;
 use activity::{state_phrase, SPINNER, THINK_SPIN};
 #[path = "tool_arguments.rs"]
 mod tool_arguments;
-#[cfg(test)]
-use theme::ERR;
 use theme::{ACCENT, DIM, FG, RULE, USER_BG, WARM};
 #[path = "tool_card.rs"]
 mod tool_card;
@@ -1272,45 +1270,42 @@ fn on_key(
     ui.flash = None;
     if ui.pending_auth().is_some() {
         // Authorization owns the keyboard, including modified edit/submit keys.
-        // Scrolling remains available to inspect the complete request above.
+        // Details scroll inside the transient panel, not in the transcript.
         if permission_actions::is_shortcut(key) {
             ack(ui, permission_actions::toggle_permission(session));
             return false;
         }
         if key.modifiers.is_empty() {
             match key.code {
-                KeyCode::Up => ui.domain.authorizations.select_allow(true),
-                KeyCode::Down => ui.domain.authorizations.select_allow(false),
+                KeyCode::Up | KeyCode::Down => {
+                    let delta = if key.code == KeyCode::Up { -1 } else { 1 };
+                    if let Err(error) = ui.domain.authorizations.move_selection(delta) {
+                        ack(ui, error.to_string());
+                    }
+                }
                 KeyCode::Enter | KeyCode::Esc => {
                     if key.code == KeyCode::Esc {
-                        ui.domain.authorizations.select_allow(false);
+                        ui.domain.authorizations.select_refuse();
                     }
-                    if let Some((request, allow)) = ui.domain.authorizations.selected() {
-                        let result = match session {
-                            Some(session)
-                                if allow && session.supports_operation_authorization() =>
-                            {
-                                session.authorize_once(&request)
-                            }
-                            Some(session) => {
-                                session.authorize(&request, allow);
-                                Ok(())
-                            }
-                            None => Ok(()),
-                        };
-                        match result {
-                            Ok(()) => {
-                                ui.domain.authorizations.answer_oldest();
-                            }
-                            Err(error) => ack(ui, &error),
-                        }
-                    }
+                    permission_actions::answer_selected(ui, session);
                 }
                 KeyCode::Char('f') => permission_actions::scoped_answer(ui, session, false),
                 KeyCode::Char('p') => permission_actions::scoped_answer(ui, session, true),
                 KeyCode::Char('i') => ack(ui, permission_actions::toggle_permission(session)),
-                KeyCode::PageUp => scroll_by(ui, SCROLL_PAGE as isize, hit),
-                KeyCode::PageDown => scroll_by(ui, -(SCROLL_PAGE as isize), hit),
+                KeyCode::PageUp | KeyCode::PageDown => match ui.authorization_prompt() {
+                    Ok(Some(prompt)) => {
+                        let (width, height) = hit.authorization_size;
+                        let line = authorization_panel::scroll(
+                            &prompt,
+                            width,
+                            height,
+                            key.code == KeyCode::PageDown,
+                        );
+                        ui.domain.authorizations.scroll_to(line);
+                    }
+                    Err(error) => ack(ui, error.to_string()),
+                    Ok(None) => {}
+                },
                 _ => {}
             }
         }
@@ -1431,6 +1426,7 @@ fn on_key(
 struct Hit {
     /// Text columns from the most recent draw, shared with vertical editing.
     input_width: usize,
+    authorization_size: (usize, usize),
     area: ratatui::layout::Rect,
     offset: usize,
     /// Earlier groups were deliberately not laid out, so total height is unknown.
@@ -1760,7 +1756,9 @@ where
     // coexist with the slash menu (the keystroke that opens the menu clears the
     // receipt), so they take turns in the same place. A blank row above it,
     // like the queued lines have.
-    let flash = view.flash().filter(|_| hint_h == 0 && mode_h == 0);
+    let flash = view
+        .flash()
+        .filter(|_| hint_h == 0 && (mode_h == 0 || authorization.is_some()));
     let flash_h: u16 = match flash {
         Some(text) => (text.split('\n').count() as u16).min(4) + 1,
         None => 0,
@@ -1907,6 +1905,7 @@ where
         }
         hit = Hit {
             input_width,
+            authorization_size: (0, 0),
             area: content,
             offset,
             more_above,
@@ -2056,11 +2055,8 @@ where
         // Unless the dial has the box, in which case there is no prompt at
         // all — that absence is what says a mode is running.
         let input_lines: Vec<Line> = if let Some(prompt) = &authorization {
-            authorization_panel::lines(
-                prompt,
-                input_area.width.saturating_sub(2) as usize,
-                visible_height,
-            )
+            hit.authorization_size = (input_area.width.saturating_sub(2) as usize, visible_height);
+            authorization_panel::lines(prompt, hit.authorization_size.0, hit.authorization_size.1)
         } else {
             match (dial, &picker) {
                 (Some(cursor), _) => dial_lines(&view.effort(), cursor),
@@ -5431,24 +5427,12 @@ mod tests {
         );
     }
 
-    /// The question the turn is waiting on must be LOUD. Asserted on the style
-    /// rather than through a frame snapshot, because a snapshot keeps the
-    /// characters and throws the colours away — the very thing under test.
     #[test]
-    fn an_approval_question_is_drawn_in_the_error_colour() {
+    fn approval_history_never_allocates_transcript_rows() {
         let entry = Entry::Approval("run wants in\n    y = allow".to_string());
-        let lines = entry_lines(&entry, ' ', false, 80);
-        assert_eq!(lines.len(), 2, "one line per line of the question");
-        for (line, _) in &lines {
-            for span in &line.spans {
-                assert_eq!(
-                    span.style.fg,
-                    Some(ERR),
-                    "every part of the question is in the error colour"
-                );
-            }
-        }
-        assert!(lines[0].0.spans[0].content.contains('⚠'));
+        assert!(entry_lines(&entry, ' ', false, 80).is_empty());
+        let u = ui(vec![entry.clone(), entry], false);
+        assert!(transcript_body(&u, ' ', 80).is_empty());
     }
 
     /// Every region the frame lays out must get its own rows. A region added
@@ -5765,8 +5749,8 @@ mod tests {
             assert!(text.contains("> Refuse request"), "{text}");
             if width >= 80 {
                 assert!(
-                    text.contains("Browser request"),
-                    "authorization must expose the transcript over a suspended panel: {text}"
+                    text.contains("click a button"),
+                    "authorization must expose details in its own panel: {text}"
                 );
             }
             assert!(
@@ -5783,6 +5767,45 @@ mod tests {
         let mut term = Terminal::new(TestBackend::new(80, 30)).unwrap();
         draw(&mut term, &u).unwrap();
         assert!(screen(&term).contains("unsent draft"));
+    }
+
+    #[test]
+    fn authorization_details_scroll_in_the_panel_and_leave_no_history_residue() {
+        use ratatui::crossterm::event::KeyEvent;
+        let summary = format!("{}\nLAST-REVIEW-LINE", "review this command\n".repeat(35));
+        let mut ask = test_event(trust_policy::AUTH_REQUESTED, &["call"]);
+        ask.id = "scroll-question".into();
+        ask.payload = json!({"tool":"Run", "summary":summary});
+        let mut u = ui(
+            vec![Entry::Approval("HISTORICAL-APPROVAL-ONLY".into())],
+            false,
+        );
+        u.note_authorization(&ask);
+        u.draft.edit().insert_str("saved draft");
+        let mut term = Terminal::new(TestBackend::new(80, 30)).unwrap();
+        let mut hit = draw(&mut term, &u).unwrap();
+        assert!(!screen(&term).contains("LAST-REVIEW-LINE"));
+        assert!(!screen(&term).contains("HISTORICAL-APPROVAL-ONLY"));
+        let transcript_offset = u.browsing.offset();
+        for _ in 0..20 {
+            on_key(&mut u, None, KeyEvent::from(KeyCode::PageDown), &hit);
+            hit = draw(&mut term, &u).unwrap();
+            if screen(&term).contains("LAST-REVIEW-LINE") {
+                break;
+            }
+        }
+        assert!(screen(&term).contains("LAST-REVIEW-LINE"));
+        assert_eq!(u.browsing.offset(), transcript_offset);
+        assert_eq!(u.input(), "saved draft");
+        let last = u.authorization_prompt().unwrap().unwrap().detail_line;
+        on_key(&mut u, None, KeyEvent::from(KeyCode::PageUp), &hit);
+        assert!(u.authorization_prompt().unwrap().unwrap().detail_line < last);
+        on_key(&mut u, None, KeyEvent::from(KeyCode::Esc), &hit);
+        draw(&mut term, &u).unwrap();
+        let shown = screen(&term);
+        assert!(shown.contains("saved draft"));
+        assert!(!shown.contains("LAST-REVIEW-LINE"));
+        assert!(!shown.contains("HISTORICAL-APPROVAL-ONLY"));
     }
 
     #[test]
@@ -5897,7 +5920,10 @@ mod tests {
             KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
             &hit,
         );
-        assert!(u.authorization_prompt().unwrap().unwrap().allow_selected);
+        assert_eq!(
+            u.authorization_prompt().unwrap().unwrap().selected,
+            view::AuthorizationChoice::Permanent
+        );
         on_key(
             &mut u,
             None,
@@ -5905,7 +5931,10 @@ mod tests {
             &hit,
         );
         assert_eq!(u.pending_auth(), Some("second"));
-        assert!(!u.authorization_prompt().unwrap().unwrap().allow_selected);
+        assert_eq!(
+            u.authorization_prompt().unwrap().unwrap().selected,
+            view::AuthorizationChoice::Refuse
+        );
         assert!(u.busy());
         on_key(
             &mut u,
@@ -5953,6 +5982,7 @@ mod tests {
         owner[4] = Some("mid".to_string());
         let hit = Hit {
             input_width: 36,
+            authorization_size: (0, 0),
             area: ratatui::layout::Rect::new(0, 2, 40, 3),
             offset: 3,
             more_above: false,
@@ -6001,6 +6031,7 @@ mod tests {
         // 50 rows in a 6-high viewport: the top is reached at 44 rows up.
         let hit = Hit {
             input_width: 56,
+            authorization_size: (0, 0),
             area: ratatui::layout::Rect::new(0, 1, 60, 6),
             offset: 0,
             more_above: false,

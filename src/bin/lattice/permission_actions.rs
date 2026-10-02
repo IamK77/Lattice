@@ -2,6 +2,9 @@
 use super::*;
 
 pub(super) fn observe(ui: &mut Ui, render: &RenderEvent, session: &Session) {
+    ui.domain
+        .authorizations
+        .set_scoped(session.supports_operation_authorization());
     let RenderEvent::Appended(event) = render else {
         return;
     };
@@ -100,6 +103,46 @@ pub(super) fn revoke(session: Option<&Session>, id: &str) -> String {
             Ok(()) => "Revocation requested; see /grants for authoritative state".into(),
             Err(error) => error,
         },
+    }
+}
+
+pub(super) fn answer_selected(ui: &mut Ui, session: Option<&Session>) {
+    use lattice::view::AuthorizationChoice as Choice;
+    let prompt = match ui.authorization_prompt() {
+        Ok(Some(prompt)) => prompt,
+        Ok(None) => return,
+        Err(error) => {
+            ack(ui, error.to_string());
+            return;
+        }
+    };
+    if session.is_none() {
+        ui.domain.authorizations.answer_oldest();
+        return;
+    }
+    match prompt.selected {
+        Choice::Flow | Choice::Permanent => {
+            scoped_answer(ui, session, prompt.selected == Choice::Permanent);
+            return;
+        }
+        _ => {}
+    }
+    let allow = prompt.selected == Choice::Once;
+    let result = match session {
+        Some(session) if allow && session.supports_operation_authorization() => {
+            session.authorize_once(&prompt.request)
+        }
+        Some(session) => {
+            session.authorize(&prompt.request, allow);
+            Ok(())
+        }
+        None => Ok(()),
+    };
+    match result {
+        Ok(()) => {
+            ui.domain.authorizations.answer_oldest();
+        }
+        Err(error) => ack(ui, error),
     }
 }
 

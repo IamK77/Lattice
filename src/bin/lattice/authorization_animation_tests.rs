@@ -146,7 +146,10 @@ fn local_allow_and_refuse_keep_remaining_questions_animated_then_stop() {
         ui.note_authorization(&event(SOURCES[2].0, "question-c", "call-c"));
         for id in ["question-a", "question-b", "question-c"] {
             assert!(animating(&ui), "an unanswered question still remains: {id}");
-            ui.domain.authorizations.select_allow(allow);
+            ui.domain
+                .authorizations
+                .move_selection(if allow { isize::MIN } else { isize::MAX })
+                .unwrap();
             assert_eq!(
                 ui.domain.authorizations.answer_selected(),
                 Some((id.into(), allow))

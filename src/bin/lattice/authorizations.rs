@@ -2,8 +2,10 @@
 //! hides one question immediately; only a recorded outcome settles its fact.
 
 use lattice::{
-    components::{browser_tools, trust_policy},
-    core_events as ce, EventEnvelope,
+    components::{browser_tools, operation_policy, trust_policy},
+    core_events as ce,
+    view::{AuthorizationChoice as Choice, AuthorizationPrompt},
+    EventEnvelope,
 };
 
 #[cfg(test)]
@@ -14,16 +16,37 @@ mod tests;
 pub(super) struct Authorizations {
     questions: Vec<Question>,
     reader: Option<lattice::LogReader>,
+    scoped: bool,
+}
+
+struct Details {
+    description: String,
+    flow: bool,
+    permanent: bool,
+}
+
+impl Details {
+    fn from_event(event: &EventEnvelope) -> Self {
+        Self {
+            description: lattice::view::authorization_description(&event.payload),
+            flow: event.event_type != operation_policy::AUTH_REQUESTED
+                || event.payload["grants"]
+                    .as_array()
+                    .is_some_and(|g| !g.is_empty()),
+            permanent: event.event_type == trust_policy::AUTH_REQUESTED,
+        }
+    }
 }
 
 struct Question {
     request: String,
     held: String,
     // Kept with its occurrence, not in a set keyed by ID: folding has never
-    // deduplicated requests. This flag is excluded from history snapshots.
+    // deduplicated requests. Local presentation is excluded from snapshots.
     answered_locally: bool,
-    allow_selected: bool,
-    description: std::cell::OnceCell<String>,
+    selected: Choice,
+    detail_line: usize,
+    details: std::cell::OnceCell<Details>,
 }
 
 impl Authorizations {
@@ -31,54 +54,94 @@ impl Authorizations {
         self.reader = Some(reader);
     }
 
-    pub fn prompt(&self) -> std::io::Result<Option<lattice::view::AuthorizationPrompt>> {
+    pub fn set_scoped(&mut self, supported: bool) {
+        self.scoped = supported;
+    }
+
+    pub fn prompt(&self) -> std::io::Result<Option<AuthorizationPrompt>> {
         let Some(question) = self.questions.iter().find(|q| !q.answered_locally) else {
             return Ok(None);
         };
-        if question.description.get().is_none() {
-            let description = if let Some(reader) = &self.reader {
+        if question.details.get().is_none() {
+            let details = if let Some(reader) = &self.reader {
                 let event = reader.get(&question.request)?.ok_or_else(|| {
                     std::io::Error::new(
                         std::io::ErrorKind::InvalidData,
                         "authorization request is missing",
                     )
                 })?;
-                lattice::view::authorization_description(&event.payload)
+                Details::from_event(&event)
             } else {
                 // Headless state fixtures can restore IDs without a backing ledger.
-                format!("Request {}", question.request)
+                Details {
+                    description: format!("Request {}", question.request),
+                    flow: false,
+                    permanent: false,
+                }
             };
-            let _ = question.description.set(description);
+            let _ = question.details.set(details);
         }
-        Ok(Some(lattice::view::AuthorizationPrompt {
+        let details = question.details.get().expect("resolved question");
+        let mut choices = Vec::new();
+        // Legacy admission answers persist trust. Never label that as once.
+        if self.scoped || !details.permanent {
+            choices.push(Choice::Once);
+        }
+        if self.scoped && details.flow {
+            choices.push(Choice::Flow);
+        }
+        if details.permanent {
+            choices.push(Choice::Permanent);
+        }
+        choices.push(Choice::Refuse);
+        let selected = if choices.contains(&question.selected) {
+            question.selected
+        } else {
+            Choice::Refuse
+        };
+        Ok(Some(AuthorizationPrompt {
             request: question.request.clone(),
-            description: question
-                .description
-                .get()
-                .expect("resolved question")
-                .clone(),
-            allow_selected: question.allow_selected,
+            description: details.description.clone(),
+            choices,
+            selected,
+            detail_line: question.detail_line,
         }))
     }
 
-    pub fn select_allow(&mut self, allow: bool) {
+    pub fn select_refuse(&mut self) {
         if let Some(question) = self.questions.iter_mut().find(|q| !q.answered_locally) {
-            question.allow_selected = allow;
+            question.selected = Choice::Refuse;
         }
     }
 
-    pub fn selected(&self) -> Option<(String, bool)> {
-        self.questions
-            .iter()
-            .find(|q| !q.answered_locally)
-            .map(|q| (q.request.clone(), q.allow_selected))
+    pub fn move_selection(&mut self, delta: isize) -> std::io::Result<()> {
+        if let Some(prompt) = self.prompt()? {
+            let at = prompt
+                .choices
+                .iter()
+                .position(|c| *c == prompt.selected)
+                .unwrap_or(0);
+            let next = at
+                .saturating_add_signed(delta)
+                .min(prompt.choices.len() - 1);
+            if let Some(question) = self.questions.iter_mut().find(|q| !q.answered_locally) {
+                question.selected = prompt.choices[next];
+            }
+        }
+        Ok(())
+    }
+
+    pub fn scroll_to(&mut self, line: usize) {
+        if let Some(question) = self.questions.iter_mut().find(|q| !q.answered_locally) {
+            question.detail_line = line;
+        }
     }
 
     #[cfg(test)]
     pub fn answer_selected(&mut self) -> Option<(String, bool)> {
-        let selected = self.selected()?;
+        let prompt = self.prompt().ok()??;
         self.answer_oldest();
-        Some(selected)
+        Some((prompt.request, prompt.selected != Choice::Refuse))
     }
 
     pub fn next(&self) -> Option<&str> {
@@ -113,13 +176,14 @@ impl Authorizations {
                 request,
                 held,
                 answered_locally: false,
-                allow_selected: false,
-                description: std::cell::OnceCell::new(),
+                selected: Choice::Refuse,
+                detail_line: 0,
+                details: std::cell::OnceCell::new(),
             })
             .collect();
     }
     pub fn observe(&mut self, event: &EventEnvelope) {
-        if event.event_type == lattice::components::operation_policy::AUTH_REQUESTED
+        if event.event_type == operation_policy::AUTH_REQUESTED
             || event.event_type == trust_policy::AUTH_REQUESTED
             || event.event_type == browser_tools::AUTH_REQUESTED
             || event.event_type == lattice::components::expert_definitions::AUTH_REQUESTED
@@ -133,12 +197,11 @@ impl Authorizations {
                 request: event.id.clone(),
                 held,
                 answered_locally: false,
-                allow_selected: false,
-                description: std::cell::OnceCell::from(lattice::view::authorization_description(
-                    &event.payload,
-                )),
+                selected: Choice::Refuse,
+                detail_line: 0,
+                details: std::cell::OnceCell::from(Details::from_event(event)),
             });
-        } else if event.event_type == lattice::components::operation_policy::DECISION
+        } else if event.event_type == operation_policy::DECISION
             || event.event_type == trust_policy::DECISION
             || event.event_type == browser_tools::DECISION
             || event.event_type == lattice::components::expert_definitions::DECISION

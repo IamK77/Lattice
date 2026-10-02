@@ -122,6 +122,11 @@ fn permission_commands_and_modal_toggle_change_only_the_live_interface() {
         assert_eq!(ui.cursor(), cursor);
         assert!(live.session().flow_grants().unwrap().grants.is_empty());
         press(&mut ui, &live, KeyCode::Up);
+        press(&mut ui, &live, KeyCode::Up);
+        assert_eq!(
+            ui.authorization_prompt().unwrap().unwrap().selected,
+            view::AuthorizationChoice::Once
+        );
         press(&mut ui, &live, KeyCode::Enter);
         let answer = until(&mut ui, &live, |e| {
             e.event_type == lattice::core_events::EXTERNAL_INPUT
@@ -235,6 +240,85 @@ fn permission_is_one_red_live_badge_without_success_notices() {
             .as_deref()
             .unwrap()
             .contains("No live session"));
+    });
+}
+
+#[test]
+fn authorization_panel_selection_saves_a_flow_grant_and_disappears() {
+    test_support::isolated(|| {
+        let (mut ui, live) = fixture();
+        ui.draft.edit().insert_str("unsent draft");
+        live.session().send_text("first command");
+        let question = until(&mut ui, &live, |e| e.event_type == op::AUTH_REQUESTED);
+        let mut term = Terminal::new(ratatui::backend::TestBackend::new(100, 30)).unwrap();
+        draw(&mut term, &ui).unwrap();
+        let shown: String = term
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(
+            shown.contains("Allow for this conversation (survives reopening)"),
+            "{shown}"
+        );
+        assert!(!shown.contains("Trust permanently"));
+        assert!(shown.contains("> Refuse request"));
+        press(&mut ui, &live, KeyCode::Up);
+        assert_eq!(
+            ui.authorization_prompt().unwrap().unwrap().selected,
+            view::AuthorizationChoice::Flow
+        );
+        press(&mut ui, &live, KeyCode::Enter);
+        assert!(ui.authorization_prompt().unwrap().is_none());
+        assert_eq!(ui.input(), "unsent draft");
+        let answer = until(&mut ui, &live, |e| {
+            e.event_type == lattice::core_events::EXTERNAL_INPUT
+                && e.payload["request"] == question.id
+        });
+        assert_eq!(answer.payload["scope"], "flow");
+        finish(&mut ui, &live);
+        assert_eq!(live.session().flow_grants().unwrap().grants.len(), 1);
+        draw(&mut term, &ui).unwrap();
+        let shown: String = term
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(!shown.contains("Approve Run operation"), "{shown}");
+        assert!(!shown.contains("Authorization:"), "{shown}");
+        assert!(shown.contains("unsent draft"));
+        assert!(
+            live.session()
+                .log_reader()
+                .get(&question.id)
+                .unwrap()
+                .is_some(),
+            "the audit record is retained"
+        );
+        let reader = live.session().log_reader();
+        let through = reader.snapshot_end();
+        for _ in 0..2 {
+            let mut reopened = Ui::replayed(&[]);
+            reopened.replay_prefix(&reader, through).unwrap();
+            assert!(reopened.authorization_prompt().unwrap().is_none());
+            draw_ui(&mut term, &mut reopened).unwrap();
+            let shown: String = term
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect();
+            assert!(!shown.contains("Approve Run operation"), "{shown}");
+            assert!(!shown.contains("Authorization:"), "{shown}");
+        }
+        live.session().send_text("same command");
+        finish(&mut ui, &live);
+        assert!(ui.pending_auth().is_none());
     });
 }
 

@@ -349,11 +349,23 @@ pub struct TranscriptPosition {
     pub byte: usize,
 }
 
-/// A pending question and its local, non-persistent selection.
+/// A human choice, not an authorization grant or service decision.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum AuthorizationChoice {
+    Once,
+    Flow,
+    Permanent,
+    #[default]
+    Refuse,
+}
+
+/// A pending question and its local, non-persistent presentation state.
 pub struct AuthorizationPrompt {
     pub request: String,
     pub description: String,
-    pub allow_selected: bool,
+    pub choices: Vec<AuthorizationChoice>,
+    pub selected: AuthorizationChoice,
+    pub detail_line: usize,
 }
 
 /// An app, a ledger replay, or a per-stream selector can feed the same draw.
@@ -461,7 +473,9 @@ pub trait View {
         Ok(self.pending_auth().map(|request| AuthorizationPrompt {
             request: request.to_owned(),
             description: String::new(),
-            allow_selected: false,
+            choices: vec![AuthorizationChoice::Once, AuthorizationChoice::Refuse],
+            selected: AuthorizationChoice::Refuse,
+            detail_line: 0,
         }))
     }
     /// Lines the user has said that the model has NOT been shown yet — typed

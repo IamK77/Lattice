@@ -115,6 +115,12 @@ pub(super) fn render_transcript_group(
     let entries = &loaded.entries;
     let mut i = 0;
     while i < entries.len() {
+        // Approval is a transient input mode in the TUI. Keep its ledger entry
+        // (and plain-text rendering), but never allocate transcript rows for it.
+        if matches!(entries[i], Entry::Approval(_)) {
+            i += 1;
+            continue;
+        }
         let group = work_group(entries, i);
         if group > i {
             let foldable = tool_count(&entries[i..group]) >= FOLD_FROM;
@@ -336,27 +342,7 @@ pub(crate) fn entry_lines(
             Line::from(Span::styled(format!("✗ {text}"), Style::default().fg(ERR))),
             INDENT_AGENT,
         )],
-        // The plain-text frontend retains its y/n hint; this frontend has a
-        // dedicated choice panel and must not advertise inactive shortcuts.
-        Entry::Approval(text) => text
-            .strip_suffix("\n    y = allow · n = refuse")
-            .unwrap_or(text)
-            .split('\n')
-            .enumerate()
-            .map(|(i, line)| {
-                let style = if i == 0 {
-                    Style::default().fg(ERR).add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(ERR)
-                };
-                let text = if i == 0 {
-                    format!("⚠ {line}")
-                } else {
-                    line.to_string()
-                };
-                (Line::from(Span::styled(text, style)), INDENT_AGENT)
-            })
-            .collect(),
+        Entry::Approval(_) => Vec::new(),
         Entry::Tool(card) => {
             tool_card::render(card, spinner, expanded, room, INDENT_AGENT, INDENT_TOOL_OUT)
         }
