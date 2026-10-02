@@ -63,6 +63,7 @@ fn until(
             RenderEvent::Appended(event) if matches(event) => Some(event.as_ref().clone()),
             _ => None,
         };
+        permission_actions::observe(ui, &render, live.session());
         fold_render(ui, render).expect("rendered authority event must be readable");
         if let Some(event) = found {
             return event;
@@ -184,6 +185,56 @@ fn shift_tab_toggles_permission_with_a_draft_and_a_pending_question() {
         assert_eq!(ui.input(), "keep this draft");
         assert_eq!(ui.cursor(), cursor);
         assert!(live.session().flow_grants().unwrap().grants.is_empty());
+    });
+}
+
+#[test]
+fn permission_is_one_red_live_badge_without_success_notices() {
+    test_support::isolated(|| {
+        let (mut ui, live) = fixture();
+        for enabled in [true, false, true] {
+            press(&mut ui, &live, KeyCode::BackTab);
+            assert!(
+                ui.flash.is_none(),
+                "successful requests must not produce a receipt"
+            );
+            until(&mut ui, &live, |e| {
+                e.event_type == ip::STATE && e.payload["action"] == "set"
+            });
+            assert_eq!(ui.interface_permission, enabled);
+            let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(100, 24)).unwrap();
+            draw_ui(&mut terminal, &mut ui).unwrap();
+            let buffer = terminal.backend().buffer();
+            let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+            assert_eq!(text.matches("permission").count(), usize::from(enabled));
+            assert!(!text.contains("requested"));
+            if enabled {
+                for x in 89..99 {
+                    assert_eq!(buffer[(x, 23)].fg, ratatui::style::Color::Red);
+                }
+            }
+        }
+        let reader = live.session().log_reader();
+        let mut reopened = Ui::replayed(&[]);
+        reopened
+            .replay_prefix(&reader, reader.snapshot_end())
+            .unwrap();
+        assert!(
+            !reopened.interface_permission,
+            "historical states cannot light a live indicator"
+        );
+        let mut unavailable = Ui::replayed(&[]);
+        on_key(
+            &mut unavailable,
+            None,
+            KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT),
+            &Hit::default(),
+        );
+        assert!(unavailable
+            .flash
+            .as_deref()
+            .unwrap()
+            .contains("No live session"));
     });
 }
 

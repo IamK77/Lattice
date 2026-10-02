@@ -244,6 +244,7 @@ struct Ui {
     event_facts: Option<view::facts::EventFacts>,
     cards: Option<std::cell::RefCell<cards::Cards>>,
     transcript_cache: std::cell::RefCell<transcript::Cache>,
+    interface_permission: bool,
     draft: Draft,
     live_output: live_output::LiveOutput,
     /// Advances every loop tick (~50ms), so the spinner spins even while idle.
@@ -316,6 +317,9 @@ impl View for Ui {
     }
     fn usage(&self) -> Option<lattice::UsageReport> {
         self.domain.accounting.report()
+    }
+    fn interface_permission(&self) -> bool {
+        self.interface_permission
     }
     fn pending_auth(&self) -> Option<&str> {
         self.domain.authorizations.next()
@@ -442,6 +446,7 @@ impl Ui {
             event_facts: None,
             cards: None,
             transcript_cache: Default::default(),
+            interface_permission: false,
             navigation: None,
             tab_line: String::new(),
             replayed_through: 0,
@@ -897,7 +902,7 @@ fn attach_bytes(ui: &mut Ui, bytes: &[u8], ext: &str, media: &str, label: &str) 
 /// Acknowledge a command beside the input box, where the person is looking,
 /// instead of appending it to the conversation. See `View::flash`.
 fn ack(ui: &mut Ui, text: impl Into<String>) {
-    ui.flash = Some(text.into());
+    ui.flash = Some(text.into()).filter(|text| !text.is_empty());
 }
 
 fn open_link(ui: &mut Ui, url: &str) {
@@ -1084,6 +1089,7 @@ fn tui_loop(
 fn drain_render(ui: &mut Ui, session: &Session) -> std::io::Result<bool> {
     let mut folded = false;
     while let Some(render) = session.poll_render() {
+        permission_actions::observe(ui, &render, session);
         fold_render(ui, render)?;
         ui.experts.flush(Some(session));
         folded = true;
@@ -2156,32 +2162,27 @@ where
                 true,
             )
         } else if view.busy() {
-            (
-                vec![Span::styled(
-                    permission_actions::key_hint("Esc interrupt", areas[6].width),
-                    dimmed,
-                )],
-                false,
-            )
+            (vec![Span::styled("Esc interrupt", dimmed)], false)
         } else if !view.input().is_empty() {
             (
-                vec![Span::styled(
-                    permission_actions::key_hint("Ctrl-C clear · ⌥⏎ newline", areas[6].width),
-                    dimmed,
-                )],
+                vec![Span::styled("Ctrl-C clear · ⌥⏎ newline", dimmed)],
                 false,
             )
         } else {
-            (
-                vec![Span::styled(
-                    permission_actions::key_hint("Ctrl-D quit", areas[6].width),
-                    dimmed,
-                )],
-                false,
-            )
+            (vec![Span::styled("Ctrl-D quit", dimmed)], false)
         };
 
-        let bar = areas[6];
+        let mut bar = areas[6];
+        if view.interface_permission() && bar.width >= 10 {
+            let padding = u16::from(bar.width > 10);
+            let badge =
+                ratatui::layout::Rect::new(bar.right() - 10 - padding, bar.y, 10, bar.height);
+            frame.render_widget(
+                Paragraph::new("permission").style(Style::default().fg(ratatui::style::Color::Red)),
+                badge,
+            );
+            bar.width -= 10 + padding;
+        }
         let keys_w: usize = keys.iter().map(|s| wrap::str_cols(&s.content)).sum();
         let mut state = if mode { Vec::new() } else { status_state(view) };
         // Too narrow: shed readouts from the far end, one at a time, and never
@@ -3015,6 +3016,7 @@ mod tests {
             event_facts: None,
             cards: None,
             transcript_cache: Default::default(),
+            interface_permission: false,
             navigation: None,
             tab_line: String::new(),
             replayed_through: 0,

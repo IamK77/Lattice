@@ -30,6 +30,54 @@ fn wake(call: &str, body: Value) -> Value {
 }
 
 #[test]
+fn permission_success_is_audited_not_transcribed_and_v2_projection_is_discarded() {
+    use crate::components::interface_permissions as ip;
+    let temp = tempfile::tempdir().unwrap();
+    let mut types = declarations();
+    types.extend(ip::manifest().events.into_iter().map(|mut event| {
+        event.decision = false;
+        event.schema = None;
+        event
+    }));
+    let mut log = EventLog::open_segmented(
+        types,
+        "permission",
+        temp.path().join("permission.ledger"),
+        4096,
+    )
+    .unwrap();
+    append(&mut log, ce::USER_MESSAGE, json!({"text":"hello"}));
+    for enabled in [true, false] {
+        append(
+            &mut log,
+            ip::STATE,
+            json!({"accepted":true,"interface":"own","action":"set",
+            "interfaces":{"own":{"owner":"ui","open":true,"enabled":enabled}}}),
+        );
+    }
+    append(
+        &mut log,
+        ip::STATE,
+        json!({"accepted":false,"interface":"own","error":"closed"}),
+    );
+    let reader = log.reader();
+    let end = reader.snapshot_end();
+    reader
+        .save_checkpoint(CONSUMER, 2, end, &State::default())
+        .unwrap();
+    let history = History::recover(reader.clone(), end).unwrap();
+    assert_eq!(history.len(), 2);
+    assert!(
+        matches!(history.get(1).unwrap(), Entry::Notice(text) if text == "Permission change refused: closed")
+    );
+    assert_eq!(
+        reader.snapshot_end(),
+        end,
+        "display projection cannot rewrite audit history"
+    );
+}
+
+#[test]
 fn card_recipes_match_full_ingest_at_every_saved_prefix_and_across_pages() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("cards.ledger");

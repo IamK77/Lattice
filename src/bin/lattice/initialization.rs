@@ -43,6 +43,7 @@ impl Main {
             event_facts: None,
             cards: None,
             transcript_cache: Default::default(),
+            interface_permission: false,
             navigation: None,
             tab_line: String::new(),
             replayed_through: 0,

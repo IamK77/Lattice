@@ -19,7 +19,7 @@ pub(super) mod record;
 mod tests;
 
 const CONSUMER: &str = "view-cards";
-const VERSION: u32 = 2;
+const VERSION: u32 = 3;
 const CHECKPOINT_EVERY: u64 = 256;
 
 #[derive(Default, Serialize, Deserialize)]

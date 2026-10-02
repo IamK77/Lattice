@@ -452,6 +452,10 @@ pub trait View {
     fn pending_auth(&self) -> Option<&str> {
         None
     }
+    /// Current live binding only. Historical permission never lights this indicator.
+    fn interface_permission(&self) -> bool {
+        false
+    }
     /// Resolve the currently answerable question, never a newer transcript card.
     fn authorization_prompt(&self) -> std::io::Result<Option<AuthorizationPrompt>> {
         Ok(self.pending_auth().map(|request| AuthorizationPrompt {
@@ -776,19 +780,14 @@ pub fn ingest(entries: &mut Vec<Entry>, event: &EventEnvelope) -> bool {
             }
         }
         t if t == crate::components::interface_permissions::STATE => {
-            if let Some(id) = event.payload["interface"].as_str() {
-                if event.payload["accepted"] == false {
-                    entries.push(Entry::Notice(format!(
-                        "Permission change refused: {}",
-                        event.payload["error"].as_str().unwrap_or("see ledger")
-                    )));
-                    return true;
-                }
-                if matches!(event.payload["action"].as_str(), Some("set" | "close")) {
-                    let enabled = event.payload["interfaces"][id]["enabled"] == true;
-                    entries.push(Entry::Notice(format!("Interface {id}: permission {}. Flow grants and permanent trust are separate.", if enabled { "ON" } else { "OFF" })));
-                    return true;
-                }
+            // Successful state changes belong in the live status indicator,
+            // not in the conversation. The original events remain auditable.
+            if event.payload["accepted"] == false {
+                entries.push(Entry::Notice(format!(
+                    "Permission change refused: {}",
+                    event.payload["error"].as_str().unwrap_or("see ledger")
+                )));
+                return true;
             }
         }
         t if t == crate::components::operation_policy::STATE && !event.causes.is_empty() => {

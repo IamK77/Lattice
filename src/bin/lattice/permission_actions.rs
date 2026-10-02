@@ -1,15 +1,30 @@
 //! Frontend controls send decisions; only ledger state confirms their effect.
 use super::*;
 
-pub(super) fn key_hint(base: &str, width: u16) -> String {
-    // Keep whole shortcuts at narrow widths rather than cutting a key's tail.
-    for hint in ["Shift+Tab permission", "⇧Tab perms", "⇧Tab"] {
-        let text = format!("{base} · {hint}");
-        if lattice::wrap::str_cols(&text) + 4 <= width as usize {
-            return text;
+pub(super) fn observe(ui: &mut Ui, render: &RenderEvent, session: &Session) {
+    let RenderEvent::Appended(event) = render else {
+        return;
+    };
+    if !matches!(
+        event.event_type.as_str(),
+        lattice::components::interface_permissions::STATE
+            | core_events::COMPONENT_CRASHED
+            | core_events::COMPONENT_REMOVED
+            | core_events::ERROR
+            | core_events::STREAM_OPENED
+            | core_events::STREAM_RESUMED
+    ) {
+        return;
+    }
+    // Query the current binding's authority only at state/lifecycle changes,
+    // never on a draw or ordinary keystroke, and never infer from replay text.
+    match session.permission_enabled() {
+        Ok(enabled) => ui.interface_permission = enabled == Some(true),
+        Err(error) => {
+            ui.interface_permission = false;
+            ack(ui, format!("Cannot read interface permission: {error}"));
         }
     }
-    base.to_owned()
 }
 
 pub(super) fn is_shortcut(key: ratatui::crossterm::event::KeyEvent) -> bool {
@@ -31,7 +46,7 @@ pub(super) fn permission(session: Option<&Session>, argument: &str) -> String {
             Err(error) => format!("Cannot read interface permission: {error}"),
         },
         "on" | "off" => match session.set_permission(argument == "on") {
-            Ok(()) => format!("Permission {argument} requested; waiting for the authority's state event"),
+            Ok(()) => String::new(),
             Err(error) => error,
         },
         _ => "usage: /permission [on|off]".into(),
@@ -43,8 +58,7 @@ pub(super) fn toggle_permission(session: Option<&Session>) -> String {
         return "No live session".into();
     };
     match session.permission_enabled() {
-        Ok(Some(enabled)) => format!("{}. Answer the current question separately; the switch applies to later permission checks.",
-            permission(Some(session), if enabled { "off" } else { "on" })),
+        Ok(Some(enabled)) => permission(Some(session), if enabled { "off" } else { "on" }),
         Ok(None) => "Interface permission is unavailable or has not been acknowledged yet".into(),
         Err(error) => format!("Cannot read interface permission: {error}"),
     }
