@@ -64,6 +64,10 @@ export class ReleaseProbe {
     const events = [...this.events.values()];
     const inputs = events.filter(e => e.type === 'core.input.user_message' &&
       e.causes.length === 0 && e.payload?.text === this.text);
+    // Opening an interface can settle before the client input reaches the
+    // daemon. That idle notification is not evidence about our requested turn.
+    // Keep waiting under the caller's deadline until our input is observed.
+    if (inputs.length === 0) return null;
     if (inputs.length !== 1) throw new Error('no unique new input before quiescence');
     const input = inputs[0];
     const requests = events.filter(e => e.type === 'core.model.call_started' &&

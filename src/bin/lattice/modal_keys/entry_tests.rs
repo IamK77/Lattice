@@ -35,6 +35,21 @@ fn modal_priority_retains_coexisting_modes_and_form_fallthrough() {
 }
 
 #[test]
+fn shifted_tab_and_backtab_keep_backwards_form_navigation() {
+    for code in [KeyCode::Tab, KeyCode::BackTab] {
+        let mut ui = Ui::replayed(&[]);
+        ui.controls.open_form();
+        press(&mut ui, code, KeyModifiers::SHIFT);
+        assert_eq!(ui.controls.form().unwrap().at, ModelForm::FIELDS.len() - 1);
+        assert!(
+            ui.flash.is_none(),
+            "form navigation must not request permission"
+        );
+        assert!(ui.input().is_empty());
+    }
+}
+
+#[test]
 fn component_uninstall_guards_and_local_receipts_survive_without_session() {
     for removable in [false, true] {
         let mut ui = Ui::replayed(&[]);

@@ -137,6 +137,392 @@ impl Client {
     }
 }
 
+fn with_permissions(mut template: StreamTemplate) -> StreamTemplate {
+    use lattice::components::{interface_permissions as ip, operation_policy as op};
+    template.registry.insert(ip::NAME.into(), ip::manifest());
+    template.registry.insert(op::NAME.into(), op::manifest());
+    template.factories.insert(
+        ip::NAME.into(),
+        Box::new(|c| Box::new(ip::InterfacePermissions::from_config(c))),
+    );
+    template.factories.insert(
+        op::NAME.into(),
+        Box::new(|c| Box::new(op::OperationPolicy::from_config(c))),
+    );
+    for (id, component) in [("permissions", ip::NAME), ("operations", op::NAME)] {
+        template.assembly.instances.insert(
+            id.into(),
+            ComponentInstance {
+                component: component.into(),
+                requires: vec![],
+                config: None,
+            },
+        );
+    }
+    template.assembly.wires.extend([
+        Wire::new("ui.answer", "permissions.control"),
+        Wire::new("ui.answer", "operations.answer"),
+    ]);
+    template
+}
+
+fn attach_permissions(
+    client: &mut Client,
+    stream: &str,
+) -> lattice::daemon::protocol::AuthorizationAttachment {
+    client.send(&ClientMessage::Attach {
+        stream: stream.into(),
+        template: None,
+        derive_from: None,
+        capabilities: vec![
+            "authorize".into(),
+            "history-pages".into(),
+            lattice::daemon::protocol::PERMISSIONS_CAPABILITY.into(),
+        ],
+    });
+    let messages = client.read_until(|m| {
+        matches!(
+            m,
+            ServerMessage::AttachedV2 { .. } | ServerMessage::Error { .. }
+        )
+    });
+    match messages.into_iter().last().unwrap() {
+        ServerMessage::AttachedV2 { authorization, .. } => authorization,
+        other => panic!("expected negotiated attachment, got {other:?}"),
+    }
+}
+
+fn permission_event(message: &ServerMessage, id: &str, action: &str) -> bool {
+    matches!(message, ServerMessage::Appended { event, .. }
+        if event.event_type == lattice::components::interface_permissions::STATE
+        && event.payload["interface"] == id && event.payload["action"] == action)
+}
+
+#[test]
+fn negotiated_controls_reject_missing_services_and_unnegotiated_bindings() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("lattice.sock");
+    let daemon = Daemon::serve(&socket, || {
+        StreamHost::new(
+            [
+                ("plain".into(), chat_template()),
+                ("permissions".into(), with_permissions(chat_template())),
+            ]
+            .into(),
+        )
+    })
+    .unwrap();
+    let mut client = Client::connect(&socket);
+    client.send(&ClientMessage::Attach {
+        stream: "plain".into(),
+        template: Some("plain".into()),
+        derive_from: None,
+        capabilities: vec![lattice::daemon::protocol::PERMISSIONS_CAPABILITY.into()],
+    });
+    let attached = client.read_until(|m| matches!(m, ServerMessage::AttachedV2 { .. }));
+    let ServerMessage::AttachedV2 { authorization, .. } = attached.last().unwrap() else {
+        unreachable!()
+    };
+    assert!(authorization.interface.is_none());
+    assert!(authorization.operation_service.is_none());
+    client.send(&ClientMessage::SetPermission {
+        stream: "plain".into(),
+        attachment: authorization.attachment.clone(),
+        enabled: true,
+    });
+    client.read_until(|m| matches!(m, ServerMessage::Error { message, .. } if message.contains("does not support")));
+    client.send(&ClientMessage::RevokeGrant {
+        stream: "plain".into(),
+        attachment: authorization.attachment.clone(),
+        grant: "missing".into(),
+    });
+    client.read_until(|m| matches!(m, ServerMessage::Error { message, .. } if message.contains("does not support")));
+    client.send(&ClientMessage::Attach {
+        stream: "legacy".into(),
+        template: Some("permissions".into()),
+        derive_from: None,
+        capabilities: vec!["authorize".into()],
+    });
+    client.read_until(|m| matches!(m, ServerMessage::Attached { .. }));
+    let opened = client.read_until(|m| matches!(m, ServerMessage::Appended { event, .. }
+        if event.event_type == lattice::components::interface_permissions::STATE && event.payload["action"] == "open"));
+    let ServerMessage::Appended { event, .. } = opened.last().unwrap() else {
+        unreachable!()
+    };
+    // Tokens are not secrets. Even knowing the real token does not negotiate
+    // an old attachment into accepting the new controls.
+    let token = event.payload["interface"].as_str().unwrap().to_string();
+    client.send(&ClientMessage::SetPermission {
+        stream: "legacy".into(),
+        attachment: token,
+        enabled: true,
+    });
+    client.read_until(
+        |m| matches!(m, ServerMessage::Error { message, .. } if message.contains("unnegotiated")),
+    );
+    daemon.stop();
+}
+
+struct RecordedRun;
+impl lattice::Component for RecordedRun {
+    fn handle(&mut self, _: &str, event: &lattice::EventEnvelope, ctx: &mut lattice::Ctx) {
+        ctx.emit("outcome", lattice::EventDraft::new(ce::TOOL_EXEC_COMPLETED, &[&event.id],
+            json!({"call":event.payload["call"],"tool":"Run","status":"ok","result":{"stdout":"recorded, not executed"}})));
+    }
+}
+
+#[test]
+fn negotiated_history_keeps_old_question_details_and_controls_real_flow_grants() {
+    use lattice::components::{operation_policy as op, shell_tools};
+    use lattice::daemon::protocol::{ApprovalScope, PERMISSIONS_CAPABILITY};
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("lattice.sock");
+    let daemon = Daemon::serve(&socket, || {
+        let mut template = with_permissions(chat_template());
+        template.assembly.instances.get_mut("operations").unwrap().config = Some(json!({"stance":"ask"}));
+        template.assembly.instances.get_mut("model").unwrap().config = Some(json!({"script":[
+            {"status":"ok","toolCalls":[{"id":"push","tool":"Run","arguments":{"command":"git push origin main"}}]},
+            {"status":"ok","text":"done"}
+        ]}));
+        template.registry.insert(shell_tools::NAME.into(), shell_tools::manifest());
+        template.factories.insert(shell_tools::NAME.into(), Box::new(|_| Box::new(RecordedRun)));
+        template.assembly.instances.insert("shell".into(), ComponentInstance { component:shell_tools::NAME.into(), requires:vec![],config:None });
+        template.assembly.wires.extend([
+            Wire::new("loop.run", "operations.review"), Wire::new("operations.forward", "shell.execute"),
+            Wire::new("shell.outcome", "loop.tools"), Wire::new("operations.verdict", "loop.tools"),
+        ]);
+        StreamHost::new([("chat".into(),template)].into())
+    }).unwrap();
+    let mut a = Client::connect(&socket);
+    let first = attach_permissions(&mut a, "main");
+    a.send(&ClientMessage::SendText {
+        stream: "main".into(),
+        text: "push".into(),
+    });
+    let opened = a.read_until(|m| matches!(m, ServerMessage::Appended { event, .. } if event.event_type == op::AUTH_REQUESTED));
+    let ServerMessage::Appended {
+        event: question, ..
+    } = opened.last().unwrap()
+    else {
+        panic!("missing question")
+    };
+    // Grow a full newer page without consuming another work input.
+    for _ in 0..70 {
+        a.send(&ClientMessage::SetPermission {
+            stream: "main".into(),
+            attachment: first.attachment.clone(),
+            enabled: false,
+        });
+        a.read_until(|m| permission_event(m, first.interface.as_deref().unwrap(), "set"));
+    }
+    let mut b = Client::connect(&socket);
+    b.send(&ClientMessage::Attach {
+        stream: "main".into(),
+        template: None,
+        derive_from: None,
+        capabilities: vec![
+            "authorize".into(),
+            "history-pages".into(),
+            PERMISSIONS_CAPABILITY.into(),
+        ],
+    });
+    let attached = b.read_until(|m| {
+        matches!(
+            m,
+            ServerMessage::AttachedV2 { .. } | ServerMessage::Error { .. }
+        )
+    });
+    let ServerMessage::AttachedV2 {
+        authorization,
+        replay,
+        ..
+    } = attached.last().unwrap()
+    else {
+        panic!("missing v2 attachment: {attached:?}")
+    };
+    assert!(!replay.iter().any(|event| event.id == question.id));
+    assert_eq!(authorization.pending_authorizations.len(), 1);
+    let restored = &authorization.pending_authorizations[0];
+    assert_eq!(restored.id, question.id);
+    assert_eq!(restored.event_type, op::AUTH_REQUESTED);
+    assert_eq!(
+        restored.payload["grants"][0]["prefix"],
+        json!(["git", "push", "origin"])
+    );
+    b.send(&ClientMessage::AuthorizeOperation {
+        stream: "main".into(),
+        attachment: first.attachment,
+        request: question.id.clone(),
+        approve: true,
+        scope: ApprovalScope::Flow,
+    });
+    b.read_until(
+        |m| matches!(m, ServerMessage::Error { message, .. } if message.contains("attachment")),
+    );
+    b.send(&ClientMessage::AuthorizeOperation {
+        stream: "main".into(),
+        attachment: authorization.attachment.clone(),
+        request: question.id.clone(),
+        approve: true,
+        scope: ApprovalScope::Flow,
+    });
+    let granted = b.read_until(|m| matches!(m, ServerMessage::Appended { event, .. } if event.event_type == op::STATE && event.payload["grants"].as_object().is_some_and(|grants| !grants.is_empty())));
+    let ServerMessage::Appended { event, .. } = granted.last().unwrap() else {
+        panic!("missing grants")
+    };
+    let grant = event.payload["grants"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .next()
+        .unwrap()
+        .clone();
+    let completed = b.read_until(|m| matches!(m, ServerMessage::Appended { event, .. } if event.event_type == ce::TOOL_EXEC_COMPLETED));
+    assert!(
+        matches!(completed.last().unwrap(), ServerMessage::Appended { event, .. } if event.payload["status"] == "ok")
+    );
+    b.send(&ClientMessage::RevokeGrant {
+        stream: "main".into(),
+        attachment: authorization.attachment.clone(),
+        grant,
+    });
+    b.read_until(|m| matches!(m, ServerMessage::Appended { event, .. } if event.event_type == op::STATE && event.payload["grants"] == json!({})));
+    daemon.stop();
+}
+
+#[test]
+fn permission_off_and_disconnect_reach_the_authority_before_a_busy_model_finishes() {
+    for ending in ["detach", "eof"] {
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("lattice.sock");
+        let daemon = Daemon::serve(&socket, || {
+            StreamHost::new([("chat".into(), with_permissions(blocking_template()))].into())
+        })
+        .unwrap();
+        let mut owner = Client::connect(&socket);
+        let binding = attach_permissions(&mut owner, "main");
+        let id = binding.interface.as_deref().unwrap();
+        let mut observer = Client::connect(&socket);
+        attach_permissions(&mut observer, "main");
+        owner.send(&ClientMessage::SetPermission {
+            stream: "main".into(),
+            attachment: binding.attachment.clone(),
+            enabled: true,
+        });
+        owner.read_until(|m| permission_event(m, id, "set"));
+        owner.send(&ClientMessage::SendText {
+            stream: "main".into(),
+            text: "park".into(),
+        });
+        owner.read_until(is_parked_notice);
+        owner.send(&ClientMessage::SetPermission {
+            stream: "main".into(),
+            attachment: binding.attachment.clone(),
+            enabled: false,
+        });
+        let off = owner.read_until(|m| permission_event(m, id, "set"));
+        assert!(!off.iter().any(|m| matches!(m, ServerMessage::Appended { event, .. } if event.event_type == ce::MODEL_CALL_COMPLETED)));
+        let ServerMessage::Appended { event, .. } = off.last().unwrap() else {
+            panic!("missing permission state")
+        };
+        assert_eq!(event.payload["interfaces"][id]["enabled"], false);
+        owner.send(&ClientMessage::SetPermission {
+            stream: "main".into(),
+            attachment: binding.attachment,
+            enabled: true,
+        });
+        owner.read_until(|m| permission_event(m, id, "set"));
+        if ending == "detach" {
+            owner.send(&ClientMessage::Detach {
+                stream: "main".into(),
+            });
+        } else {
+            drop(owner);
+        }
+        let closed = observer.read_until(|m| permission_event(m, id, "close"));
+        assert!(!closed.iter().any(|m| matches!(m, ServerMessage::Appended { event, .. } if event.event_type == ce::MODEL_CALL_COMPLETED)), "{ending} waited behind the model");
+        observer.send(&ClientMessage::Interrupt {
+            stream: "main".into(),
+        });
+        let completed = observer.read_until(|m| matches!(m, ServerMessage::Appended { event, .. } if event.event_type == ce::MODEL_CALL_COMPLETED));
+        assert!(cancelled_completion(&completed));
+        daemon.stop();
+    }
+}
+
+#[test]
+fn permissions_belong_to_attachment_lifetimes_not_observers_or_reconnections() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("lattice.sock");
+    let daemon = Daemon::serve(&socket, || {
+        StreamHost::new([("chat".into(), with_permissions(chat_template()))].into())
+    })
+    .unwrap();
+    let mut a = Client::connect(&socket);
+    let mut b = Client::connect(&socket);
+    let first = attach_permissions(&mut a, "shared");
+    let observer = attach_permissions(&mut b, "shared");
+    assert_ne!(first.interface, observer.interface);
+    let id = first.interface.as_deref().unwrap();
+    a.send(&ClientMessage::SetPermission {
+        stream: "shared".into(),
+        attachment: first.attachment.clone(),
+        enabled: true,
+    });
+    let state = b.read_until(|m| permission_event(m, id, "set"));
+    let ServerMessage::Appended { event, .. } = state.last().unwrap() else {
+        panic!("missing permission state")
+    };
+    assert_eq!(event.payload["interfaces"][id]["enabled"], true);
+    assert_ne!(
+        event.payload["interfaces"][observer.interface.as_deref().unwrap()]["enabled"],
+        true
+    );
+    b.send(&ClientMessage::SendText {
+        stream: "shared".into(),
+        text: "from the observer".into(),
+    });
+    let inputs = b.read_until(
+        |m| matches!(m, ServerMessage::Appended {event,..} if event.event_type == ce::USER_MESSAGE),
+    );
+    let ServerMessage::Appended { event, .. } = inputs.last().unwrap() else {
+        panic!("missing input")
+    };
+    assert_eq!(
+        event.payload["interface"],
+        observer.interface.as_deref().unwrap()
+    );
+    a.send(&ClientMessage::Detach {
+        stream: "shared".into(),
+    });
+    b.read_until(|m| permission_event(m, id, "close"));
+    a.send(&ClientMessage::SetPermission {
+        stream: "shared".into(),
+        attachment: first.attachment.clone(),
+        enabled: true,
+    });
+    let errors = a.read_until(|m| matches!(m, ServerMessage::Error { .. }));
+    assert!(matches!(errors.last(), Some(ServerMessage::Error { .. })));
+    let next = attach_permissions(&mut a, "shared");
+    assert_ne!(next.attachment, first.attachment);
+    a.send(&ClientMessage::SetPermission {
+        stream: "shared".into(),
+        attachment: next.attachment,
+        enabled: true,
+    });
+    b.read_until(|m| permission_event(m, next.interface.as_deref().unwrap(), "set"));
+    drop(a);
+    let closed = b.read_until(|m| permission_event(m, next.interface.as_deref().unwrap(), "close"));
+    let ServerMessage::Appended { event, .. } = closed.last().unwrap() else {
+        panic!("missing close")
+    };
+    assert_eq!(
+        event.payload["interfaces"][next.interface.as_deref().unwrap()]["enabled"],
+        false
+    );
+    daemon.stop();
+}
+
 #[test]
 fn two_clients_watch_one_conversation() {
     let dir = tempfile::tempdir().unwrap();

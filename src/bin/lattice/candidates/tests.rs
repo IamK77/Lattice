@@ -21,7 +21,14 @@ fn installed_skills_join_the_slash_palette() {
     )];
     let effort = EffortView::default();
     assert_eq!(slash_matches("/", &skills, &effort).len(), SLASH.len() + 1);
-    let re = slash_matches("/re", &skills, &effort);
+    let shared = slash_matches("/re", &skills, &effort);
+    assert!(shared
+        .iter()
+        .any(|item| item.name == "/revoke" && !item.skill));
+    assert!(shared
+        .iter()
+        .any(|item| item.name == "/research-notes" && item.skill));
+    let re = slash_matches("/rese", &skills, &effort);
     assert_eq!(re.len(), 1);
     assert_eq!(re[0].name, "/research-notes");
     assert!(re[0].skill);

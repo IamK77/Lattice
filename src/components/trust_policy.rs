@@ -113,6 +113,7 @@ pub struct TrustPolicy {
     /// "deny" (unattended-safe default) or "ask" (needs a wired answerer)
     ask: bool,
     grants_path: PathBuf,
+    authorization: super::operation_policy::AuthorizationSources,
     /// Reviewed calls this gate has already acted on, since it started.
     ///
     /// The ledger is still the authority — a restarted gate reads it and
@@ -142,6 +143,7 @@ impl TrustPolicy {
         Self {
             ask: get("stance").and_then(Value::as_str) == Some("ask"),
             grants_path,
+            authorization: super::operation_policy::AuthorizationSources::from_config(config),
             settled: Default::default(),
             waiting: Default::default(),
         }
@@ -300,6 +302,33 @@ impl TrustPolicy {
             return;
         }
 
+        let authorization =
+            match self
+                .authorization
+                .allowance_with_effects(ctx.log(), event, Some(&effects))
+            {
+                Ok(authorization) => authorization,
+                Err(error) => {
+                    self.fail_history(ctx, error.to_string());
+                    return;
+                }
+            };
+        if let Some(authorization) =
+            authorization.filter(|evidence| self.ask || evidence["scope"] == "flow")
+        {
+            if !self.settled.insert(event.id.clone()) {
+                return;
+            }
+            ctx.emit("decision", EventDraft::new(DECISION, &[&event.id], json!({
+                "verdict":"granted", "key":key, "admits":admits, "authorization":authorization,
+            })).with_reason("The admission is covered by flow authorization or a source interface's live permission; no permanent trust grant was written"));
+            ctx.emit(
+                "forward",
+                EventDraft::new(ce::TOOL_EXEC_STARTED, &[&event.id], event.payload.clone()),
+            );
+            return;
+        }
+
         if self.ask {
             self.waiting.insert(event.id.clone());
             // The event pair, first half: put the question on the record and
@@ -425,13 +454,20 @@ impl TrustPolicy {
         let causes = [reviewed.id.as_str(), event.id.as_str()];
 
         if event.payload["approve"] == true {
-            if let Err(problem) = self.record_grant(
-                &key,
-                admits,
-                &requested.payload["effects"],
-                summary,
-                &event.id,
-            ) {
+            let persistence = if event.source == self.authorization.operations
+                && event.payload["persistTrust"] == false
+            {
+                Ok(())
+            } else {
+                self.record_grant(
+                    &key,
+                    admits,
+                    &requested.payload["effects"],
+                    summary,
+                    &event.id,
+                )
+            };
+            if let Err(problem) = persistence {
                 ctx.emit(
                     "verdict",
                     EventDraft::new(

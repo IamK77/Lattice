@@ -2,6 +2,8 @@
 //! language) connecting over a Unix socket. See clients/ink/README.md.
 
 #[cfg(unix)]
+mod bindings;
+#[cfg(unix)]
 mod history;
 pub mod protocol;
 

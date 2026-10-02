@@ -38,6 +38,7 @@ pub struct BrowserTools {
     executable: String,
     browser: Option<Browser>,
     pending: HashMap<String, EventEnvelope>,
+    authorization: super::operation_policy::AuthorizationSources,
 }
 impl BrowserTools {
     pub fn from_config(config: Option<&Value>) -> Self {
@@ -56,6 +57,7 @@ impl BrowserTools {
             executable,
             browser: None,
             pending: HashMap::new(),
+            authorization: super::operation_policy::AuthorizationSources::from_config(config),
         }
     }
 
@@ -275,6 +277,13 @@ impl BrowserTools {
             match actions(event) {
                 Ok(actions) if actions.iter().all(|a| a["type"] == "screenshot") => self.execute(event, None, ctx),
                 Ok(_) => {
+                    if let Some(authorization) = self.authorization.allowance(ctx.log(), event).map_err(|e| e.to_string())? {
+                        ctx.emit("decision", EventDraft::new(DECISION, &[&event.id], json!({
+                            "verdict":"granted", "held":held_id(event,ctx)?, "authorization":authorization,
+                        })).with_reason("The browser batch is covered by flow authorization or a source interface's live permission"));
+                        self.execute(event, None, ctx);
+                        return Ok(());
+                    }
                     self.pending.insert(event.id.clone(), event.clone());
                     ctx.emit("request", EventDraft::new(AUTH_REQUESTED, &[&event.id], json!({
                         "request":event.id,"held":held_id(event,ctx)?,"tool":"Browser","key":event.id,

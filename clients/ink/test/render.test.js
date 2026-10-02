@@ -16,8 +16,17 @@ function fakeConnection() {
   conn.attached = [];
   conn.detached = [];
   conn.interrupts = [];
-  conn.attach = (stream) => conn.attached.push(stream);
-  conn.sendText = () => {};
+  conn.attachOptions = [];
+  conn.approvals = [];
+  conn.permissions = [];
+  conn.revocations = [];
+  conn.sent = [];
+  conn.attach = (stream, options) => { conn.attached.push(stream); conn.attachOptions.push(options); };
+  conn.sendText = (...args) => conn.sent.push(args);
+  conn.authorize = (...args) => conn.approvals.push(['legacy', ...args]);
+  conn.authorizeOperation = (...args) => conn.approvals.push(['scoped', ...args]);
+  conn.setPermission = (...args) => conn.permissions.push(args);
+  conn.revokeGrant = (...args) => conn.revocations.push(args);
   conn.detach = (stream) => conn.detached.push(stream);
   conn.interrupt = (stream) => conn.interrupts.push(stream);
   conn.end = () => {};
@@ -25,6 +34,103 @@ function fakeConnection() {
 }
 
 const flush = () => new Promise((r) => setTimeout(r, 20));
+
+test('negotiated permission controls and approval shortcuts reach the current binding without sending chat', async () => {
+  const conn = fakeConnection();
+  const { lastFrame, stdin, unmount } = render(html`<${App} connection=${conn} stream="main" title="test" />`);
+  const until = async (condition) => {
+    const deadline = Date.now() + 3000;
+    while (!condition()) {
+      assert.ok(Date.now() < deadline, `render did not reach the expected state: ${lastFrame()}`);
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+  };
+  const command = async (line) => {
+    stdin.write(line);
+    await until(() => lastFrame().includes(`❯ ${line}`));
+    stdin.write('\r');
+  };
+  const question = { id: 'q', seq: 2, type: 'operation.authorization_requested', source: 'operations',
+    causes: ['held'], payload: { held: 'held', summary: 'push', grants: [{ kind: 'command_prefix', tool: 'Run', prefix: ['git', 'push', 'origin'] }] } };
+  const attached = (questions = [question]) => ({ attached_v2: { stream: 'main', replay: [], warnings: [],
+    authorization: { attachment: 'token', interface: 'own', interface_service: 'permissions', operation_service: 'operations',
+      through: 10, grants: { grants: {} }, pending_authorizations: questions } } });
+  try {
+    await until(() => conn.listenerCount('message') > 0);
+    conn.emit('connect');
+    await until(() => conn.attached.length === 1);
+    assert.ok(conn.attachOptions[0].capabilities.includes('operation-permissions-v1'));
+    conn.emit('message', attached());
+    await until(() => lastFrame().includes('y once'));
+    assert.match(lastFrame(), /git.*push.*origin/);
+    for (const key of ['y', 'f', 'n']) {
+      stdin.write(key);
+      await until(() => conn.approvals.length === ['y', 'f', 'n'].indexOf(key) + 1);
+    }
+    assert.deepEqual(conn.approvals, [
+      ['scoped', 'main', 'token', 'q', true, 'once'],
+      ['scoped', 'main', 'token', 'q', true, 'flow'],
+      ['scoped', 'main', 'token', 'q', false, 'once'],
+    ]);
+    assert.match(lastFrame(), /authorization waiting/, 'sending does not retire the current question');
+    await command('draftyf');
+    await until(() => conn.sent.length === 1);
+    assert.deepEqual(conn.sent[0], ['main', 'draftyf']);
+    assert.equal(conn.approvals.length, 3);
+    conn.emit('message', attached([{ ...question, type: 'trust.authorization_requested' }]));
+    await until(() => lastFrame().includes('p permanent trust'));
+    stdin.write('p');
+    await until(() => conn.approvals.length === 4);
+    assert.deepEqual(conn.approvals[3], ['legacy', 'main', 'q', true]);
+    await command('/permission on');
+    await until(() => conn.permissions.length === 1);
+    assert.deepEqual(conn.permissions[0], ['main', 'token', true]);
+    assert.match(lastFrame(), /permission: unknown/);
+    stdin.write('\u001b[Z');
+    await until(() => lastFrame().includes('not been acknowledged yet'));
+    assert.equal(conn.permissions.length, 1, 'unknown authority state cannot be toggled');
+    conn.emit('message', { appended: { stream: 'main', event: { id: 'enabled', seq: 11, source: 'permissions',
+      type: 'interface.permission.state', causes: [], payload: { interfaces: { own: { open: true, enabled: true } } } } } });
+    await until(() => lastFrame().includes('permission: on'));
+    stdin.write('keep');
+    await until(() => lastFrame().includes('keep'));
+    stdin.write('\u001b[Z');
+    await until(() => conn.permissions.length === 2);
+    assert.deepEqual(conn.permissions[1], ['main', 'token', false]);
+    assert.match(lastFrame(), /keep/);
+    assert.match(lastFrame(), /permission: on/, 'state is not changed optimistically');
+    assert.equal(conn.approvals.length, 4, 'the pending question is not answered by toggling');
+    conn.emit('message', { appended: { stream: 'main', event: { id: 'disabled', seq: 12, source: 'permissions',
+      type: 'interface.permission.state', causes: [], payload: { interfaces: { own: { open: true, enabled: false } } } } } });
+    await until(() => lastFrame().includes('permission: off'));
+    stdin.write('\u001b[Z');
+    await until(() => conn.permissions.length === 3);
+    assert.deepEqual(conn.permissions[2], ['main', 'token', true]);
+    for (let i = 0; i < 4; i++) stdin.write('\u007f');
+    await until(() => lastFrame().includes('Type a message'));
+    await command('/grants');
+    await until(() => lastFrame().includes('No flow grants'));
+    await command('/permission bad');
+    await until(() => lastFrame().includes('Usage: /permission'));
+    assert.equal(conn.sent.length, 1, 'management and invalid parameters must not become chat');
+    await command('/latest');
+    await until(() => conn.attached.length === 2);
+    await command('/permission on');
+    await until(() => lastFrame().includes('Authorization controls unavailable'));
+    assert.equal(conn.permissions.length, 3, 'the replaced binding cannot send another control');
+    conn.emit('message', { attached: { stream: 'main', replay: [question] } });
+    await until(() => lastFrame().includes('legacy service semantics'));
+    assert.doesNotMatch(lastFrame(), /y once/);
+    stdin.write('f');
+    await until(() => lastFrame().includes('Flow grants are unavailable'));
+    assert.equal(conn.approvals.length, 4);
+    conn.emit('close');
+    await until(() => lastFrame().includes('Disconnected — approvals unavailable'));
+    stdin.write('y');
+    await until(() => lastFrame().includes('Disconnected: authorization was not sent'));
+    assert.equal(conn.approvals.length, 4);
+  } finally { unmount(); }
+});
 
 test('history commands load one page without hiding current authorization or live delivery', async () => {
   const conn = fakeConnection();

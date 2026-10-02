@@ -42,6 +42,8 @@ impl Main {
             links: link_actions::LinkOpener::default(),
             event_facts: None,
             cards: None,
+            transcript_cache: Default::default(),
+            interface_permission: false,
             navigation: None,
             tab_line: String::new(),
             replayed_through: 0,
@@ -58,6 +60,7 @@ impl Main {
             documents: self.documents,
             controls: ModelControls::default(),
             experts: expert_controls::ExpertControls::default(),
+            grants: grant_controls::GrantControls::default(),
         };
         if let Some(trace) = startup.as_mut() {
             ui.replay_prefix_traced(

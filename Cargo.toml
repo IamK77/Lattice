@@ -44,6 +44,9 @@ base64 = "0.22"
 png = "0.18"
 tungstenite = "0.30"
 tempfile = "3"
+# Parse complete shell syntax before matching command authorization prefixes.
+tree-sitter = "0.25.10"
+tree-sitter-bash = "0.25"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

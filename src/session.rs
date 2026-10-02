@@ -349,6 +349,9 @@ pub struct Session {
     /// Held so interrupts reach a running turn immediately, bypassing the
     /// command queue (which a blocked `run_until_quiescent` would not read)
     interrupter: Injector,
+    interface_id: Option<String>,
+    operation_authorization: bool,
+    authorization_sources: crate::components::operation_policy::AuthorizationSources,
     stop: crate::kernel::host::StopHandle,
     startup_cost: crate::startup::Timings,
     reader: crate::kernel::log::LogReader,
@@ -407,6 +410,9 @@ impl Session {
                     crate::startup::Timings,
                     crate::kernel::log::LogReader,
                     Vec<crate::Assembled>,
+                    Option<String>,
+                    bool,
+                    crate::components::operation_policy::AuthorizationSources,
                 ),
                 String,
             >,
@@ -428,6 +434,35 @@ impl Session {
                 }
             };
             let injector = kernel.injector(&ui_instance);
+            let answer_service = |state: &str| {
+                kernel.assembly().wires.iter().find_map(|wire| {
+                    if wire.from != format!("{ui_instance}.answer") {
+                        return None;
+                    }
+                    let (instance, _) = wire.to.rsplit_once('.')?;
+                    let spec = kernel.assembly().instances.get(instance)?;
+                    let manifest = kernel.component_registry().get(&spec.component)?;
+                    manifest
+                        .outputs
+                        .iter()
+                        .any(|port| port.events.iter().any(|kind| kind == state))
+                        .then(|| instance.to_owned())
+                })
+            };
+            let operations = answer_service(crate::components::operation_policy::STATE);
+            let interfaces = answer_service(crate::components::interface_permissions::STATE);
+            let operation_authorization = operations.is_some();
+            let interface_id = interfaces.as_ref().map(|_| {
+                crate::components::interface_permissions::new_instance_id(&kernel.log().reader())
+            });
+            let mut authorization_sources =
+                crate::components::operation_policy::AuthorizationSources::default();
+            if let Some(source) = operations {
+                authorization_sources.operations = source;
+            }
+            if let Some(source) = interfaces {
+                authorization_sources.interfaces = source;
+            }
             // Built here, on the thread, for the same reason the kernel is.
             let mut subagents = experts.map(|(_main_id, build)| {
                 // Only the kernel knows the stream it actually opened. A new
@@ -460,6 +495,21 @@ impl Session {
                     return None;
                 }
             };
+            // A gate-less embedding keeps its original startup/quiescence
+            // behavior; do not inject an unhandled lifecycle wake there.
+            if let Some(id) = &interface_id {
+                injector.emit(
+                    "answer",
+                    EventDraft::new(
+                        ce::EXTERNAL_INPUT,
+                        &[],
+                        json!({
+                            "channel":crate::components::interface_permissions::CHANNEL,
+                            "interface":id,"action":"open",
+                        }),
+                    ),
+                );
+            }
             if ready_tx
                 .send(Ok((
                     injector.clone(),
@@ -467,6 +517,9 @@ impl Session {
                     kernel.startup_cost().clone(),
                     kernel.log().reader(),
                     parts.clone(),
+                    interface_id.clone(),
+                    operation_authorization,
+                    authorization_sources,
                 )))
                 .is_err()
             {
@@ -482,7 +535,11 @@ impl Session {
                         // Only inject; the wake it fires arrives as `Wake`
                         injector.emit(
                             "user",
-                            EventDraft::new(ce::USER_MESSAGE, &[], json!({ "text": text })),
+                            EventDraft::new(
+                                ce::USER_MESSAGE,
+                                &[],
+                                json!({ "text": text, "interface":interface_id }),
+                            ),
                         );
                     }
                     FrontendCommand::Authorize { request, approve } => {
@@ -495,6 +552,7 @@ impl Session {
                                     "channel": crate::components::trust_policy::AUTH_CHANNEL,
                                     "request": request,
                                     "approve": approve,
+                                    "interface": interface_id,
                                 }),
                             ),
                         );
@@ -693,7 +751,19 @@ impl Session {
         });
 
         match ready_rx.recv() {
-            Ok(Ok((interrupter, stop, startup_cost, reader, initial_parts))) => Ok(Self {
+            Ok(Ok((
+                interrupter,
+                stop,
+                startup_cost,
+                reader,
+                initial_parts,
+                interface_id,
+                operation_authorization,
+                authorization_sources,
+            ))) => Ok(Self {
+                interface_id,
+                operation_authorization,
+                authorization_sources,
                 stop,
                 initial_parts,
                 startup_cost,
@@ -749,7 +819,8 @@ impl Session {
                 &[],
                 json!({
                     "channel":crate::components::expert_ui::CHANNEL,
-                    "request":request,"operation":operation,"arguments":arguments
+                    "request":request,"operation":operation,"arguments":arguments,
+                    "interface":self.interface_id,"workInput":true,
                 }),
             ),
         );
@@ -855,7 +926,7 @@ impl Session {
         images: Vec<Value>,
         origin: Option<crate::contracts::event::StreamRef>,
     ) {
-        let mut payload = json!({ "text": text.into() });
+        let mut payload = json!({ "text": text.into(), "interface":self.interface_id });
         if !images.is_empty() {
             payload["images"] = Value::Array(images);
         }
@@ -864,12 +935,132 @@ impl Session {
         self.interrupter.emit("user", draft);
     }
 
+    /// This frontend's live binding, not the UI component instance or stream id.
+    pub fn interface_id(&self) -> Option<&str> {
+        self.interface_id.as_deref()
+    }
+
+    /// Change live permission without waiting behind a running model/tool.
+    /// The authoritative state event confirms when the change takes effect.
+    pub fn set_permission(&self, enabled: bool) -> Result<(), String> {
+        let id = self
+            .interface_id
+            .as_deref()
+            .ok_or("This assembly does not support interface permission")?;
+        if self.stopping.load(Ordering::Acquire) {
+            return Err("This interface is closing".into());
+        }
+        self.interrupter.emit(
+            "answer",
+            EventDraft::new(
+                ce::EXTERNAL_INPUT,
+                &[],
+                json!({
+                    "channel":crate::components::interface_permissions::CHANNEL,
+                    "interface":id,"action":"set","enabled":enabled,
+                }),
+            ),
+        );
+        Ok(())
+    }
+
+    pub fn supports_operation_authorization(&self) -> bool {
+        self.operation_authorization
+    }
+
+    /// Read the authority's acknowledgement, not a locally predicted toggle.
+    pub fn permission_enabled(&self) -> std::io::Result<Option<bool>> {
+        let Some(id) = self.interface_id.as_deref() else {
+            return Ok(None);
+        };
+        crate::components::interface_permissions::read_state(
+            &self.reader,
+            &self.authorization_sources.interfaces,
+        )
+        .map(|state| state.map(|state| state.permits(id)))
+    }
+
+    pub fn flow_grants(&self) -> std::io::Result<crate::components::operation_policy::GrantState> {
+        if !self.operation_authorization {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "This assembly does not support operation authorization",
+            ));
+        }
+        crate::components::operation_policy::read_grants(
+            &self.reader,
+            &self.authorization_sources.operations,
+        )
+    }
+
+    fn require_operation_authorization(&self) -> Result<(), String> {
+        if self.stopping.load(Ordering::Acquire) {
+            return Err("This interface is closing".into());
+        }
+        if !self.operation_authorization {
+            return Err("This assembly does not support operation authorization".into());
+        }
+        Ok(())
+    }
+
+    /// Save the service-proposed operation matchers, not a frontend-invented rule.
+    pub fn authorize_flow(&self, request: impl Into<String>) -> Result<(), String> {
+        self.authorize_operation(request.into(), "flow")
+    }
+
+    /// Explicitly approve once without using the legacy permanent-trust choice.
+    pub fn authorize_once(&self, request: impl Into<String>) -> Result<(), String> {
+        self.authorize_operation(request.into(), "once")
+    }
+
+    fn authorize_operation(&self, request: String, scope: &str) -> Result<(), String> {
+        self.require_operation_authorization()?;
+        self.interrupter.emit(
+            "answer",
+            EventDraft::new(
+                ce::EXTERNAL_INPUT,
+                &[],
+                json!({
+                    "channel":crate::components::operation_policy::ANSWER_CHANNEL,
+                    "interface":self.interface_id,"request":request,"approve":true,"scope":scope,
+                }),
+            ),
+        );
+        Ok(())
+    }
+
+    pub fn revoke_grant(&self, grant: impl Into<String>) -> Result<(), String> {
+        self.require_operation_authorization()?;
+        self.interrupter.emit(
+            "answer",
+            EventDraft::new(
+                ce::EXTERNAL_INPUT,
+                &[],
+                json!({
+                    "channel":crate::components::operation_policy::CHANNEL,
+                    "interface":self.interface_id,"action":"revoke","grant":grant.into(),
+                }),
+            ),
+        );
+        Ok(())
+    }
+
     /// Answer an authorization request (y/n on the trust gate's card).
     pub fn authorize(&self, request: impl Into<String>, approve: bool) {
-        let _ = self.commands.send(FrontendCommand::Authorize {
-            request: request.into(),
-            approve,
-        });
+        if self.stopping.load(Ordering::Acquire) {
+            return;
+        }
+        self.interrupter.emit(
+            "answer",
+            EventDraft::new(
+                ce::EXTERNAL_INPUT,
+                &[],
+                json!({
+                    "channel":crate::components::trust_policy::AUTH_CHANNEL,
+                    "request":request.into(),"approve":approve,"interface":self.interface_id,
+                }),
+            ),
+        );
     }
 
     /// Interrupt a running turn — reaches the kernel immediately, mid model
@@ -920,6 +1111,19 @@ impl Session {
             .unwrap_or_else(|e| e.into_inner());
         if !self.stopping.swap(true, Ordering::AcqRel) {
             *started = Some(Instant::now());
+            if let Some(id) = &self.interface_id {
+                self.interrupter.emit(
+                    "answer",
+                    EventDraft::new(
+                        ce::EXTERNAL_INPUT,
+                        &[],
+                        json!({
+                            "channel":crate::components::interface_permissions::CHANNEL,
+                            "interface":id,"action":"close",
+                        }),
+                    ),
+                );
+            }
             self.stop.request("frontend is shutting down".into(), None);
             let _ = self.commands.send(FrontendCommand::Shutdown);
         }
@@ -970,7 +1174,8 @@ pub fn render_line(event: &EventEnvelope) -> Option<(&'static str, String)> {
                 event.payload["arguments"]
             ),
         )),
-        t if t == crate::components::trust_policy::AUTH_REQUESTED
+        t if t == crate::components::operation_policy::AUTH_REQUESTED
+            || t == crate::components::trust_policy::AUTH_REQUESTED
             || t == crate::components::browser_tools::AUTH_REQUESTED
             || t == crate::components::expert_definitions::AUTH_REQUESTED =>
         {

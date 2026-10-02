@@ -9,6 +9,7 @@ import { html } from 'htm/react';
 import { decode, renderLine, replyChunk } from './protocol.js';
 import { reduce, initialState, active, foldReplay } from './state.js';
 import { theme, marker } from './theme.js';
+import { authorizationCommand, answerAuthorization, authorizationChoices, authorizationDetails } from './authorization.js';
 
 const MAX_LINES = 500;
 const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -16,7 +17,7 @@ const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', 
 // What this client declares at the handshake beyond display+text: it renders
 // authorization cards and answers them with y/n, and offers a `/` palette
 // folded from the ledger's skill listings
-const CLIENT_CAPABILITIES = ['authorize', 'palette', 'history-pages'];
+const CLIENT_CAPABILITIES = ['authorize', 'palette', 'history-pages', 'operation-permissions-v1'];
 
 // The `/` palette: installed skills (folded off skill.listing events) whose
 // name the typed input is a prefix of. Empty unless a slash is being typed;
@@ -102,18 +103,22 @@ export function App({ connection, stream, title }) {
     };
     const onError = (err) =>
       dispatch({
-        type: 'STATUS',
-        id: stream,
+        type: 'DISCONNECTED',
         status: `cannot reach the daemon (${err?.code || err?.message || 'error'}) — is it running?`,
       });
-    const onClose = () => dispatch({ type: 'STATUS', id: stream, status: 'daemon disconnected' });
+    const onClose = () => dispatch({ type: 'DISCONNECTED', status: 'daemon disconnected' });
     connection.on('connect', onConnect);
     connection.on('error', onError);
     connection.on('close', onClose);
     connection.on('message', (raw) => {
-      const { tag, body } = decode(raw);
+      let message;
+      try { message = decode(raw); } catch (error) {
+        dispatch({ type: 'DISCONNECTED', status: error.message });
+        return;
+      }
+      const { tag, body } = message;
       const id = body?.stream;
-      if (tag === 'attached') {
+      if (tag === 'attached' || tag === 'attached_v2') {
         const events = body.replay ?? [];
         // One fold for the replay and the live stream both — see
         // `foldReplay`. Two hand-written versions had already drifted apart.
@@ -123,7 +128,8 @@ export function App({ connection, stream, title }) {
         );
         const { busy, waiting, pendingAuth } = folded;
         const listing = events.filter((e) => e.type === 'skill.listing').pop();
-        dispatch({ type: 'ATTACHED', id, lines, busy, waiting, pendingAuth, history: body.history });
+        dispatch({ type: 'ATTACHED', id, lines, busy, waiting, pendingAuth, history: body.history,
+          authorization: tag === 'attached_v2' ? body.authorization : undefined });
         if (!body.history && listing) dispatch({ type: 'LISTING', id, skills: listing.payload?.skills ?? [] });
       } else if (tag === 'history_page') {
         dispatch({ type: 'HISTORY_PAGE', id, cursor: body.cursor, events: body.replay, older: body.older });
@@ -167,8 +173,14 @@ export function App({ connection, stream, title }) {
   }, []);
 
   const runSlash = (line, activeId) => {
+    const state = stateRef.current;
     const [cmd, ...rest] = line.slice(1).split(' ');
     const arg = rest.join(' ').trim();
+    const authorization = authorizationCommand(cmd, arg, stateRef.current.streams[activeId], connection);
+    if (authorization !== null) {
+      dispatch({ type: 'LOCAL_NOTICE', id: activeId, message: authorization });
+      return true;
+    }
     switch (cmd) {
       case 'exit':
         connection.end();
@@ -183,6 +195,7 @@ export function App({ connection, stream, title }) {
         return true;
       }
       case 'latest':
+        dispatch({ type: 'REBIND', id: activeId });
         connection.attach(activeId, { capabilities: CLIENT_CAPABILITIES });
         return true;
       case 'clear':
@@ -228,25 +241,35 @@ export function App({ connection, stream, title }) {
   };
 
   useInput((ch, key) => {
+    // Ink replaces its input effect after rendering. A keystroke in that gap
+    // must use the displayed binding, not the previous callback's closure.
+    const cur = active(stateRef.current);
     if (key.ctrl && ch === 'c') {
       connection.end();
       exit();
       return;
     }
+    if (key.tab && key.shift && !key.ctrl && !key.meta) {
+      const message = ['on', 'off'].includes(cur.permission)
+        ? authorizationCommand('permission', cur.permission === 'on' ? 'off' : 'on', cur, connection)
+        : 'Interface permission is unavailable or has not been acknowledged yet.';
+      dispatch({ type: 'LOCAL_NOTICE', id: cur.id, message });
+      return;
+    }
     if (key.tab) {
-      dispatch({ type: 'CYCLE', by: key.shift ? -1 : 1 });
+      dispatch({ type: 'CYCLE', by: 1 });
       return;
     }
     if (key.escape) {
       if (cur.busy) connection.interrupt(cur.id);
       return;
     }
-    // y/n answers an open authorization card — only on an empty input line,
-    // so typing a message containing y/n is never hijacked
+    // Approval shortcuts never hijack a draft or modified keystrokes.
     const openCard = cur.pendingAuth?.[0];
-    if (openCard && !input.current.length && (ch === 'y' || ch === 'n')) {
-      connection.authorize(cur.id, openCard.request, ch === 'y');
-      dispatch({ type: 'AUTH_SENT', id: cur.id });
+    if (openCard && !input.current.length && !key.ctrl && !key.meta && ['y', 'n', 'f', 'p'].includes(ch)) {
+      const error = answerAuthorization(cur, openCard, ch, connection);
+      if (error) dispatch({ type: 'LOCAL_NOTICE', id: cur.id, message: error });
+      else dispatch({ type: 'AUTH_SENT', id: cur.id });
       return;
     }
     if (key.return) {
@@ -300,6 +323,9 @@ export function App({ connection, stream, title }) {
             ? html`<${Text} color=${theme.dim}>Waiting for results — you can still type<//>`
             : null}
 
+      ${cur.pendingAuth?.length && authorizationDetails(cur.pendingAuth[0])
+        ? html`<${Text} color=${theme.dim}>${authorizationDetails(cur.pendingAuth[0])}<//>` : null}
+      ${cur.authorization ? html`<${Text} color=${theme.dim}>${`This interface permission: ${cur.permission} · Shift+Tab toggles · /grants · /revoke <id>`}<//>` : null}
       <${Box}
         marginTop=${1}
         borderStyle="round"
@@ -324,7 +350,7 @@ export function App({ connection, stream, title }) {
       <${Box} paddingX=${1}>
         <${Text} color=${theme.dim}>
           ${cur.pendingAuth?.length
-            ? `${cur.pendingAuth.length > 1 ? `${cur.pendingAuth.length} authorizations waiting` : 'authorization waiting'} · y allow · n refuse`
+            ? `${cur.pendingAuth.length > 1 ? `${cur.pendingAuth.length} authorizations waiting` : 'authorization waiting'} · ${authorizationChoices(cur)}`
             : cur.busy
               ? 'Esc interrupts · Ctrl-C quits'
               : `${cur.status} · Enter sends · Tab switches · /btw sidechannel · /new tab`}

@@ -49,7 +49,98 @@ fn samples() -> Vec<(&'static str, Value)> {
         through: 200,
         before: 73,
     };
+    let mut question = full_envelope();
+    question.id = "ev_9_feed0004".into();
+    question.seq = 9;
+    question.event_type = "operation.authorization_requested".into();
+    question.source = "operations".into();
+    question.payload = json!({"held":"ev_8_held0001","summary":"git push origin main",
+        "grants":[{"kind":"command_prefix","tool":"Run","prefix":["git","push","origin"]}]});
+    let authorization = lattice::daemon::protocol::AuthorizationAttachment {
+        attachment: "binding-1".into(),
+        interface: Some("interface-1".into()),
+        interface_service: Some("permissions".into()),
+        operation_service: Some("operations".into()),
+        through: 200,
+        grants: Default::default(),
+        pending_authorizations: vec![question],
+    };
     vec![
+        (
+            "attach-permissions",
+            client(&ClientMessage::Attach {
+                stream: "main".into(),
+                template: None,
+                derive_from: None,
+                capabilities: vec![
+                    "authorize".into(),
+                    "history-pages".into(),
+                    "operation-permissions-v1".into(),
+                ],
+            }),
+        ),
+        (
+            "set-permission",
+            client(&ClientMessage::SetPermission {
+                stream: "main".into(),
+                attachment: "binding-1".into(),
+                enabled: true,
+            }),
+        ),
+        (
+            "authorize-once",
+            client(&ClientMessage::AuthorizeOperation {
+                stream: "main".into(),
+                attachment: "binding-1".into(),
+                request: "ev_9_feed0004".into(),
+                approve: true,
+                scope: lattice::daemon::protocol::ApprovalScope::Once,
+            }),
+        ),
+        (
+            "authorize-flow",
+            client(&ClientMessage::AuthorizeOperation {
+                stream: "main".into(),
+                attachment: "binding-1".into(),
+                request: "ev_9_feed0004".into(),
+                approve: true,
+                scope: lattice::daemon::protocol::ApprovalScope::Flow,
+            }),
+        ),
+        (
+            "revoke-grant",
+            client(&ClientMessage::RevokeGrant {
+                stream: "main".into(),
+                attachment: "binding-1".into(),
+                grant: "grant-1".into(),
+            }),
+        ),
+        (
+            "attached-permissions",
+            server(&ServerMessage::AttachedV2 {
+                stream: "main".into(),
+                replay: vec![full_envelope()],
+                warnings: vec![],
+                history: None,
+                authorization: authorization.clone(),
+            }),
+        ),
+        (
+            "attached-permissions-unavailable",
+            server(&ServerMessage::AttachedV2 {
+                stream: "main".into(),
+                replay: vec![],
+                warnings: vec![],
+                history: None,
+                authorization: lattice::daemon::protocol::AuthorizationAttachment {
+                    interface: None,
+                    interface_service: None,
+                    operation_service: None,
+                    pending_authorizations: vec![],
+                    ..authorization
+                },
+            }),
+        ),
         (
             "history",
             client(&ClientMessage::History {

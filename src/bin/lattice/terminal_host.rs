@@ -62,8 +62,6 @@ use activity::DONE_SETTLE;
 use activity::{state_phrase, SPINNER, THINK_SPIN};
 #[path = "tool_arguments.rs"]
 mod tool_arguments;
-#[cfg(test)]
-use theme::ERR;
 use theme::{ACCENT, DIM, FG, RULE, USER_BG, WARM};
 #[path = "tool_card.rs"]
 mod tool_card;
@@ -83,10 +81,17 @@ mod cards;
 mod diagnostics;
 #[path = "event_inputs.rs"]
 mod event_inputs;
+#[path = "grant_controls.rs"]
+mod grant_controls;
 #[path = "live_output.rs"]
 mod live_output;
 #[path = "model_state.rs"]
 mod model_state;
+#[path = "permission_actions.rs"]
+mod permission_actions;
+#[cfg(test)]
+#[path = "permission_actions/entry_tests.rs"]
+mod permission_entry_tests;
 use model_state::ModelState;
 #[path = "modal_keys.rs"]
 mod modal_keys;
@@ -238,6 +243,8 @@ struct Ui {
     /// Persistent dependency lookup and fallible rebuilding stay at the ingress.
     event_facts: Option<view::facts::EventFacts>,
     cards: Option<std::cell::RefCell<cards::Cards>>,
+    transcript_cache: std::cell::RefCell<transcript::Cache>,
+    interface_permission: bool,
     draft: Draft,
     live_output: live_output::LiveOutput,
     /// Advances every loop tick (~50ms), so the spinner spins even while idle.
@@ -260,6 +267,7 @@ struct Ui {
     documents: Option<std::path::PathBuf>,
     controls: ModelControls,
     experts: expert_controls::ExpertControls,
+    grants: grant_controls::GrantControls,
 }
 
 impl View for Ui {
@@ -310,6 +318,12 @@ impl View for Ui {
     }
     fn usage(&self) -> Option<lattice::UsageReport> {
         self.domain.accounting.report()
+    }
+    fn interface_permission(&self) -> bool {
+        self.interface_permission
+    }
+    fn grant_panel(&self) -> Option<&view::GrantPanel> {
+        Some(self.grants.display())
     }
     fn pending_auth(&self) -> Option<&str> {
         self.domain.authorizations.next()
@@ -435,6 +449,8 @@ impl Ui {
             links: link_actions::LinkOpener::default(),
             event_facts: None,
             cards: None,
+            transcript_cache: Default::default(),
+            interface_permission: false,
             navigation: None,
             tab_line: String::new(),
             replayed_through: 0,
@@ -451,6 +467,7 @@ impl Ui {
             documents: None,
             controls: ModelControls::default(),
             experts: expert_controls::ExpertControls::default(),
+            grants: grant_controls::GrantControls::default(),
         };
         ui.replay_history(events);
         // Any "Done" belongs to history, past its animation: `done_at` is set
@@ -566,6 +583,7 @@ impl Ui {
     }
 
     fn clear_cards(&mut self) {
+        self.transcript_cache.get_mut().invalidate();
         if let Some(cards) = &mut self.cards {
             if let Err(error) = cards.get_mut().clear() {
                 self.flash = Some(format!("Cannot clear displayed cards: {error}"));
@@ -577,6 +595,7 @@ impl Ui {
     }
 
     fn push_local_card(&mut self, entry: Entry) {
+        self.transcript_cache.get_mut().invalidate();
         match &mut self.cards {
             Some(cards) => cards.get_mut().push_local(entry),
             None => self.entries.push(entry),
@@ -603,6 +622,7 @@ impl Ui {
         if self.replayed_through > 0 && event.seq <= self.replayed_through {
             return Ok(());
         }
+        self.transcript_cache.get_mut().invalidate();
         // Finish all fallible reads before changing counters, authorization,
         // or cards. Historical dependencies never survive this one fold.
         let mut rebuilt = None;
@@ -727,6 +747,7 @@ impl Ui {
         if self.replayed_through > 0 && event.seq <= self.replayed_through {
             return;
         }
+        self.transcript_cache.get_mut().invalidate();
         self.absorb_state(event, tick, trace.as_deref_mut());
         if self.cards.is_none() && measure!(Stage::Cards, view::ingest(&mut self.entries, event)) {
             self.live_output
@@ -825,6 +846,9 @@ fn panel_lines(at: (usize, usize), view: &dyn View, width: usize) -> Vec<Line<'s
     if at == panels::AT_EXPERTS {
         return panels::experts::lines(view, width);
     }
+    if at == panels::AT_GRANTS {
+        return panels::grants::lines(view, width);
+    }
     let picture = match at {
         AT_CONTEXT => context_picture(view, width),
         // Keep the calendar read separate and before the totals read.
@@ -886,7 +910,7 @@ fn attach_bytes(ui: &mut Ui, bytes: &[u8], ext: &str, media: &str, label: &str) 
 /// Acknowledge a command beside the input box, where the person is looking,
 /// instead of appending it to the conversation. See `View::flash`.
 fn ack(ui: &mut Ui, text: impl Into<String>) {
-    ui.flash = Some(text.into());
+    ui.flash = Some(text.into()).filter(|text| !text.is_empty());
 }
 
 fn open_link(ui: &mut Ui, url: &str) {
@@ -933,6 +957,14 @@ fn run_slash(ui: &mut Ui, line: &str, session: Option<&Session>) -> bool {
             run_model_action(ui, session, model_actions::Action::Effort(rest));
         }
         Intent::Model(rest) => run_model_action(ui, session, model_actions::Action::Model(rest)),
+        Intent::Permission(rest) => ack(ui, permission_actions::permission(session, rest)),
+        Intent::Grants => {
+            ui.grants.refresh(session);
+            ui.panel.show(panels::AT_GRANTS);
+            ui.panel.reset_scroll();
+            ui.flash = None;
+        }
+        Intent::Revoke(id) => ack(ui, permission_actions::revoke(session, id)),
         Intent::Compact => match session {
             Some(session) => {
                 session.request_compaction();
@@ -1008,13 +1040,9 @@ fn tui_loop(
             }
             let session = tabs.session();
 
-            // Only when the frame would differ. Building one re-renders the WHOLE
-            // transcript — every code block highlighted again from scratch — and
-            // this loop comes round twenty times a second whether or not anything
-            // happened. Measured on an idle session: 17% of a core, spent
-            // producing a frame identical to the one already on screen, and the
-            // bill grows with the conversation because the whole of it is rebuilt
-            // every time.
+            // Only draw when the visible frame can differ. Transcript layout
+            // is cached separately from the input and animation glyphs, so a
+            // keystroke does not rematerialize a long unchanged work group.
             if folded || redraw || animating(&ui) {
                 redraw = false;
                 hit =
@@ -1074,6 +1102,7 @@ fn tui_loop(
 fn drain_render(ui: &mut Ui, session: &Session) -> std::io::Result<bool> {
     let mut folded = false;
     while let Some(render) = session.poll_render() {
+        permission_actions::observe(ui, &render, session);
         fold_render(ui, render)?;
         ui.experts.flush(Some(session));
         folded = true;
@@ -1135,6 +1164,7 @@ impl RenderCost {
 /// caller which waits for a specific event (rather than taking whatever has
 /// arrived) folds through the same code instead of a copy of it.
 fn fold_render(ui: &mut Ui, render: RenderEvent) -> std::io::Result<()> {
+    ui.transcript_cache.get_mut().invalidate_page();
     match render {
         // Turn boundaries ride in the event stream, so ANY turn source — a
         // user message OR a background/timer wake — lights the line. Every
@@ -1188,6 +1218,15 @@ fn fold_render(ui: &mut Ui, render: RenderEvent) -> std::io::Result<()> {
 }
 
 fn route_modal(ui: &mut Ui, session: Option<&Session>, key: KeyCode) -> bool {
+    if ui.panel.active() == Some(panels::AT_GRANTS) && ui.grants.key(key, session) {
+        if matches!(
+            key,
+            KeyCode::Up | KeyCode::Down | KeyCode::Enter | KeyCode::Esc | KeyCode::Char('d' | 'r')
+        ) {
+            ui.panel.reset_scroll();
+        }
+        return true;
+    }
     if ui.panel.active() == Some(panels::AT_EXPERTS) && ui.experts.key(key) {
         ui.experts.flush(session);
         return true;
@@ -1239,6 +1278,15 @@ fn on_key(
     if key.kind != KeyEventKind::Press {
         return false;
     }
+    // Normalize terminal encodings before modal routing drops modifiers.
+    let key = if key.code == KeyCode::Tab && key.modifiers == KeyModifiers::SHIFT {
+        ratatui::crossterm::event::KeyEvent {
+            code: KeyCode::BackTab,
+            ..key
+        }
+    } else {
+        key
+    };
     // The last command's receipt goes as soon as you touch a key — it answered
     // the previous keystroke, and by now you have moved on. Cleared HERE and
     // not in the event loop so a test can drive it; and cleared BEFORE the key
@@ -1246,23 +1294,42 @@ fn on_key(
     ui.flash = None;
     if ui.pending_auth().is_some() {
         // Authorization owns the keyboard, including modified edit/submit keys.
-        // Scrolling remains available to inspect the complete request above.
+        // Details scroll inside the transient panel, not in the transcript.
+        if permission_actions::is_shortcut(key) {
+            ack(ui, permission_actions::toggle_permission(session));
+            return false;
+        }
         if key.modifiers.is_empty() {
             match key.code {
-                KeyCode::Up => ui.domain.authorizations.select_allow(true),
-                KeyCode::Down => ui.domain.authorizations.select_allow(false),
-                KeyCode::Enter | KeyCode::Esc => {
-                    if key.code == KeyCode::Esc {
-                        ui.domain.authorizations.select_allow(false);
-                    }
-                    if let Some((request, allow)) = ui.domain.authorizations.answer_selected() {
-                        if let Some(session) = session {
-                            session.authorize(&request, allow);
-                        }
+                KeyCode::Up | KeyCode::Down => {
+                    let delta = if key.code == KeyCode::Up { -1 } else { 1 };
+                    if let Err(error) = ui.domain.authorizations.move_selection(delta) {
+                        ack(ui, error.to_string());
                     }
                 }
-                KeyCode::PageUp => scroll_by(ui, SCROLL_PAGE as isize, hit),
-                KeyCode::PageDown => scroll_by(ui, -(SCROLL_PAGE as isize), hit),
+                KeyCode::Enter | KeyCode::Esc => {
+                    if key.code == KeyCode::Esc {
+                        ui.domain.authorizations.select_refuse();
+                    }
+                    permission_actions::answer_selected(ui, session);
+                }
+                KeyCode::Char('f') => permission_actions::scoped_answer(ui, session, false),
+                KeyCode::Char('p') => permission_actions::scoped_answer(ui, session, true),
+                KeyCode::Char('i') => ack(ui, permission_actions::toggle_permission(session)),
+                KeyCode::PageUp | KeyCode::PageDown => match ui.authorization_prompt() {
+                    Ok(Some(prompt)) => {
+                        let (width, height) = hit.authorization_size;
+                        let line = authorization_panel::scroll(
+                            &prompt,
+                            width,
+                            height,
+                            key.code == KeyCode::PageDown,
+                        );
+                        ui.domain.authorizations.scroll_to(line);
+                    }
+                    Err(error) => ack(ui, error.to_string()),
+                    Ok(None) => {}
+                },
                 _ => {}
             }
         }
@@ -1277,7 +1344,13 @@ fn on_key(
     match key.code {
         KeyCode::PageDown if ctrl => ui.navigation = Some(tabs::Navigation::Next),
         KeyCode::PageUp if ctrl => ui.navigation = Some(tabs::Navigation::Previous),
+        _ if ui.panel.active() == Some(panels::AT_GRANTS) && !key.modifiers.is_empty() => {}
         _ if route_modal(ui, session, key.code) => {}
+        // Forms keep their backwards-field navigation; the composer and
+        // authorization cards use Shift+Tab without consuming the draft.
+        _ if permission_actions::is_shortcut(key) => {
+            ack(ui, permission_actions::toggle_permission(session));
+        }
         // Ctrl-D quits. Ctrl-C interrupts a running turn, else clears the input
         // line. Esc interrupts, else drops back to the latest when scrolled up.
         KeyCode::Char('d') if ctrl => return true,
@@ -1324,6 +1397,7 @@ fn on_key(
                 submission::Intent::Empty => return false,
                 submission::Intent::Command(line) => return run_slash(ui, &line, session),
                 submission::Intent::SkillCandidate(name) => {
+                    ui.transcript_cache.get_mut().invalidate();
                     ui.live_output.submitted();
                     ui.browsing.pin();
                     ui.domain.turns.optimistic_activity();
@@ -1337,6 +1411,7 @@ fn on_key(
             };
             // Don't echo locally: the USER_MESSAGE we inject comes straight back
             // from the ledger and `ingest` renders it — one source of truth.
+            ui.transcript_cache.get_mut().invalidate();
             ui.live_output.submitted();
             ui.browsing.pin(); // jump back to the latest to watch the reply
                                // Optimistic: light up immediately. The USER_MESSAGE event coming
@@ -1376,6 +1451,7 @@ fn on_key(
 struct Hit {
     /// Text columns from the most recent draw, shared with vertical editing.
     input_width: usize,
+    authorization_size: (usize, usize),
     area: ratatui::layout::Rect,
     offset: usize,
     /// Earlier groups were deliberately not laid out, so total height is unknown.
@@ -1638,7 +1714,11 @@ fn draw_ui<B: ratatui::backend::Backend>(
 where
     B::Error: backend_error::IntoIoError,
 {
-    let hit = draw(term, ui)?;
+    let hit = draw_cached(
+        term,
+        ui,
+        Some((&ui.transcript_cache, ui.browsing.folds_revision())),
+    )?;
     if ui.panel.active().is_none() {
         if let Some(top) = hit.top {
             ui.browsing.drawn(top, hit.more_below);
@@ -1650,6 +1730,17 @@ where
 fn draw<B: ratatui::backend::Backend>(
     term: &mut Terminal<B>,
     view: &dyn View,
+) -> std::io::Result<Hit>
+where
+    B::Error: backend_error::IntoIoError,
+{
+    draw_cached(term, view, None)
+}
+
+fn draw_cached<B: ratatui::backend::Backend>(
+    term: &mut Terminal<B>,
+    view: &dyn View,
+    cache: Option<(&std::cell::RefCell<transcript::Cache>, u64)>,
 ) -> std::io::Result<Hit>
 where
     B::Error: backend_error::IntoIoError,
@@ -1690,7 +1781,9 @@ where
     // coexist with the slash menu (the keystroke that opens the menu clears the
     // receipt), so they take turns in the same place. A blank row above it,
     // like the queued lines have.
-    let flash = view.flash().filter(|_| hint_h == 0 && mode_h == 0);
+    let flash = view
+        .flash()
+        .filter(|_| hint_h == 0 && (mode_h == 0 || authorization.is_some()));
     let flash_h: u16 = match flash {
         Some(text) => (text.split('\n').count() as u16).min(4) + 1,
         None => 0,
@@ -1776,7 +1869,12 @@ where
                                                                 // The welcome scene rides at the top and scrolls with the talk; it fills
                                                                 // the transcript (bar the label lines) so a fresh screen is all globe.
         let art_h = content.height as usize;
-        let page = match transcript::page(view, spinner, inner_w, art_h) {
+        let page = match match cache {
+            Some((cache, folds)) => cache
+                .borrow_mut()
+                .page(view, spinner, inner_w, art_h, folds),
+            None => transcript::page(view, spinner, inner_w, art_h),
+        } {
             Ok(page) => page,
             Err(error) => {
                 transcript_error = Some(error);
@@ -1832,6 +1930,7 @@ where
         }
         hit = Hit {
             input_width,
+            authorization_size: (0, 0),
             area: content,
             offset,
             more_above,
@@ -1981,11 +2080,8 @@ where
         // Unless the dial has the box, in which case there is no prompt at
         // all — that absence is what says a mode is running.
         let input_lines: Vec<Line> = if let Some(prompt) = &authorization {
-            authorization_panel::lines(
-                prompt,
-                input_area.width.saturating_sub(2) as usize,
-                visible_height,
-            )
+            hit.authorization_size = (input_area.width.saturating_sub(2) as usize, visible_height);
+            authorization_panel::lines(prompt, hit.authorization_size.0, hit.authorization_size.1)
         } else {
             match (dial, &picker) {
                 (Some(cursor), _) => dial_lines(&view.effort(), cursor),
@@ -2045,6 +2141,21 @@ where
                 )],
                 true,
             )
+        } else if view.panel() == Some(panels::AT_GRANTS) {
+            (
+                vec![Span::styled(
+                    if view
+                        .grant_panel()
+                        .is_some_and(|panel| panel.confirming.is_some())
+                    {
+                        "Enter confirm revoke · PgUp/PgDn details · Esc cancel"
+                    } else {
+                        "Up/Down select · d revoke · r refresh · PgUp/PgDn scroll · Esc close"
+                    },
+                    dimmed,
+                )],
+                true,
+            )
         } else if view.panel().is_some() {
             (
                 vec![Span::styled(
@@ -2097,7 +2208,17 @@ where
             (vec![Span::styled("Ctrl-D quit", dimmed)], false)
         };
 
-        let bar = areas[6];
+        let mut bar = areas[6];
+        if view.interface_permission() && bar.width >= 10 {
+            let padding = u16::from(bar.width > 10);
+            let badge =
+                ratatui::layout::Rect::new(bar.right() - 10 - padding, bar.y, 10, bar.height);
+            frame.render_widget(
+                Paragraph::new("permission").style(Style::default().fg(ratatui::style::Color::Red)),
+                badge,
+            );
+            bar.width -= 10 + padding;
+        }
         let keys_w: usize = keys.iter().map(|s| wrap::str_cols(&s.content)).sum();
         let mut state = if mode { Vec::new() } else { status_state(view) };
         // Too narrow: shed readouts from the far end, one at a time, and never
@@ -2930,6 +3051,8 @@ mod tests {
             links: link_actions::LinkOpener::default(),
             event_facts: None,
             cards: None,
+            transcript_cache: Default::default(),
+            interface_permission: false,
             navigation: None,
             tab_line: String::new(),
             replayed_through: 0,
@@ -2946,6 +3069,7 @@ mod tests {
             documents: None,
             controls: ModelControls::default(),
             experts: expert_controls::ExpertControls::default(),
+            grants: grant_controls::GrantControls::default(),
         }
     }
 
@@ -5344,24 +5468,12 @@ mod tests {
         );
     }
 
-    /// The question the turn is waiting on must be LOUD. Asserted on the style
-    /// rather than through a frame snapshot, because a snapshot keeps the
-    /// characters and throws the colours away — the very thing under test.
     #[test]
-    fn an_approval_question_is_drawn_in_the_error_colour() {
+    fn approval_history_never_allocates_transcript_rows() {
         let entry = Entry::Approval("run wants in\n    y = allow".to_string());
-        let lines = entry_lines(&entry, ' ', false, 80);
-        assert_eq!(lines.len(), 2, "one line per line of the question");
-        for (line, _) in &lines {
-            for span in &line.spans {
-                assert_eq!(
-                    span.style.fg,
-                    Some(ERR),
-                    "every part of the question is in the error colour"
-                );
-            }
-        }
-        assert!(lines[0].0.spans[0].content.contains('⚠'));
+        assert!(entry_lines(&entry, ' ', false, 80).is_empty());
+        let u = ui(vec![entry.clone(), entry], false);
+        assert!(transcript_body(&u, ' ', 80).is_empty());
     }
 
     /// Every region the frame lays out must get its own rows. A region added
@@ -5678,8 +5790,8 @@ mod tests {
             assert!(text.contains("> Refuse request"), "{text}");
             if width >= 80 {
                 assert!(
-                    text.contains("Browser request"),
-                    "authorization must expose the transcript over a suspended panel: {text}"
+                    text.contains("click a button"),
+                    "authorization must expose details in its own panel: {text}"
                 );
             }
             assert!(
@@ -5696,6 +5808,45 @@ mod tests {
         let mut term = Terminal::new(TestBackend::new(80, 30)).unwrap();
         draw(&mut term, &u).unwrap();
         assert!(screen(&term).contains("unsent draft"));
+    }
+
+    #[test]
+    fn authorization_details_scroll_in_the_panel_and_leave_no_history_residue() {
+        use ratatui::crossterm::event::KeyEvent;
+        let summary = format!("{}\nLAST-REVIEW-LINE", "review this command\n".repeat(35));
+        let mut ask = test_event(trust_policy::AUTH_REQUESTED, &["call"]);
+        ask.id = "scroll-question".into();
+        ask.payload = json!({"tool":"Run", "summary":summary});
+        let mut u = ui(
+            vec![Entry::Approval("HISTORICAL-APPROVAL-ONLY".into())],
+            false,
+        );
+        u.note_authorization(&ask);
+        u.draft.edit().insert_str("saved draft");
+        let mut term = Terminal::new(TestBackend::new(80, 30)).unwrap();
+        let mut hit = draw(&mut term, &u).unwrap();
+        assert!(!screen(&term).contains("LAST-REVIEW-LINE"));
+        assert!(!screen(&term).contains("HISTORICAL-APPROVAL-ONLY"));
+        let transcript_offset = u.browsing.offset();
+        for _ in 0..20 {
+            on_key(&mut u, None, KeyEvent::from(KeyCode::PageDown), &hit);
+            hit = draw(&mut term, &u).unwrap();
+            if screen(&term).contains("LAST-REVIEW-LINE") {
+                break;
+            }
+        }
+        assert!(screen(&term).contains("LAST-REVIEW-LINE"));
+        assert_eq!(u.browsing.offset(), transcript_offset);
+        assert_eq!(u.input(), "saved draft");
+        let last = u.authorization_prompt().unwrap().unwrap().detail_line;
+        on_key(&mut u, None, KeyEvent::from(KeyCode::PageUp), &hit);
+        assert!(u.authorization_prompt().unwrap().unwrap().detail_line < last);
+        on_key(&mut u, None, KeyEvent::from(KeyCode::Esc), &hit);
+        draw(&mut term, &u).unwrap();
+        let shown = screen(&term);
+        assert!(shown.contains("saved draft"));
+        assert!(!shown.contains("LAST-REVIEW-LINE"));
+        assert!(!shown.contains("HISTORICAL-APPROVAL-ONLY"));
     }
 
     #[test]
@@ -5810,7 +5961,10 @@ mod tests {
             KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
             &hit,
         );
-        assert!(u.authorization_prompt().unwrap().unwrap().allow_selected);
+        assert_eq!(
+            u.authorization_prompt().unwrap().unwrap().selected,
+            view::AuthorizationChoice::Permanent
+        );
         on_key(
             &mut u,
             None,
@@ -5818,7 +5972,10 @@ mod tests {
             &hit,
         );
         assert_eq!(u.pending_auth(), Some("second"));
-        assert!(!u.authorization_prompt().unwrap().unwrap().allow_selected);
+        assert_eq!(
+            u.authorization_prompt().unwrap().unwrap().selected,
+            view::AuthorizationChoice::Refuse
+        );
         assert!(u.busy());
         on_key(
             &mut u,
@@ -5866,6 +6023,7 @@ mod tests {
         owner[4] = Some("mid".to_string());
         let hit = Hit {
             input_width: 36,
+            authorization_size: (0, 0),
             area: ratatui::layout::Rect::new(0, 2, 40, 3),
             offset: 3,
             more_above: false,
@@ -5914,6 +6072,7 @@ mod tests {
         // 50 rows in a 6-high viewport: the top is reached at 44 rows up.
         let hit = Hit {
             input_width: 56,
+            authorization_size: (0, 0),
             area: ratatui::layout::Rect::new(0, 1, 60, 6),
             offset: 0,
             more_above: false,
@@ -6097,10 +6256,15 @@ mod tests {
         // is the point.)
         let session = scripted_session();
         run_slash(&mut u, "/model sonnet", Some(&session));
-        // Waited on causally: the session answers with a notice and then goes
-        // quiet, so the quiet IS the signal that the answer has arrived.
-        while let Some(render) = session.next_render() {
-            let done = matches!(render, RenderEvent::Quiescent);
+        // Startup and interface control can also become quiescent. Wait for
+        // this command's receipt, not an unrelated earlier quiet notification.
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            let render = session
+                .next_render_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+                .expect("model swap must produce a receipt");
+            let done = matches!(&render, RenderEvent::Notice { source, payload }
+                if source == "model" && payload["note"].is_string());
             fold_render(&mut u, render).unwrap();
             if done {
                 break;

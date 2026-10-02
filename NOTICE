@@ -8,5 +8,12 @@ The embedded Earth bitmap (assets/earth_mask.bin) is derived from NASA's
 Blue Marble "Land shallow topo" image. Its provenance and attribution are
 preserved in assets/README.md. It is not relicensed by this notice.
 
+The conservative shell-command parser in
+src/components/operation_policy/shell.rs is adapted from OpenAI Codex,
+copyright 2025 OpenAI, licensed under the Apache License, Version 2.0.
+Source: codex-rs/shell-command/src/bash.rs at commit
+444da310e108da16aaeb18fd790b0ac464f08aca of https://github.com/openai/codex.
+Lattice modifications are identified in that file. See LICENSE.
+
 Third-party dependencies and optional external components remain subject
 to their respective licenses. This notice does not replace their notices.

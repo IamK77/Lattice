@@ -25,6 +25,12 @@ pub(super) use work::group_key;
 #[path = "transcript/navigation.rs"]
 mod navigation;
 pub(super) use navigation::page;
+#[path = "transcript/cache.rs"]
+mod cache;
+pub(super) use cache::Cache;
+#[cfg(test)]
+#[path = "transcript/cache_tests.rs"]
+mod cache_tests;
 
 /// A screen row keeps its click targets beside the exact text they describe.
 #[derive(Clone, Debug, PartialEq)]

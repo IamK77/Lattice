@@ -46,6 +46,59 @@ fn fold(ui: &mut Ui, reference: &mut Ui, event: &EventEnvelope) {
 }
 
 #[test]
+fn repeated_frames_do_not_materialize_a_long_disk_backed_work_group() {
+    use crate::terminal_host::{draw_ui, fold_render, RenderEvent};
+    let temp = tempfile::tempdir().unwrap();
+    let mut ledger = log(&temp.path().join("redraw.ledger"));
+    for n in 0..260 {
+        append(
+            &mut ledger,
+            ce::TOOL_EXEC_STARTED,
+            json!({"call":format!("c-{n}"),"tool":"Run","arguments":{"command":"printf test"}}),
+        );
+        append(
+            &mut ledger,
+            ce::TOOL_EXEC_COMPLETED,
+            json!({"call":format!("c-{n}"),"tool":"Run","status":"ok","result":{"stdout":"output".repeat(400)}}),
+        );
+    }
+    let reader = ledger.reader();
+    let mut ui = Ui::replayed(&[]);
+    ui.replay_prefix(&reader, reader.snapshot_end()).unwrap();
+    ui.domain.turns.optimistic_activity();
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 30)).unwrap();
+    draw_ui(&mut terminal, &mut ui).unwrap();
+    let before = reader.memory_stats().unwrap().cache.unwrap();
+    for _ in 0..20 {
+        ui.tick += 1;
+        draw_ui(&mut terminal, &mut ui).unwrap();
+    }
+    let after = reader.memory_stats().unwrap().cache.unwrap();
+    assert_eq!(
+        (after.decodes, after.hits),
+        (before.decodes, before.hits),
+        "unchanged frames must not even fetch cached ledger bodies"
+    );
+    let groups = ui.transcript_cache.borrow().group_builds();
+    for _ in 0..3 {
+        fold_render(
+            &mut ui,
+            RenderEvent::Notice {
+                source: "model".into(),
+                payload: json!({"phase":"reasoning","chunk":"more "}),
+            },
+        )
+        .unwrap();
+        draw_ui(&mut terminal, &mut ui).unwrap();
+    }
+    assert_eq!(
+        ui.transcript_cache.borrow().group_builds(),
+        groups,
+        "streaming must reuse disk-backed committed groups"
+    );
+}
+
+#[test]
 fn live_output_lands_one_channel_at_a_time_on_both_card_paths() {
     let temp = tempfile::tempdir().unwrap();
     let mut log = log(&temp.path().join("live.ledger"));

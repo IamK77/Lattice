@@ -1110,6 +1110,13 @@ mod tests {
         let main = start(&ledger, &parent_cfg);
         let mut ui = ui_for(&parent_cfg);
         main.send_text("parent work");
+        wait_for(
+            &main,
+            &mut ui,
+            lattice::components::operation_policy::AUTH_REQUESTED,
+        );
+        main.authorize_once(ui.pending_auth().expect("parent command approval"))
+            .unwrap();
         wait_for(&main, &mut ui, lattice::components::minimal_loop::WAITING);
         assert!(ui.domain.turns.waiting());
         let mut side_cfg = config();

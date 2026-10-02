@@ -58,20 +58,21 @@ fn local_answers_advance_immediately_but_only_outcomes_retire_history() {
 #[test]
 fn selection_is_per_question_and_never_survives_cancellation_or_restore() {
     let mut state = Authorizations::default();
+    state.set_scoped(true);
     state.observe(&event(trust_policy::AUTH_REQUESTED, "first", &["a"]));
-    assert!(!state.prompt().unwrap().unwrap().allow_selected);
-    state.select_allow(true);
+    assert_eq!(state.prompt().unwrap().unwrap().selected, Choice::Refuse);
+    state.move_selection(isize::MIN).unwrap();
     state.observe(&event(browser_tools::AUTH_REQUESTED, "second", &["b"]));
-    assert!(state.prompt().unwrap().unwrap().allow_selected);
+    assert_eq!(state.prompt().unwrap().unwrap().selected, Choice::Once);
     state.observe(&event(ce::INTERRUPTED, "cancel-first", &["a"]));
     assert_eq!(state.next(), Some("second"));
-    assert!(!state.prompt().unwrap().unwrap().allow_selected);
-    state.select_allow(true);
+    assert_eq!(state.prompt().unwrap().unwrap().selected, Choice::Refuse);
+    state.move_selection(isize::MIN).unwrap();
     state.restore(state.history());
     assert_eq!(state.answer_selected(), Some(("second".into(), false)));
     assert_eq!(state.answer_selected(), None);
     state.observe(&event(trust_policy::AUTH_REQUESTED, "third", &["c"]));
-    state.select_allow(true);
+    state.move_selection(isize::MIN).unwrap();
     assert_eq!(state.answer_selected(), Some(("third".into(), true)));
 }
 
@@ -124,6 +125,76 @@ fn restored_prompt_resolves_its_own_ledger_event_and_rejects_missing_data() {
     assert!(
         state.prompt().is_err(),
         "a missing request is not an empty prompt"
+    );
+}
+
+#[test]
+fn scope_choices_follow_service_capability_and_the_actual_question() {
+    for (kind, grants, expected) in [
+        (
+            operation_policy::AUTH_REQUESTED,
+            json!([{"kind":"fixture"}]),
+            vec![Choice::Once, Choice::Flow, Choice::Refuse],
+        ),
+        (
+            operation_policy::AUTH_REQUESTED,
+            json!([]),
+            vec![Choice::Once, Choice::Refuse],
+        ),
+        (
+            trust_policy::AUTH_REQUESTED,
+            json!(null),
+            vec![
+                Choice::Once,
+                Choice::Flow,
+                Choice::Permanent,
+                Choice::Refuse,
+            ],
+        ),
+        (
+            browser_tools::AUTH_REQUESTED,
+            json!(null),
+            vec![Choice::Once, Choice::Flow, Choice::Refuse],
+        ),
+        (
+            lattice::components::expert_definitions::AUTH_REQUESTED,
+            json!(null),
+            vec![Choice::Once, Choice::Flow, Choice::Refuse],
+        ),
+    ] {
+        let mut state = Authorizations::default();
+        state.set_scoped(true);
+        let mut question = event(kind, "question", &["call"]);
+        question.payload = json!({"grants":grants});
+        state.observe(&question);
+        assert_eq!(state.prompt().unwrap().unwrap().choices, expected, "{kind}");
+        assert_eq!(state.prompt().unwrap().unwrap().selected, Choice::Refuse);
+        state.move_selection(-1).unwrap();
+        assert_eq!(
+            state.prompt().unwrap().unwrap().selected,
+            expected[expected.len() - 2]
+        );
+        state.scroll_to(10);
+        state.observe(&event(
+            browser_tools::AUTH_REQUESTED,
+            "next",
+            &["next-call"],
+        ));
+        state.answer_oldest();
+        let next = state.prompt().unwrap().unwrap();
+        assert_eq!(next.selected, Choice::Refuse);
+        assert_eq!(next.detail_line, 0);
+    }
+    let mut legacy = Authorizations::default();
+    legacy.observe(&event(trust_policy::AUTH_REQUESTED, "admit", &["call"]));
+    assert_eq!(
+        legacy.prompt().unwrap().unwrap().choices,
+        vec![Choice::Permanent, Choice::Refuse]
+    );
+    legacy.move_selection(-1).unwrap();
+    assert_eq!(
+        legacy.prompt().unwrap().unwrap().selected,
+        Choice::Permanent
     );
 }
 
