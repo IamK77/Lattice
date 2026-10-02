@@ -81,6 +81,8 @@ mod cards;
 mod diagnostics;
 #[path = "event_inputs.rs"]
 mod event_inputs;
+#[path = "grant_controls.rs"]
+mod grant_controls;
 #[path = "live_output.rs"]
 mod live_output;
 #[path = "model_state.rs"]
@@ -265,6 +267,7 @@ struct Ui {
     documents: Option<std::path::PathBuf>,
     controls: ModelControls,
     experts: expert_controls::ExpertControls,
+    grants: grant_controls::GrantControls,
 }
 
 impl View for Ui {
@@ -318,6 +321,9 @@ impl View for Ui {
     }
     fn interface_permission(&self) -> bool {
         self.interface_permission
+    }
+    fn grant_panel(&self) -> Option<&view::GrantPanel> {
+        Some(self.grants.display())
     }
     fn pending_auth(&self) -> Option<&str> {
         self.domain.authorizations.next()
@@ -461,6 +467,7 @@ impl Ui {
             documents: None,
             controls: ModelControls::default(),
             experts: expert_controls::ExpertControls::default(),
+            grants: grant_controls::GrantControls::default(),
         };
         ui.replay_history(events);
         // Any "Done" belongs to history, past its animation: `done_at` is set
@@ -839,6 +846,9 @@ fn panel_lines(at: (usize, usize), view: &dyn View, width: usize) -> Vec<Line<'s
     if at == panels::AT_EXPERTS {
         return panels::experts::lines(view, width);
     }
+    if at == panels::AT_GRANTS {
+        return panels::grants::lines(view, width);
+    }
     let picture = match at {
         AT_CONTEXT => context_picture(view, width),
         // Keep the calendar read separate and before the totals read.
@@ -948,7 +958,12 @@ fn run_slash(ui: &mut Ui, line: &str, session: Option<&Session>) -> bool {
         }
         Intent::Model(rest) => run_model_action(ui, session, model_actions::Action::Model(rest)),
         Intent::Permission(rest) => ack(ui, permission_actions::permission(session, rest)),
-        Intent::Grants => ack(ui, permission_actions::grants(session)),
+        Intent::Grants => {
+            ui.grants.refresh(session);
+            ui.panel.show(panels::AT_GRANTS);
+            ui.panel.reset_scroll();
+            ui.flash = None;
+        }
         Intent::Revoke(id) => ack(ui, permission_actions::revoke(session, id)),
         Intent::Compact => match session {
             Some(session) => {
@@ -1203,6 +1218,15 @@ fn fold_render(ui: &mut Ui, render: RenderEvent) -> std::io::Result<()> {
 }
 
 fn route_modal(ui: &mut Ui, session: Option<&Session>, key: KeyCode) -> bool {
+    if ui.panel.active() == Some(panels::AT_GRANTS) && ui.grants.key(key, session) {
+        if matches!(
+            key,
+            KeyCode::Up | KeyCode::Down | KeyCode::Enter | KeyCode::Esc | KeyCode::Char('d' | 'r')
+        ) {
+            ui.panel.reset_scroll();
+        }
+        return true;
+    }
     if ui.panel.active() == Some(panels::AT_EXPERTS) && ui.experts.key(key) {
         ui.experts.flush(session);
         return true;
@@ -1320,6 +1344,7 @@ fn on_key(
     match key.code {
         KeyCode::PageDown if ctrl => ui.navigation = Some(tabs::Navigation::Next),
         KeyCode::PageUp if ctrl => ui.navigation = Some(tabs::Navigation::Previous),
+        _ if ui.panel.active() == Some(panels::AT_GRANTS) && !key.modifiers.is_empty() => {}
         _ if route_modal(ui, session, key.code) => {}
         // Forms keep their backwards-field navigation; the composer and
         // authorization cards use Shift+Tab without consuming the draft.
@@ -2112,6 +2137,21 @@ where
             (
                 vec![Span::styled(
                     "↑↓ choose · Enter wiring · u remove · ← → tabs · Esc close",
+                    dimmed,
+                )],
+                true,
+            )
+        } else if view.panel() == Some(panels::AT_GRANTS) {
+            (
+                vec![Span::styled(
+                    if view
+                        .grant_panel()
+                        .is_some_and(|panel| panel.confirming.is_some())
+                    {
+                        "Enter confirm revoke · PgUp/PgDn details · Esc cancel"
+                    } else {
+                        "Up/Down select · d revoke · r refresh · PgUp/PgDn scroll · Esc close"
+                    },
                     dimmed,
                 )],
                 true,
@@ -3029,6 +3069,7 @@ mod tests {
             documents: None,
             controls: ModelControls::default(),
             experts: expert_controls::ExpertControls::default(),
+            grants: grant_controls::GrantControls::default(),
         }
     }
 

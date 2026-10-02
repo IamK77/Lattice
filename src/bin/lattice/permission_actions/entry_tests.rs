@@ -323,6 +323,89 @@ fn authorization_panel_selection_saves_a_flow_grant_and_disappears() {
 }
 
 #[test]
+fn grants_panel_lists_confirms_and_waits_for_authoritative_revocation() {
+    test_support::isolated(|| {
+        let (mut ui, live) = fixture();
+        ui.draft.edit().insert_str("keep this draft");
+        command(&mut ui, &live, "/grants");
+        assert_eq!(ui.panel.active(), Some(panels::AT_GRANTS));
+        assert!(ui.flash.is_none());
+        assert!(ui.grants.display().state.grants.is_empty());
+        assert!(ui.grants.display().problem.is_none());
+        press(&mut ui, &live, KeyCode::Esc);
+        live.session().send_text("first command");
+        until(&mut ui, &live, |e| e.event_type == op::AUTH_REQUESTED);
+        press(&mut ui, &live, KeyCode::Char('f'));
+        finish(&mut ui, &live);
+        command(&mut ui, &live, "/grants");
+        let id = ui.grants.display().selected.clone().unwrap();
+        let mut term = Terminal::new(ratatui::backend::TestBackend::new(100, 35)).unwrap();
+        draw_ui(&mut term, &mut ui).unwrap();
+        let shown: String = term
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(shown.contains("Conversation grants"), "{shown}");
+        assert!(shown.contains("survives reopening"), "{shown}");
+        assert!(shown.contains("printf"), "{shown}");
+        press(&mut ui, &live, KeyCode::Char('x'));
+        absorb_paste(&mut ui, "must not become input");
+        assert_eq!(ui.input(), "keep this draft");
+        assert_eq!(ui.panel.active(), Some(panels::AT_GRANTS));
+        press(&mut ui, &live, KeyCode::Char('d'));
+        assert_eq!(ui.grants.display().confirming.as_deref(), Some(id.as_str()));
+        on_key(
+            &mut ui,
+            Some(live.session()),
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::CONTROL),
+            &Hit::default(),
+        );
+        assert_eq!(ui.grants.display().confirming.as_deref(), Some(id.as_str()));
+        press(&mut ui, &live, KeyCode::Esc);
+        assert!(ui.grants.display().confirming.is_none());
+        assert_eq!(live.session().flow_grants().unwrap().grants.len(), 1);
+        press(&mut ui, &live, KeyCode::Char('d'));
+        press(&mut ui, &live, KeyCode::Enter);
+        assert_eq!(ui.grants.display().pending.as_deref(), Some(id.as_str()));
+        assert!(
+            ui.grants.display().state.grants.contains_key(&id),
+            "sending is not removal"
+        );
+        until(&mut ui, &live, |e| {
+            e.event_type == op::STATE && e.payload["grants"] == json!({})
+        });
+        assert!(ui.grants.display().pending.is_none());
+        assert!(ui.grants.display().state.grants.is_empty());
+        assert_eq!(ui.panel.active(), Some(panels::AT_GRANTS));
+        press(&mut ui, &live, KeyCode::Esc);
+        assert!(ui.panel.active().is_none());
+        assert_eq!(ui.input(), "keep this draft");
+        live.session().send_text("ask again");
+        until(&mut ui, &live, |e| e.event_type == op::AUTH_REQUESTED);
+        press(&mut ui, &live, KeyCode::Esc);
+        finish(&mut ui, &live);
+    });
+}
+
+#[test]
+fn grants_panel_without_a_live_session_shows_an_error_not_an_empty_success() {
+    let mut ui = Ui::replayed(&[]);
+    run_slash(&mut ui, "/grants", None);
+    assert_eq!(ui.panel.active(), Some(panels::AT_GRANTS));
+    assert!(ui
+        .grants
+        .display()
+        .problem
+        .as_deref()
+        .unwrap()
+        .contains("No live session"));
+    assert!(ui.flash.is_none());
+}
+
+#[test]
 fn flow_key_and_grant_commands_manage_a_real_persistent_scope() {
     test_support::isolated(|| {
         let (mut ui, live) = fixture();
@@ -343,7 +426,9 @@ fn flow_key_and_grant_commands_manage_a_real_persistent_scope() {
         assert_eq!(grant.question, question.id);
         assert_eq!(grant.interface.as_deref(), live.session().interface_id());
         command(&mut ui, &live, "/grants");
-        assert!(ui.flash.as_deref().unwrap().contains(id));
+        assert_eq!(ui.panel.active(), Some(panels::AT_GRANTS));
+        assert!(ui.flash.is_none());
+        assert!(ui.grants.display().state.grants.contains_key(id));
         finish(&mut ui, &live);
         live.session().send_text("same command");
         finish(&mut ui, &live);

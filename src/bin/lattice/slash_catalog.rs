@@ -29,7 +29,7 @@ pub(super) const SLASH: &[Slash] = &[
     },
     Slash {
         name: "/grants",
-        summary: "inspect this flow's persistent operation grants",
+        summary: "open the conversation grants panel to inspect or revoke grants",
     },
     Slash {
         name: "/revoke",

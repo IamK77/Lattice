@@ -60,6 +60,7 @@ impl Main {
             documents: self.documents,
             controls: ModelControls::default(),
             experts: expert_controls::ExpertControls::default(),
+            grants: grant_controls::GrantControls::default(),
         };
         if let Some(trace) = startup.as_mut() {
             ui.replay_prefix_traced(

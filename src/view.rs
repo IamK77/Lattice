@@ -368,6 +368,16 @@ pub struct AuthorizationPrompt {
     pub detail_line: usize,
 }
 
+/// Data-only projection of the live flow-grant manager, not permission authority.
+#[derive(Default)]
+pub struct GrantPanel {
+    pub state: crate::components::operation_policy::GrantState,
+    pub selected: Option<String>,
+    pub confirming: Option<String>,
+    pub pending: Option<String>,
+    pub problem: Option<String>,
+}
+
 /// An app, a ledger replay, or a per-stream selector can feed the same draw.
 pub trait View {
     /// The title bar text (model, endpoint, …)
@@ -462,6 +472,9 @@ pub trait View {
     /// a replay or a static view shows no such line.
     /// An open authorization request awaiting a human decision: its event id.
     fn pending_auth(&self) -> Option<&str> {
+        None
+    }
+    fn grant_panel(&self) -> Option<&GrantPanel> {
         None
     }
     /// Current live binding only. Historical permission never lights this indicator.

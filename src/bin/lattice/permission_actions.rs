@@ -8,6 +8,15 @@ pub(super) fn observe(ui: &mut Ui, render: &RenderEvent, session: &Session) {
     let RenderEvent::Appended(event) = render else {
         return;
     };
+    if ui.panel.active() == Some(panels::AT_GRANTS)
+        && event.event_type == lattice::components::operation_policy::STATE
+    {
+        let selected = ui.grants.display().selected.clone();
+        ui.grants.sync(Some(session));
+        if selected != ui.grants.display().selected {
+            ui.panel.reset_scroll();
+        }
+    }
     if !matches!(
         event.event_type.as_str(),
         lattice::components::interface_permissions::STATE
@@ -64,28 +73,6 @@ pub(super) fn toggle_permission(session: Option<&Session>) -> String {
         Ok(Some(enabled)) => permission(Some(session), if enabled { "off" } else { "on" }),
         Ok(None) => "Interface permission is unavailable or has not been acknowledged yet".into(),
         Err(error) => format!("Cannot read interface permission: {error}"),
-    }
-}
-
-pub(super) fn grants(session: Option<&Session>) -> String {
-    let Some(session) = session else {
-        return "No live session".into();
-    };
-    match session.flow_grants() {
-        Err(error) => format!("Cannot read flow grants: {error}"),
-        Ok(state) if state.grants.is_empty() => {
-            "No flow grants. Permanent trust is separate.".into()
-        }
-        Ok(state) => {
-            let mut lines = vec!["Flow grants survive reopening. /revoke <id> removes a grant, not completed effects or permanent trust.".to_owned()];
-            for (id, grant) in state.grants {
-                lines.push(format!(
-                    "{id}: {}",
-                    serde_json::to_string(&grant.matchers).expect("serializable matchers")
-                ));
-            }
-            lines.join("\n")
-        }
     }
 }
 
