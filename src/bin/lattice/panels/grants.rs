@@ -213,7 +213,7 @@ fn render(panel: Option<&GrantPanel>, width: usize) -> Vec<Line<'static>> {
     let inset = if width > 2 { 2 } else { 0 };
     let room = width.saturating_sub(inset * 2).clamp(1, MAX_WIDTH);
     let mut out = Canvas::new(room);
-    out.heading("Conversation grants");
+    out.heading("Conversation Grants");
     // The common panel viewport pins the first two rows. Keep the header
     // compact; long descriptions and IDs belong to the scrollable body.
     let Some(panel) = panel else {

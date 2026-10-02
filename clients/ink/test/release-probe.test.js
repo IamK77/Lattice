@@ -40,10 +40,30 @@ test('release probe proves new sibling outcomes and restored model material', ()
   assert.deepEqual(result.evidence.map(e => e.id), ['input', 'expanded', 'request', 'completed', 'reply', 'turn']);
 });
 
-test('release probe refuses old replay or quiescence as new-turn evidence', () => {
+test('release probe refuses old replay and waits through idle attachment notifications', () => {
   const p = probe();
+  assert.equal(p.accept(quiet), null);
+  const permission = event('permission', 6, 'input.external', [], { channel: 'interface.permission', action: 'open' });
+  p.accept(permission);
+  assert.equal(p.accept(quiet), null);
+  assert.equal(p.accept(quiet), null);
+  const messages = flow();
+  for (const message of messages) {
+    message.appended.event.seq += 1;
+    p.accept(message);
+  }
+  const { result } = p.accept(quiet);
+  assert.equal(result.input, 'input');
+  assert.equal(result.materialInput, 'expanded');
+  assert.throws(() => probe().accept({ appended: { stream, event: old } }), /live event sequence/);
+});
+
+test('release probe rejects duplicate matching inputs and an unfinished started turn', () => {
+  const p = probe();
+  p.accept(flow()[0]);
+  assert.throws(() => p.accept(quiet), /successful new turn/);
+  p.accept(event('second-input', 7, 'input.user_message', [], { text }));
   assert.throws(() => p.accept(quiet), /unique new input/);
-  assert.throws(() => p.accept({ appended: { stream, event: old } }), /live event sequence/);
 });
 
 test('release probe requires prior input both on disk and in new model material', () => {
