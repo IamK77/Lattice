@@ -33,7 +33,7 @@ impl Client {
         writeln!(self.write, "{}", serde_json::to_string(&message).unwrap()).unwrap();
     }
 
-    fn until(&mut self, done: impl Fn(&ServerMessage) -> bool) -> Vec<ServerMessage> {
+    fn until(&mut self, mut done: impl FnMut(&ServerMessage) -> bool) -> Vec<ServerMessage> {
         let mut messages = Vec::new();
         loop {
             let mut line = String::new();
@@ -139,9 +139,17 @@ fn private_daemon_keeps_host_metadata_name_filter_redaction_and_graceful_stop() 
             stream: name.clone(),
             text: secret.into(),
         });
-        let messages = client.until(
-            |message| matches!(message, ServerMessage::Quiescent {stream} if stream == name),
-        );
+        // Opening the interface can settle before this input is consumed.
+        // Only a quiescent notification after this stream's reply ends our turn.
+        let mut replied = false;
+        let messages = client.until(|message| {
+            if matches!(message, ServerMessage::Appended {stream, event}
+                if stream == name && event.event_type == ce::OUTPUT_REPLY)
+            {
+                replied = true;
+            }
+            replied && matches!(message, ServerMessage::Quiescent {stream} if stream == name)
+        });
         let events: Vec<&EventEnvelope> = messages
             .iter()
             .filter_map(|message| match message {

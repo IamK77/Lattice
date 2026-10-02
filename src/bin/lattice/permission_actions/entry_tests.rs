@@ -348,7 +348,7 @@ fn grants_panel_lists_confirms_and_waits_for_authoritative_revocation() {
             .iter()
             .map(|cell| cell.symbol())
             .collect();
-        assert!(shown.contains("Conversation grants"), "{shown}");
+        assert!(shown.contains("Conversation Grants"), "{shown}");
         assert!(shown.contains("survives reopening"), "{shown}");
         assert!(shown.contains("printf"), "{shown}");
         press(&mut ui, &live, KeyCode::Char('x'));
