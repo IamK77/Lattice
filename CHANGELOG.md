@@ -7,6 +7,8 @@ release. Published artifacts and their publication dates are recorded in
 
 ## [Unreleased]
 
+## [0.1.0]
+
 ### Added
 
 - Terminal AI agent with configurable model endpoints, project instructions,
@@ -14,6 +16,12 @@ release. Published artifacts and their publication dates are recorded in
 - Composable components connected through serializable event contracts, with
   optional browser, language-service, desktop, and frontend integrations.
 - English and Simplified Chinese product and setup guides.
+- initialize Lattice (d83a2c5c9514).
+- establish Cargo-based release versioning (45d2d07d5000).
+- prepare reviewable releases from protected source branches (532f608a763d).
+- bind native release archives to verified build inputs (a8581d1c1044).
+- publish approved releases with provenance and recoverable drafts (e90b6ca12f36).
+- synchronize stable history through protected native pull requests (821102229599).
 
 ### Changed
 
@@ -29,3 +37,13 @@ release. Published artifacts and their publication dates are recorded in
   review records for existing transitive maintenance advisories.
 - Document that tool execution is not a sandbox, interruption is not rollback,
   and retained or model-bound data can contain secrets.
+
+### Fixed
+
+- patch h2 and add supply-chain verification (b5f1761384d9).
+- align the minimum Rust version with file locking (cafdc62f6146).
+- correct command help and operational guidance (b3604403c8e2).
+- allow exact commit comparison paths in repository API client (996e79574177).
+- audit indirect advisories and replace unsound lru dependency (d8de7fcec32a).
+- synchronize diverged histories through a reusable integration branch (7407dc109d22).
+

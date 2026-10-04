@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from prepare_release import prepare, replace_description
 from release_git import BRANCH, FILES, RECORD, candidate, commits_since, git, verify_candidate
@@ -91,11 +92,24 @@ class PreparationTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        project = Path(__file__).resolve().parent.parent
-        for name in FILES:
+        # This scenario is always an unpublished 0.1.0 project, even when the
+        # test itself runs on a release candidate or a later published version.
+        package = {"name": "lattice-ink", "version": "0.1.0", "private": True}
+        files = {
+            "Cargo.toml": '[package]\nname = "lattice"\nversion = "0.1.0"\npublish = false\n',
+            "Cargo.lock": 'version = 4\n\n[[package]]\nname = "lattice"\nversion = "0.1.0"\n',
+            "clients/ink/package.json": json.dumps(package, indent=2) + "\n",
+            "clients/ink/package-lock.json": json.dumps({
+                "name": package["name"], "version": "0.1.0", "lockfileVersion": 3,
+                "packages": {"": package},
+            }, indent=2) + "\n",
+            "CHANGELOG.md": "# Changelog\n\n## [Unreleased]\n\n",
+        }
+        self.assertEqual(set(files), set(FILES))
+        for name, content in files.items():
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text((project / name).read_text())
+            path.write_text(content)
         git(self.root, "init", "-q", "-b", "develop")
         for key, value in [("user.name", "Release Test"), ("user.email", "release@example.invalid"), ("commit.gpgsign", "false"), ("core.hooksPath", str(self.root / "no-hooks"))]:
             git(self.root, "config", key, value)
@@ -249,6 +263,17 @@ class PreparationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "regular non-executable"):
             candidate(self.root, git(self.root, "rev-parse", "HEAD"), None)
         self.assertEqual(self.api.mutations, [])
+
+
+class FixtureIsolationTests(unittest.TestCase):
+    def test_initial_release_fixture_does_not_read_the_current_checkout(self):
+        fixture = PreparationTests(methodName="test_create_refresh_and_idempotent_prepare_preserve_ancestry")
+        self.addCleanup(fixture.doCleanups)
+        with patch.object(Path, "read_text", side_effect=AssertionError("Fixture must not read the current checkout")):
+            fixture.setUp()
+        prepare(fixture.root, fixture.api)
+        record = verify_candidate(fixture.root, git(fixture.root, "rev-parse", BRANCH))
+        self.assertEqual((record["version"], record["previous"]), ("0.1.0", None))
 
 
 class ApiPolicyTests(unittest.TestCase):
