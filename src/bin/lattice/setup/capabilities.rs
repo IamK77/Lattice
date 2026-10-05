@@ -219,14 +219,7 @@ impl Capabilities {
                     }
                 }
                 2 => self.switches(ui, adapter)?,
-                3 => {
-                    let old = self.value["effort"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")).unwrap_or_default();
-                    let text = ui.text("Effort rungs, weakest first, comma-separated (empty = unknown)", &old)?;
-                    let rungs: Vec<_> = text.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
-                    if rungs.iter().any(|s| !s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')) {
-                        ui.tell("Use provider effort names, separated by commas.");
-                    } else { self.set("effort", json!(rungs)); }
-                }
+                3 => self.effort_rungs(ui)?,
                 4 => self.advanced(ui)?,
                 _ => return Ok(false),
             }
@@ -267,32 +260,130 @@ impl Capabilities {
         Ok(())
     }
 
-    fn advanced(&mut self, ui: &mut impl Questions) -> Result<()> {
-        if ui.confirm("Edit usage field mapping?", false)? {
-            let mut fields = self.value["usageFields"].clone();
-            for key in ["input", "output", "cacheRead", "cacheWrite"] {
-                loop {
-                    let text = ui.text(
-                        &format!("Usage field for {key} (dot-separated path)"),
-                        fields[key].as_str().unwrap_or(""),
-                    )?;
-                    let text = text.trim();
-                    if (text.is_empty() && ["input", "output"].contains(&key))
-                        || text.chars().any(char::is_control)
-                    {
-                        ui.tell("Input/output mappings must not be empty; control characters are not allowed.");
-                        continue;
-                    }
-                    if text.is_empty() {
-                        fields.as_object_mut().unwrap().remove(key);
-                    } else {
-                        fields[key] = json!(text);
-                    }
-                    break;
-                }
-            }
-            self.set("usageFields", fields);
+    fn effort_rungs(&mut self, ui: &mut impl Questions) -> Result<()> {
+        let current = self.value["effort"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let standard = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+        let nonstandard = current.iter().any(|s| !standard.contains(&s.as_str()));
+        // Never guess where a provider-specific word belongs on the strength
+        // ladder. Its existing order remains authoritative.
+        let rungs = if nonstandard {
+            current.clone()
+        } else {
+            standard.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>()
+        };
+        if nonstandard {
+            ui.tell("Provider-specific rungs retain their declared order. Use Advanced settings to add names or change their order.");
         }
+        ui.tell("Select the effort rungs this model supports, not the strength to use now. 'none' declares the provider's no-thinking option; an empty selection leaves the ladder unspecified, it does not turn thinking off.");
+        let options = rungs
+            .iter()
+            .map(|s| {
+                if s == "none" {
+                    "none (provider supports disabling thinking)".into()
+                } else {
+                    s.clone()
+                }
+            })
+            .collect::<Vec<_>>();
+        let defaults = rungs
+            .iter()
+            .enumerate()
+            .filter_map(|(i, rung)| current.contains(rung).then_some(i))
+            .collect::<Vec<_>>();
+        let selected = ui.multi_select(
+            "Supported thinking effort rungs (Space to toggle)",
+            &options,
+            &defaults,
+        )?;
+        let chosen = rungs
+            .into_iter()
+            .enumerate()
+            .filter_map(|(i, rung)| selected.contains(&i).then_some(rung))
+            .collect::<Vec<_>>();
+        if chosen != current {
+            self.set("effort", json!(chosen));
+        }
+        Ok(())
+    }
+
+    fn custom_effort(&mut self, ui: &mut impl Questions) -> Result<()> {
+        loop {
+            let old = self.value["effort"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(Value::as_str)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .unwrap_or_default();
+            let text = ui.text(
+                "Provider effort names, weakest first, comma-separated (empty = unspecified)",
+                &old,
+            )?;
+            let rungs: Vec<_> = text
+                .split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .collect();
+            if rungs.iter().any(|s| {
+                !s.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+            }) || rungs.iter().collect::<BTreeSet<_>>().len() != rungs.len()
+            {
+                ui.tell("Use distinct provider effort names, separated by commas.");
+                continue;
+            }
+            self.set("effort", json!(rungs));
+            return Ok(());
+        }
+    }
+
+    fn advanced(&mut self, ui: &mut impl Questions) -> Result<()> {
+        match choose(
+            ui,
+            "Advanced model settings",
+            &[
+                "Edit usage field mapping",
+                "Edit custom effort names / ordering",
+                "Back",
+            ],
+        )? {
+            1 => return self.custom_effort(ui),
+            2 => return Ok(()),
+            _ => {}
+        }
+        let mut fields = self.value["usageFields"].clone();
+        for key in ["input", "output", "cacheRead", "cacheWrite"] {
+            loop {
+                let text = ui.text(
+                    &format!("Usage field for {key} (dot-separated path)"),
+                    fields[key].as_str().unwrap_or(""),
+                )?;
+                let text = text.trim();
+                if (text.is_empty() && ["input", "output"].contains(&key))
+                    || text.chars().any(char::is_control)
+                {
+                    ui.tell("Input/output mappings must not be empty; control characters are not allowed.");
+                    continue;
+                }
+                if text.is_empty() {
+                    fields.as_object_mut().unwrap().remove(key);
+                } else {
+                    fields[key] = json!(text);
+                }
+                break;
+            }
+        }
+        self.set("usageFields", fields);
         Ok(())
     }
 }

@@ -26,6 +26,74 @@ fn model(id: &str) -> discovery::Model {
 }
 
 #[test]
+fn effort_checkboxes_preselect_current_rungs_and_save_strength_order() {
+    let mut caps = Capabilities::new(
+        "synthetic",
+        "responses",
+        &json!({"contextWindow":1000,"maxOutputTokens":100,"effort":["low","high"]}),
+        None,
+        "https://example.invalid",
+    );
+    let mut ui = Script::new([Select(3), Multi(&[6, 2, 4]), Select(0)]);
+    assert!(caps.edit(&mut ui, "responses").unwrap());
+    assert_eq!(ui.multi_prompts[0].1, [2, 4]);
+    assert_eq!(caps.value["effort"], json!(["low", "high", "max"]));
+    assert!(ui
+        .messages
+        .join("\n")
+        .contains("not the strength to use now"));
+    let mut ui = Script::new([Select(3), Multi(&[]), Select(0)]);
+    assert!(caps.edit(&mut ui, "responses").unwrap());
+    assert_eq!(ui.multi_prompts[0].1, [2, 4, 6]);
+    assert_eq!(caps.value["effort"], json!([]));
+    caps.refresh(Capabilities::new(
+        "synthetic",
+        "responses",
+        &json!({"effort":["low","high"]}),
+        None,
+        "https://example.invalid",
+    ));
+    assert_eq!(
+        caps.value["effort"],
+        json!([]),
+        "explicitly clearing known rungs survives refresh"
+    );
+}
+
+#[test]
+fn custom_effort_names_keep_their_declared_order_and_remain_editable() {
+    let mut caps = Capabilities::new(
+        "synthetic",
+        "openai",
+        &json!({"contextWindow":1000,"maxOutputTokens":100,"effort":["fast","balanced","thorough"]}),
+        None,
+        "https://example.invalid",
+    );
+    let mut ui = Script::new([Select(3), Multi(&[2, 0]), Select(0)]);
+    assert!(caps.edit(&mut ui, "openai").unwrap());
+    assert_eq!(ui.multi_prompts[0].0, ["fast", "balanced", "thorough"]);
+    assert_eq!(ui.multi_prompts[0].1, [0, 1, 2]);
+    assert_eq!(caps.value["effort"], json!(["fast", "thorough"]));
+    let mut ui = Script::new([
+        Select(4),
+        Select(1),
+        Text("quick, quick"),
+        Text("quick, balanced, deep"),
+        Select(3),
+        Multi(&[2, 0]),
+        Select(0),
+    ]);
+    assert!(caps.edit(&mut ui, "openai").unwrap());
+    assert_eq!(ui.multi_prompts[0].0, ["quick", "balanced", "deep"]);
+    assert_eq!(caps.value["effort"], json!(["quick", "deep"]));
+    assert!(ui
+        .messages
+        .join("\n")
+        .contains("distinct provider effort names"));
+    assert!(ui.answers.is_empty());
+}
+
+#[test]
 fn token_suffixes_are_decimal_exact_and_checked() {
     use super::capabilities::parse_tokens;
     for (text, expected) in [
