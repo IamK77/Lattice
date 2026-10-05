@@ -24,6 +24,9 @@ impl Terminal {
         Self::with_args(home, &[])
     }
     fn with_args(home: &std::path::Path, args: &[&str]) -> Self {
+        Self::with_locale(home, args, "en_US.UTF-8")
+    }
+    fn with_locale(home: &std::path::Path, args: &[&str], locale: &str) -> Self {
         let (mut master, mut slave) = (-1, -1);
         let mut size = libc::winsize {
             ws_row: 40,
@@ -57,6 +60,7 @@ impl Terminal {
             .env("HOME", home)
             .env("PATH", "/usr/bin:/bin")
             .env("TERM", "xterm-256color")
+            .env("LANG", locale)
             .env("LATTICE_OVERLAY", "")
             .current_dir(home)
             .stdin(Stdio::from(slave.try_clone().unwrap()))
@@ -182,12 +186,6 @@ fn guided_save_hands_off_to_tui_without_echoing_key_or_testing_automatically() {
     terminal.send(b"\r");
     terminal.wait("Choose a provider");
     terminal.send(b"\x1b[B\x1b[B\r");
-    terminal.wait("Choose the API format");
-    terminal.send(b"\r");
-    terminal.wait("API base URL");
-    terminal.send(b"\r");
-    terminal.wait("Connection settings");
-    terminal.send(b"\r");
     terminal.wait("How should Lattice obtain the key?");
     terminal.send(b"\r");
     terminal.wait("API key");
@@ -196,13 +194,7 @@ fn guided_save_hands_off_to_tui_without_echoing_key_or_testing_automatically() {
     terminal.send(b"\x1b[B\r");
     terminal.wait("Exact model identifier");
     terminal.send(b"deepseek-flash\r");
-    terminal.wait("Confirm model capabilities");
-    terminal.send(b"\r");
-    terminal.wait("Local name for this model");
-    terminal.send(b"\r");
-    terminal.wait("Save as the default model");
-    terminal.send(b"\r");
-    terminal.wait("Review complete");
+    terminal.wait("3/3 Review configuration");
     assert!(!home.path().join(".lattice").exists());
     terminal.send(b"\r");
     terminal.wait("Connection test (optional)");
@@ -228,6 +220,58 @@ fn guided_save_hands_off_to_tui_without_echoing_key_or_testing_automatically() {
     second.wait("\x1b[?1049l");
     second.exited_cleanly();
     assert!(!String::from_utf8_lossy(&second.bytes).contains("Choose how to configure the model"));
+}
+
+#[test]
+fn chinese_setup_can_go_back_switch_language_and_remember_the_explicit_choice() {
+    let home = tempfile::tempdir().unwrap();
+    let mut terminal = Terminal::with_locale(home.path(), &[], "zh_CN.UTF-8");
+    terminal.wait("选择模型配置方式");
+    assert!(!home.path().join(".lattice").exists());
+    terminal.send(b"\r");
+    terminal.wait("选择提供方");
+    terminal.send(b"\x1b[B\x1b[B\r");
+    terminal.wait("如何提供密钥？");
+    terminal.send(b"\r");
+    terminal.wait("API 密钥");
+    terminal.send(b"SYNTHETIC_CHINESE_KEY\r");
+    terminal.wait("2/3 选择模型");
+    terminal.send(b"\x1b");
+    terminal.wait("如何提供密钥？");
+    terminal.send(b"\x1b[B\x1b[B\x1b[B\r");
+    terminal.wait("2/3 选择模型");
+    terminal.send(b"\x1b[B\r");
+    terminal.wait("模型的准确名称");
+    terminal.send(b"deepseek-flash\r");
+    terminal.wait("3/3 检查配置");
+    terminal.send(b"Language\r");
+    terminal.wait("选择配置界面语言 / Choose the setup language");
+    terminal.send(b"\r");
+    terminal.wait("3/3 Review configuration");
+    terminal.send(b"\r");
+    terminal.wait("Connection test (optional)");
+    terminal.send(b"\x1b[B\x1b[B\x1b[B\r");
+    terminal.wait("Setup exited");
+    terminal.exited_cleanly();
+    assert!(!String::from_utf8_lossy(&terminal.bytes).contains("SYNTHETIC_CHINESE_KEY"));
+    assert!(!home.path().join(".lattice/ledgers").exists());
+    assert!(!home.path().join(".lattice/setup-tests").exists());
+    let catalog_path = home.path().join(".lattice/models.json");
+    let mut catalog: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&catalog_path).unwrap()).unwrap();
+    assert_eq!(
+        catalog["models"]["deepseek-flash"]["apiKey"],
+        "SYNTHETIC_CHINESE_KEY"
+    );
+    // Simulate a key needing repair: the saved UI language, not the locale,
+    // must decide how the next guide speaks.
+    catalog["models"]["deepseek-flash"]["apiKey"] = serde_json::json!("[redacted]");
+    std::fs::write(&catalog_path, catalog.to_string()).unwrap();
+    let mut second = Terminal::with_locale(home.path(), &[], "zh_CN.UTF-8");
+    second.wait("Choose how to configure the model");
+    second.send(b"\x03");
+    second.wait("Setup exited");
+    second.exited_cleanly();
 }
 
 #[test]
@@ -260,12 +304,10 @@ fn model_discovery_search_and_capability_edit_work_in_the_real_terminal() {
     let mut terminal = Terminal::start(home.path());
     terminal.wait("Choose how to configure the model");
     terminal.send(b"\x1b[B\r");
-    terminal.wait("Choose the API format");
+    terminal.wait("API format");
     terminal.send(b"\x1b[B\r");
     terminal.wait("API base URL");
     terminal.send(format!("http://{address}\r").as_bytes());
-    terminal.wait("Connection settings");
-    terminal.send(b"\r");
     terminal.wait("How should Lattice obtain the key?");
     terminal.send(b"\r");
     terminal.wait("API key");
@@ -274,31 +316,33 @@ fn model_discovery_search_and_capability_edit_work_in_the_real_terminal() {
     terminal.send(b"\r");
     terminal.wait("Available models (type to filter)");
     terminal.send(b"vision\r");
-    terminal.wait("Confirm model capabilities");
-    terminal.send(b"\r");
-    terminal.wait("Local name for this model");
-    terminal.send(b"\r");
-    terminal.wait("Save as the default model");
-    terminal.send(b"\r");
-    terminal.wait("Review complete");
+    terminal.wait("3/3 Review configuration");
+    terminal.send(b"\x1b[B\x1b[B\r");
+    terminal.wait("2/3 Choose a model");
+    terminal.send(b"\x1b[B\r");
+    terminal.wait("Exact model identifier");
+    terminal.send(&[vec![0x7f; 12], b"vis\x1b[B\t\r".to_vec()].concat());
+    terminal.wait("3/3 Review configuration");
     terminal.send(b"\x1b[B\x1b[B\x1b[B\r");
-    terminal.wait("Confirm model capabilities");
+    terminal.wait("Model capability settings");
     terminal.send(b"\x1b[B\x1b[B\r");
     terminal.wait("Enabled capabilities (Space to toggle)");
     terminal.send(b" \x1b[B \x1b[B \r");
-    terminal.wait("Confirm model capabilities");
+    terminal.wait("Model capability settings");
     terminal.send(b"\x1b[B\r");
-    terminal.wait("Context window in tokens (1k = 1000; 1M = 1000000; decimals allowed)");
-    terminal.send(b"\x7f\x7f\x7f\x7f\x7f1M\r");
-    terminal.wait("Maximum output tokens (1k = 1000; 1M = 1000000; decimals allowed)");
+    terminal.wait("Context window in tokens");
+    terminal.send(b"\x7f\x7f\x7f\x7f\x7f1Mi\r");
+    terminal.wait("Enter a positive whole token count");
+    terminal.send(b"\x7f\r");
+    terminal.wait("Maximum output tokens");
     terminal.send(b"\x7f\x7f\x7f\x7f32k\r");
-    terminal.wait("Confirm model capabilities");
+    terminal.wait("Model capability settings");
     terminal.send(b"\x1b[B\x1b[B\x1b[B\r");
     terminal.wait("Supported thinking effort rungs (Space to toggle)");
     terminal.send(b"\x1b[B\x1b[B \x1b[B\x1b[B \r");
-    terminal.wait("Confirm model capabilities");
+    terminal.wait("Model capability settings");
     terminal.send(b"\r");
-    terminal.wait("Review complete");
+    terminal.wait("3/3 Review configuration");
     assert!(!home.path().join(".lattice/models.json").exists());
     assert!(!home.path().join(".lattice/ledgers").exists());
     terminal.send(b"\r");

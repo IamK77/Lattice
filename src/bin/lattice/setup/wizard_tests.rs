@@ -288,25 +288,18 @@ fn fetched_model_and_user_corrections_survive_review_and_connection_navigation()
     let mut ui = Script::new([
         Select(0),
         Select(0),
-        Text("https://api.openai.com/v1"),
-        Select(0),
-        Select(0),
         Secret,
         Select(0),
         Select(0),
-        Select(0),
+        Select(4),
         Text("chosen"),
-        Confirm(false),
+        Select(5),
         Select(3),
         Select(2),
         Multi(&[]),
         Select(0),
         Select(1),
-        Text("https://api.openai.com/v1"),
-        Select(0),
-        Confirm(false),
         Select(3),
-        Select(0),
         Select(0),
     ]);
     let result = configure(
@@ -315,6 +308,7 @@ fn fetched_model_and_user_corrections_survive_review_and_connection_navigation()
         &path,
         &snapshot,
         &mut Session::new(false),
+        None,
     )
     .unwrap()
     .unwrap();
@@ -350,21 +344,20 @@ fn failed_and_empty_discovery_allow_manual_input_without_guessed_capabilities() 
         Select(0),
         Text("https://example.invalid/v1"),
         Select(0),
-        Select(0),
         Secret,
         Select(0),
         Select(0),
         Select(1),
         Text("unlisted"),
-        Select(0),
-        Select(1),
         Text("4096"),
         Text("1024"),
+        Select(3),
         Select(2),
         Multi(&[]),
         Select(0),
+        Select(4),
         Text("manual"),
-        Confirm(false),
+        Select(5),
         Select(0),
     ]);
     let result = configure(
@@ -373,6 +366,7 @@ fn failed_and_empty_discovery_allow_manual_input_without_guessed_capabilities() 
         &path,
         &snapshot,
         &mut Session::new(true),
+        None,
     )
     .unwrap()
     .unwrap();
@@ -444,22 +438,12 @@ fn replacing_an_account_does_not_keep_the_previous_accounts_metadata() {
     let mut ui = Script::new([
         Select(0),
         Select(0),
-        Text("https://api.openai.com/v1"),
-        Select(0),
-        Select(0),
         Secret,
         Select(0),
         Select(0),
-        Select(0),
-        Text("shared"),
-        Confirm(false),
         Select(1),
-        Text("https://api.openai.com/v1"),
-        Select(0),
-        Confirm(true),
         Select(0),
         Key("OTHER_SYNTHETIC_KEY"),
-        Select(0),
         Select(0),
         Select(0),
         Select(0),
@@ -470,6 +454,7 @@ fn replacing_an_account_does_not_keep_the_previous_accounts_metadata() {
         &path,
         &snapshot,
         &mut Session::new(false),
+        None,
     )
     .unwrap()
     .unwrap();
@@ -478,6 +463,184 @@ fn replacing_an_account_does_not_keep_the_previous_accounts_metadata() {
     assert_eq!(result.spec["profile"]["acceptsImages"], false);
     assert_eq!(result.spec["apiKey"], "OTHER_SYNTHETIC_KEY");
     assert!(ui.answers.is_empty());
+}
+
+#[test]
+fn backing_out_of_an_unsubmitted_custom_endpoint_returns_home_safely() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("models.json");
+    let snapshot = Snapshot::read(&path).unwrap();
+    let mut session = Session::new(true);
+    let mut ui = Script::new([Select(0), Back, Back]);
+    let mut network = Network {
+        replies: VecDeque::new(),
+        requests: vec![],
+    };
+    assert!(
+        configure(&mut ui, &mut network, &path, &snapshot, &mut session, None)
+            .unwrap()
+            .is_none()
+    );
+    assert!(network.requests.is_empty());
+    assert!(ui.answers.is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn cancelling_a_review_edit_returns_directly_to_review() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("models.json");
+    let snapshot = Snapshot::read(&path).unwrap();
+    let mut network = Network {
+        replies: [Ok(vec![model("listed")])].into(),
+        requests: vec![],
+    };
+    let mut ui = Script::new([
+        Select(0),
+        Select(0),
+        Secret,
+        Select(0),
+        Select(0),
+        Select(2),
+        Back,
+        Select(0),
+    ]);
+    let result = configure(
+        &mut ui,
+        &mut network,
+        &path,
+        &snapshot,
+        &mut Session::new(false),
+        None,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(result.spec["model"], "listed");
+    assert_eq!(network.requests.len(), 1);
+    assert!(ui.answers.is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn repeated_back_from_review_reaches_home_instead_of_cycling() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("models.json");
+    let snapshot = Snapshot::read(&path).unwrap();
+    let mut network = Network {
+        replies: [Ok(vec![model("listed")])].into(),
+        requests: vec![],
+    };
+    let mut ui = Script::new([
+        Select(0),
+        Select(0),
+        Secret,
+        Select(0),
+        Select(0),
+        Back,
+        Back,
+        Back,
+        Back,
+    ]);
+    let result = configure(
+        &mut ui,
+        &mut network,
+        &path,
+        &snapshot,
+        &mut Session::new(false),
+        None,
+    )
+    .unwrap();
+    assert!(result.is_none());
+    assert_eq!(network.requests.len(), 1);
+    assert!(ui.answers.is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn changing_format_keeps_a_custom_endpoint_and_key_but_refreshes_its_model_metadata() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("models.json");
+    let snapshot = Snapshot::read(&path).unwrap();
+    let mut network = Network {
+        replies: [Ok(vec![model("listed")]), Ok(vec![model("listed")])].into(),
+        requests: vec![],
+    };
+    let mut ui = Script::new([
+        Select(0),
+        Text("https://custom.invalid/v1"),
+        Select(0),
+        Secret,
+        Select(0),
+        Select(0),
+        Select(6),
+        Select(1),
+        Text("https://custom.invalid/v1"),
+        Select(3),
+        Select(0),
+        Select(0),
+        Select(0),
+    ]);
+    let result = configure(
+        &mut ui,
+        &mut network,
+        &path,
+        &snapshot,
+        &mut Session::new(true),
+        None,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(ui.text_prompts[1].1, "https://custom.invalid/v1");
+    assert_eq!(result.spec["adapter"], "responses");
+    assert_eq!(result.spec["apiKey"], "FAKE_SETUP_KEY_NEVER_PRINT");
+    assert_eq!(network.requests.len(), 2);
+    assert!(ui.answers.is_empty());
+}
+
+#[test]
+fn final_review_refuses_invalid_limits_and_only_asks_for_the_invalid_field() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("models.json");
+    let snapshot = Snapshot::read(&path).unwrap();
+    let mut session = Session::new(false);
+    session
+        .draft
+        .connection("responses", "https://example.invalid");
+    session.draft.credential("apiKey", "SYNTHETIC");
+    session.draft.model(&model("review-model"));
+    session.draft.capabilities.as_mut().unwrap().value["maxOutputTokens"] = json!(8192);
+    session.step = Step::Review;
+    let mut ui = Script::new([Select(0), Text("4096"), Text("1024"), Select(0)]);
+    let mut network = Network {
+        replies: VecDeque::new(),
+        requests: vec![],
+    };
+    let result = configure(&mut ui, &mut network, &path, &snapshot, &mut session, None)
+        .unwrap()
+        .unwrap();
+    assert_eq!(result.spec["profile"]["contextWindow"], 4096);
+    assert_eq!(result.spec["profile"]["maxOutputTokens"], 1024);
+    assert_eq!(ui.text_prompts.len(), 2);
+    assert!(ui
+        .text_prompts
+        .iter()
+        .all(|(label, _)| *label == ui.label(M::OutputInput)));
+    assert!(network.requests.is_empty());
+    assert!(ui.answers.is_empty());
+}
+
+#[test]
+fn automatic_local_names_are_valid_and_do_not_replace_existing_entries() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("models.json");
+    std::fs::write(
+        &path,
+        json!({"models":{"model-v1":{},"model-v1-2":{}}}).to_string(),
+    )
+    .unwrap();
+    let snapshot = Snapshot::read(&path).unwrap();
+    assert_eq!(suggested_name(&snapshot, "Model/V1"), "model-v1-3");
+    assert_eq!(suggested_name(&snapshot, "/special"), "my-model");
 }
 
 #[test]

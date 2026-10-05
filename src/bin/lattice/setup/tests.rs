@@ -1,6 +1,9 @@
 use super::*;
 use std::collections::VecDeque;
 
+#[path = "ux_tests.rs"]
+mod ux;
+
 #[test]
 fn custom_endpoint_uses_explicit_limits_and_an_environment_reference() {
     let dir = tempfile::tempdir().unwrap();
@@ -12,19 +15,19 @@ fn custom_endpoint_uses_explicit_limits_and_an_environment_reference() {
         Select(1),
         Select(0),
         Text("https://example.invalid/v1"),
-        Select(0),
         Select(env_choice),
         Text("LATTICE_SETUP_CUSTOM_SYNTHETIC"),
         Select(1),
         Text("custom-model"),
-        Select(1),
         Text("1M"),
         Text("32k"),
+        Select(3),
         Select(2),
         Multi(&[0]),
         Select(0),
+        Select(4),
         Text("custom"),
-        Confirm(false),
+        Select(5),
         Select(0),
         Select(0),
     ]);
@@ -82,7 +85,7 @@ fn redaction_placeholder_can_be_repaired_without_recreating_the_entry() {
         Select(2),
         Select(0),
         Secret,
-        Confirm(false),
+        Select(2),
         Select(0),
         Select(0),
     ]);
@@ -107,12 +110,16 @@ pub(super) enum Answer {
     Secret,
     Key(&'static str),
     Confirm(bool),
+    Back,
     Cancel,
 }
 pub(super) struct Script {
     pub(super) answers: VecDeque<Answer>,
     pub(super) messages: Vec<String>,
     pub(super) multi_prompts: Vec<(Vec<String>, Vec<usize>)>,
+    pub(super) language: Language,
+    pub(super) prompts: Vec<String>,
+    pub(super) text_prompts: Vec<(String, String)>,
 }
 impl Script {
     pub(super) fn new(answers: impl IntoIterator<Item = Answer>) -> Self {
@@ -120,22 +127,33 @@ impl Script {
             answers: answers.into_iter().collect(),
             messages: vec![],
             multi_prompts: vec![],
+            language: Language::English,
+            prompts: vec![],
+            text_prompts: vec![],
         }
     }
     fn next(&mut self) -> Result<Answer> {
         match self.answers.pop_front().expect("unexpected extra prompt") {
             Answer::Cancel => Err(Error::Cancelled),
+            Answer::Back => Err(Error::Back),
             value => Ok(value),
         }
     }
 }
 impl Questions for Script {
+    fn language(&self) -> Language {
+        self.language
+    }
+    fn set_language(&mut self, language: Language) {
+        self.language = language;
+    }
     fn tell(&mut self, text: &str) {
         self.messages.push(text.into());
     }
-    fn select(&mut self, _: &str, options: &[String]) -> Result<usize> {
+    fn select(&mut self, message: &str, options: &[String]) -> Result<usize> {
+        self.prompts.push(message.into());
         let Answer::Select(i) = self.next()? else {
-            panic!("expected selection")
+            panic!("expected selection at {message}")
         };
         assert!(i < options.len());
         Ok(i)
@@ -154,13 +172,16 @@ impl Questions for Script {
         assert!(indices.iter().all(|i| *i < options.len()));
         Ok(indices.to_vec())
     }
-    fn text(&mut self, _: &str, _: &str) -> Result<String> {
+    fn text(&mut self, message: &str, default: &str) -> Result<String> {
+        self.prompts.push(message.into());
+        self.text_prompts.push((message.into(), default.into()));
         let Answer::Text(text) = self.next()? else {
-            panic!("expected text")
+            panic!("expected text at {message}")
         };
         Ok(text.into())
     }
-    fn secret(&mut self, _: &str) -> Result<String> {
+    fn secret(&mut self, message: &str) -> Result<String> {
+        self.prompts.push(message.into());
         match self.next()? {
             Answer::Secret => Ok("FAKE_SETUP_KEY_NEVER_PRINT".into()),
             Answer::Key(key) => Ok(key.into()),
@@ -211,21 +232,21 @@ fn cfg() -> PresetConfig {
 }
 fn first_steps(preferred: bool) -> Vec<Answer> {
     use Answer::*;
-    vec![
+    let mut answers = vec![
         Select(0),
         Select(2),
-        Select(0),
-        Text("https://api.deepseek.com"),
-        Select(0),
         Select(0),
         Secret,
         Select(1),
         Text("deepseek-flash"),
-        Select(0),
+        Select(4),
         Text("setup-test"),
-        Confirm(preferred),
-        Select(0),
-    ]
+    ];
+    if !preferred {
+        answers.push(Select(5));
+    }
+    answers.push(Select(0));
+    answers
 }
 
 #[test]
@@ -327,7 +348,7 @@ fn invalid_catalog_is_not_treated_as_first_installation() {
     let path = dir.path().join("models.json");
     let original = r#"{"models": ["do not destroy"]}"#;
     std::fs::write(&path, original).unwrap();
-    let mut ui = Script::new([Answer::Select(1)]);
+    let mut ui = Script::new([Answer::Select(2)]);
     let mut probe = Probe {
         calls: 0,
         fail: false,

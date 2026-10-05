@@ -1,4 +1,4 @@
-//! A resumable frontend draft: provider, dialect, connection, model, capabilities, review.
+//! Resumable frontend drafts, with a short default path and one editable review.
 //! Presets describe documented formats, not live-model compatibility guarantees:
 //! https://developers.openai.com/api/reference/resources/responses/methods/create
 //! https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create
@@ -6,7 +6,8 @@
 //! https://api-docs.deepseek.com/guides/anthropic_api/
 //! https://api-docs.deepseek.com/guides/responses_api/
 use super::{
-    choose, credential, discovery, validate_target, Error, Questions, Result, SetupNetwork,
+    change_language, choose, credential_value, discovery, Error, Field, Questions, Result,
+    SetupNetwork, M,
 };
 use lattice::models::catalog::{validate_name, Snapshot};
 use serde_json::{json, Value};
@@ -26,20 +27,17 @@ impl Provider {
     fn protocols(self) -> &'static [(&'static str, &'static str)] {
         match self {
             Self::OpenAI => &[
-                ("responses", "OpenAI Responses (recommended)"),
+                ("responses", "OpenAI Responses"),
                 ("openai", "OpenAI Chat Completions"),
             ],
             Self::Anthropic => &[
-                ("anthropic", "Anthropic Messages (recommended)"),
-                ("openai", "OpenAI Chat Completions (compatibility layer)"),
+                ("anthropic", "Anthropic Messages"),
+                ("openai", "OpenAI Chat Completions"),
             ],
             Self::DeepSeek => &[
-                ("openai", "OpenAI Chat Completions (recommended)"),
+                ("openai", "OpenAI Chat Completions"),
                 ("anthropic", "Anthropic Messages"),
-                (
-                    "responses",
-                    "OpenAI Responses (provider compatibility limits apply)",
-                ),
+                ("responses", "OpenAI Responses"),
             ],
         }
     }
@@ -53,23 +51,23 @@ impl Provider {
         }
     }
 }
-
 pub(super) struct Configured {
     pub id: String,
     pub spec: Value,
     pub preferred: bool,
 }
-
 #[derive(Clone, Copy)]
 enum Step {
     Provider,
     Protocol,
+    Endpoint,
     Connection,
     Model,
+    Limits,
     Capabilities,
+    Name,
     Review,
 }
-
 struct Draft {
     spec: Value,
     listed: Vec<discovery::Model>,
@@ -83,13 +81,12 @@ impl Draft {
             capabilities: None,
         }
     }
-
     fn connection(&mut self, adapter: &str, base: &str) {
         if self.spec["adapter"] == adapter && self.spec["baseUrl"] == base {
             return;
         }
         if self.spec["baseUrl"] != base {
-            // Never carry a credential to a changed endpoint automatically.
+            // A changed endpoint must not inherit a credential automatically.
             self.spec.as_object_mut().unwrap().remove("apiKey");
             self.spec.as_object_mut().unwrap().remove("apiKeyEnv");
         }
@@ -97,7 +94,6 @@ impl Draft {
         self.spec["baseUrl"] = json!(base);
         self.forget_models();
     }
-
     fn credential(&mut self, field: &str, value: &str) {
         if self.spec[field] == value {
             return;
@@ -105,17 +101,15 @@ impl Draft {
         self.spec.as_object_mut().unwrap().remove("apiKey");
         self.spec.as_object_mut().unwrap().remove("apiKeyEnv");
         self.spec[field] = json!(value);
-        // Capabilities and list visibility may be specific to this account.
+        // List visibility and capability metadata may be account-specific.
         self.forget_models();
     }
-
     fn forget_models(&mut self) {
         self.spec.as_object_mut().unwrap().remove("model");
         self.spec.as_object_mut().unwrap().remove("profile");
         self.listed.clear();
         self.capabilities = None;
     }
-
     fn model(&mut self, model: &discovery::Model) {
         let incoming = Capabilities::new(
             &model.id,
@@ -133,8 +127,14 @@ impl Draft {
         self.spec["model"] = json!(model.id);
         self.capabilities = Some(incoming);
     }
+    fn after_connection(&self) -> Step {
+        if self.capabilities.is_some() {
+            Step::Review
+        } else {
+            Step::Model
+        }
+    }
 }
-
 pub(super) struct Session {
     custom: bool,
     provider: Option<Provider>,
@@ -142,6 +142,8 @@ pub(super) struct Session {
     step: Step,
     id: String,
     preferred: bool,
+    named: bool,
+    editing_from_review: bool,
 }
 impl Session {
     pub fn new(custom: bool) -> Self {
@@ -156,7 +158,42 @@ impl Session {
             },
             id: String::new(),
             preferred: true,
+            named: false,
+            editing_from_review: false,
         }
+    }
+
+    fn back(&mut self) -> bool {
+        // An edit opened from Review returns there; walking backwards through
+        // the initial path must not bounce between Model and Review forever.
+        if self.editing_from_review
+            && self.draft.capabilities.is_some()
+            && matches!(
+                self.step,
+                Step::Provider | Step::Protocol | Step::Connection | Step::Model
+            )
+        {
+            self.step = Step::Review;
+            return true;
+        }
+        self.step = match self.step {
+            Step::Provider => return false,
+            Step::Protocol => {
+                let target = json!({"adapter":self.draft.spec["adapter"],"baseUrl":self.draft.spec["baseUrl"],"model":"draft"});
+                if super::validate_target(&target).is_err() {
+                    return false;
+                }
+                Step::Connection
+            }
+            Step::Endpoint => Step::Protocol,
+            Step::Connection if self.custom => return false,
+            Step::Connection => Step::Provider,
+            Step::Model => Step::Connection,
+            Step::Limits => Step::Model,
+            Step::Capabilities | Step::Name => Step::Review,
+            Step::Review => Step::Model,
+        };
+        true
     }
 }
 
@@ -166,194 +203,278 @@ pub(super) fn configure(
     path: &Path,
     snapshot: &Snapshot,
     session: &mut Session,
+    preferences: Option<&Path>,
 ) -> Result<Option<Configured>> {
-    let Session {
-        custom,
-        provider,
-        draft,
-        step,
-        id,
-        preferred,
-    } = session;
+    enum Transition {
+        Next,
+        Leave(Option<Configured>),
+    }
     loop {
-        *step = match *step {
-            Step::Provider => {
-                let next = match choose(
-                    ui,
-                    "Choose a provider",
-                    &["OpenAI", "Anthropic", "DeepSeek", "Back"],
-                )? {
-                    0 => Provider::OpenAI,
-                    1 => Provider::Anthropic,
-                    2 => Provider::DeepSeek,
-                    _ => return Ok(None),
-                };
-                if *provider != Some(next) {
-                    *draft = Draft::new();
-                }
-                *provider = Some(next);
-                Step::Protocol
-            }
-            Step::Protocol => {
-                let protocols = provider.map(Provider::protocols).unwrap_or(&[
-                    ("openai", "OpenAI Chat Completions"),
-                    ("responses", "OpenAI Responses"),
-                    ("anthropic", "Anthropic Messages"),
-                ]);
-                let mut options: Vec<_> =
-                    protocols.iter().map(|(_, name)| name.to_string()).collect();
-                options.push("Back".into());
-                let selected = ui.select("Choose the API format (not the provider)", &options)?;
-                if selected == protocols.len() {
-                    if provider.is_some() {
-                        Step::Provider
-                    } else {
-                        return Ok(None);
-                    }
-                } else {
-                    let adapter = protocols[selected].0;
-                    let base = if draft.spec["adapter"] == adapter {
-                        draft.spec["baseUrl"].as_str().unwrap_or("").to_owned()
-                    } else {
-                        provider.map(|p| p.base(adapter)).unwrap_or("").to_owned()
+        // Handle Back at the owning step. Completed fields remain in the draft;
+        // a cancelled input never commits its unsubmitted text.
+        let outcome: Result<Transition> = (|| {
+            match session.step {
+                Step::Provider => {
+                    let selected = ui.select(
+                        &ui.label(M::Provider),
+                        &[
+                            "OpenAI".into(),
+                            "Anthropic".into(),
+                            "DeepSeek".into(),
+                            ui.label(M::Back),
+                        ],
+                    )?;
+                    let next = match selected {
+                        0 => Provider::OpenAI,
+                        1 => Provider::Anthropic,
+                        2 => Provider::DeepSeek,
+                        _ => return Err(Error::Back),
                     };
-                    draft.connection(adapter, &base);
-                    Step::Connection
+                    if session.provider != Some(next) {
+                        session.draft = Draft::new();
+                        let adapter = next.protocols()[0].0;
+                        session.draft.connection(adapter, next.base(adapter));
+                    }
+                    session.provider = Some(next);
+                    session.step = Step::Connection;
                 }
-            }
-            Step::Connection => {
-                let adapter = draft.spec["adapter"].as_str().unwrap().to_owned();
-                let route = match adapter.as_str() {
-                    "anthropic" => "/v1/messages",
-                    "responses" => "/responses",
-                    _ => "/chat/completions",
-                };
-                let base = ui.text(
-                    &format!("API base URL (Lattice appends {route})"),
-                    draft.spec["baseUrl"].as_str().unwrap_or(""),
-                )?;
-                let base = base.trim().trim_end_matches('/');
-                if let Err(error) =
-                    validate_target(&json!({"adapter":adapter,"baseUrl":base,"model":"draft"}))
-                {
-                    ui.tell(&error);
-                    continue;
+                Step::Protocol => {
+                    let protocols = session.provider.map(Provider::protocols).unwrap_or(&[
+                        ("openai", "OpenAI Chat Completions"),
+                        ("responses", "OpenAI Responses"),
+                        ("anthropic", "Anthropic Messages"),
+                    ]);
+                    let mut options: Vec<_> = protocols
+                        .iter()
+                        .enumerate()
+                        .map(|(i, (_, name))| {
+                            if session.provider.is_some() {
+                                ui.message(
+                                    if i == 0 {
+                                        M::Recommended
+                                    } else {
+                                        M::Compatibility
+                                    },
+                                    &[name],
+                                )
+                            } else {
+                                (*name).into()
+                            }
+                        })
+                        .collect();
+                    options.push(ui.label(M::Back));
+                    let selected = ui.select(&ui.label(M::Protocol), &options)?;
+                    if selected == protocols.len() {
+                        return Err(Error::Back);
+                    }
+                    let adapter = protocols[selected].0;
+                    let old_adapter = session.draft.spec["adapter"].as_str().unwrap_or("");
+                    let old_base = session.draft.spec["baseUrl"].as_str().unwrap_or("");
+                    let follows_preset = session
+                        .provider
+                        .is_some_and(|p| old_base == p.base(old_adapter));
+                    let base = if old_adapter != adapter && follows_preset {
+                        session.provider.unwrap().base(adapter).to_owned()
+                    } else {
+                        old_base.to_owned()
+                    };
+                    session.draft.connection(adapter, &base);
+                    session.step = Step::Endpoint;
                 }
-                draft.connection(&adapter, base);
-                if base.starts_with("http://") {
-                    ui.tell("Warning: HTTP sends the credential without transport encryption.");
+                Step::Endpoint => {
+                    let base = ui.input(
+                        &ui.label(M::Endpoint),
+                        session.draft.spec["baseUrl"].as_str().unwrap_or(""),
+                        Field::Url,
+                        &[],
+                    )?;
+                    let adapter = session.draft.spec["adapter"].as_str().unwrap().to_owned();
+                    session
+                        .draft
+                        .connection(&adapter, base.trim_end_matches('/'));
+                    session.step = Step::Connection;
                 }
-                if choose(
-                    ui,
-                    "Connection settings",
-                    &["Continue with this endpoint", "Back to API format"],
-                )? == 1
-                {
-                    Step::Protocol
-                } else {
-                    if discovery::key(&draft.spec).is_err()
-                        || ui.confirm("Replace the credential already entered?", false)?
+                Step::Connection => {
+                    let draft = &mut session.draft;
+                    ui.say(
+                        M::ConnectionSummary,
+                        &[
+                            draft.spec["adapter"].as_str().unwrap(),
+                            draft.spec["baseUrl"].as_str().unwrap(),
+                        ],
+                    );
+                    if draft.spec["baseUrl"]
+                        .as_str()
+                        .is_some_and(|s| s.starts_with("http://"))
                     {
-                        let (field, value) = credential(ui)?;
-                        draft.credential(field, &value);
+                        ui.say(M::HttpWarning, &[]);
                     }
-                    Step::Model
-                }
-            }
-            Step::Model => {
-                if select_model(ui, network, draft)? {
-                    Step::Capabilities
-                } else {
-                    Step::Connection
-                }
-            }
-            Step::Capabilities => {
-                let adapter = draft.spec["adapter"].as_str().unwrap();
-                if draft
-                    .capabilities
-                    .as_mut()
-                    .expect("selected model")
-                    .edit(ui, adapter)?
-                {
-                    Step::Review
-                } else {
-                    Step::Model
-                }
-            }
-            Step::Review => {
-                if id.is_empty() {
-                    *id = name(ui, snapshot, draft.spec["model"].as_str().unwrap())?;
-                    *preferred =
-                        ui.confirm("Save as the default model for future launches?", *preferred)?;
-                } else if snapshot.entry(id).is_some() {
-                    ui.tell("That local name was saved by another operation; choose a different name for this draft.");
-                    *id = name(ui, snapshot, id)?;
-                }
-                ui.tell(&format!("Review configuration\nLocal name: {id}\nModel: {}\nAPI format: {}\nEndpoint: {}\nCatalog: {}\nDefault model: {preferred}",
-                    draft.spec["model"].as_str().unwrap(), draft.spec["adapter"].as_str().unwrap(), draft.spec["baseUrl"].as_str().unwrap(), path.display()));
-                if draft.spec.get("apiKey").is_some() {
-                    ui.tell("Credential: stored locally (hidden). A local key is saved in an agent-readable file; file-tool reads can place it in permanent history and model context.");
-                } else {
-                    ui.tell("Credential: reference to an existing environment variable.");
-                }
-                draft.capabilities.as_ref().unwrap().show(ui);
-                match choose(
-                    ui,
-                    "Review complete",
-                    &[
-                        "Save and continue",
-                        "Edit endpoint or credential",
-                        "Choose another model",
-                        "Edit model capabilities",
-                        "Edit local name",
-                        "Change default preference",
-                        "Change provider / API format",
-                        "Back to setup choices",
-                        "Exit",
-                    ],
-                )? {
-                    0 => {
-                        draft.spec["profile"] = draft.capabilities.as_ref().unwrap().value.clone();
-                        return Ok(Some(Configured {
-                            id: id.clone(),
-                            spec: draft.spec.clone(),
-                            preferred: *preferred,
-                        }));
+                    let mut options = vec![];
+                    if cfg!(unix) {
+                        options.push(M::LocalKey);
                     }
-                    1 => Step::Connection,
-                    2 => Step::Model,
-                    3 => Step::Capabilities,
-                    4 => {
-                        *id = name(ui, snapshot, id)?;
-                        Step::Review
+                    options.extend([M::EnvKey, M::EditConnection]);
+                    if discovery::key(&draft.spec).is_ok() {
+                        options.push(M::UseConnection);
                     }
-                    5 => {
-                        *preferred = ui.confirm(
-                            "Save as the default model for future launches?",
-                            *preferred,
-                        )?;
-                        Step::Review
+                    options.push(M::Back);
+                    let selected = choose(ui, M::CredentialMenu, &options)?;
+                    match options[selected] {
+                        M::EditConnection => session.step = Step::Protocol,
+                        M::UseConnection => session.step = draft.after_connection(),
+                        M::Back => return Err(Error::Back),
+                        action => match credential_value(ui, action == M::LocalKey) {
+                            Ok((field, value)) => {
+                                draft.credential(field, &value);
+                                session.step = draft.after_connection();
+                            }
+                            Err(Error::Back) => {}
+                            other => {
+                                other?;
+                            }
+                        },
                     }
-                    6 => {
-                        if *custom {
-                            Step::Protocol
+                }
+                Step::Model => {
+                    if select_model(ui, network, &mut session.draft)? {
+                        session.step = if session.draft.capabilities.as_ref().unwrap().valid() {
+                            Step::Review
                         } else {
-                            Step::Provider
-                        }
+                            Step::Limits
+                        };
+                    } else {
+                        return Err(Error::Back);
                     }
-                    7 => return Ok(None),
-                    _ => return Err(Error::Cancelled),
+                }
+                Step::Limits => {
+                    let caps = session.draft.capabilities.as_mut().unwrap();
+                    ui.say(M::LimitsMissing, &[]);
+                    caps.limits(ui, true)?;
+                    if caps.valid() {
+                        session.step = Step::Review;
+                    }
+                }
+                Step::Capabilities => {
+                    let adapter = session.draft.spec["adapter"].as_str().unwrap().to_owned();
+                    session
+                        .draft
+                        .capabilities
+                        .as_mut()
+                        .unwrap()
+                        .edit(ui, &adapter)?;
+                    session.step = Step::Review;
+                }
+                Step::Name => {
+                    session.id = name(ui, snapshot, &session.id)?;
+                    session.named = true;
+                    session.step = Step::Review;
+                }
+                Step::Review => {
+                    session.editing_from_review = false;
+                    if !session.named {
+                        session.id =
+                            suggested_name(snapshot, session.draft.spec["model"].as_str().unwrap());
+                    }
+                    ui.say(
+                        M::ReviewSummary,
+                        &[
+                            &session.id,
+                            session.draft.spec["model"].as_str().unwrap(),
+                            session.draft.spec["adapter"].as_str().unwrap(),
+                            session.draft.spec["baseUrl"].as_str().unwrap(),
+                            &path.display().to_string(),
+                            &ui.label(if session.preferred {
+                                M::SetDefault
+                            } else {
+                                M::KeepDefault
+                            }),
+                        ],
+                    );
+                    ui.say(
+                        if session.draft.spec.get("apiKey").is_some() {
+                            M::CredentialLocal
+                        } else {
+                            M::CredentialEnv
+                        },
+                        &[],
+                    );
+                    session.draft.capabilities.as_ref().unwrap().show(ui);
+                    let action = choose(
+                        ui,
+                        M::Review,
+                        &[
+                            M::SaveContinue,
+                            M::EditConnection,
+                            M::EditModel,
+                            M::EditCapabilities,
+                            M::EditName,
+                            M::ToggleDefault,
+                            M::EditProvider,
+                            M::HomeBack,
+                            M::LanguageMenu,
+                            M::Exit,
+                        ],
+                    )?;
+                    session.editing_from_review = matches!(action, 1..=4 | 6);
+                    match action {
+                        0 => {
+                            if !session.draft.capabilities.as_ref().unwrap().valid() {
+                                session.step = Step::Limits;
+                            } else if snapshot.entry(&session.id).is_some() {
+                                ui.say(M::DuplicateName, &[]);
+                                session.step = Step::Name;
+                            } else {
+                                session.draft.spec["profile"] =
+                                    session.draft.capabilities.as_ref().unwrap().value.clone();
+                                return Ok(Transition::Leave(Some(Configured {
+                                    id: session.id.clone(),
+                                    spec: session.draft.spec.clone(),
+                                    preferred: session.preferred,
+                                })));
+                            }
+                        }
+                        1 => session.step = Step::Connection,
+                        2 => session.step = Step::Model,
+                        3 => session.step = Step::Capabilities,
+                        4 => session.step = Step::Name,
+                        5 => session.preferred = !session.preferred,
+                        6 => {
+                            session.step = if session.custom {
+                                Step::Protocol
+                            } else {
+                                Step::Provider
+                            }
+                        }
+                        7 => return Ok(Transition::Leave(None)),
+                        8 => match change_language(ui, preferences) {
+                            Ok(()) | Err(Error::Back) => {}
+                            Err(e) => return Err(e),
+                        },
+                        _ => return Err(Error::Cancelled),
+                    }
                 }
             }
-        };
+            Ok(Transition::Next)
+        })();
+        match outcome {
+            Ok(Transition::Next) => {}
+            Ok(Transition::Leave(configured)) => return Ok(configured),
+            Err(Error::Back) => {
+                if !session.back() {
+                    return Ok(None);
+                }
+            }
+            Err(error) => return Err(error),
+        }
     }
 }
 
-fn name(ui: &mut impl Questions, snapshot: &Snapshot, default: &str) -> Result<String> {
-    let suggested: String = default
+pub(super) fn suggested_name(snapshot: &Snapshot, model: &str) -> String {
+    let base: String = model
+        .to_ascii_lowercase()
         .chars()
         .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' {
+            if c.is_ascii_lowercase() || c.is_ascii_digit() || "._-".contains(c) {
                 c
             } else {
                 '-'
@@ -361,21 +482,27 @@ fn name(ui: &mut impl Questions, snapshot: &Snapshot, default: &str) -> Result<S
         })
         .take(64)
         .collect();
-    loop {
-        let name = ui.text("Local name for this model", &suggested)?;
-        let name = name.trim();
-        if let Err(error) = validate_name(name) {
-            ui.tell(&error);
-            continue;
-        }
-        if snapshot.entry(name).is_some() {
-            ui.tell("That name already exists; use its repair option or choose another name.");
-            continue;
-        }
-        return Ok(name.into());
+    let base = if validate_name(&base).is_ok() {
+        base
+    } else {
+        "my-model".into()
+    };
+    let mut name = base.clone();
+    let mut suffix = 2;
+    while snapshot.entry(&name).is_some() {
+        name = format!("{base}-{suffix}");
+        suffix += 1;
     }
+    name
 }
-
+fn name(ui: &mut impl Questions, snapshot: &Snapshot, default: &str) -> Result<String> {
+    ui.input(
+        &ui.label(M::LocalName),
+        default,
+        Field::Name(snapshot.entries().map(|(id, _)| id.to_owned()).collect()),
+        &[],
+    )
+}
 fn select_model(
     ui: &mut impl Questions,
     network: &mut impl SetupNetwork,
@@ -383,81 +510,71 @@ fn select_model(
 ) -> Result<bool> {
     loop {
         let (url, _) = discovery::endpoint(&draft.spec)?;
-        ui.tell(&format!("Model discovery will GET {url} with the credential you entered, only if you select Fetch. It sends no generation request. A listed model is not proof of format/tool compatibility."));
-        let mut options = vec![
-            "Fetch model list from this service",
-            "Enter model name manually",
-        ];
-        let cached = if draft.listed.is_empty() {
-            None
-        } else {
-            options.push("Choose from fetched list");
-            Some(options.len() - 1)
-        };
-        let keep = if draft.capabilities.is_none() {
-            None
-        } else {
-            options.push("Keep the selected model");
-            Some(options.len() - 1)
-        };
-        options.push("Back to connection settings");
-        match choose(ui, "Choose a model", &options)? {
-            0 => {
+        ui.say(M::DiscoveryNotice, &[url.as_str()]);
+        let mut options = vec![M::FetchModels, M::ManualModel];
+        if !draft.listed.is_empty() {
+            options.push(M::CachedModels);
+        }
+        if draft.capabilities.is_some() {
+            options.push(M::KeepModel);
+        }
+        options.push(M::Back);
+        let action = options[choose(ui, M::ModelMenu, &options)?];
+        let result = match action {
+            M::FetchModels => {
                 match network.models(&draft.spec) {
                     Ok(models) => draft.listed = models,
                     Err(error) => {
-                        ui.tell(&format!("Could not fetch models: {error}\nRetry explicitly or enter a model manually."));
+                        ui.say(M::DiscoveryFailed, &[&error]);
                         continue;
                     }
                 }
-                if pick_list(ui, draft)? {
-                    return Ok(true);
-                }
+                pick_list(ui, draft)
             }
-            1 => {
-                let id = ui.text(
-                    "Exact model identifier",
+            M::ManualModel => (|| {
+                let suggestions = draft
+                    .listed
+                    .iter()
+                    .map(|m| m.id.clone())
+                    .collect::<Vec<_>>();
+                let id = ui.input(
+                    &ui.label(M::ModelIdentifier),
                     draft.spec["model"].as_str().unwrap_or(""),
+                    Field::Model,
+                    &suggestions,
                 )?;
-                let id = id.trim();
-                if !discovery::valid_id(id) {
-                    ui.tell("Enter a nonempty model identifier without control characters (at most 1024 bytes).");
-                    continue;
-                }
                 let model = draft
                     .listed
                     .iter()
                     .find(|m| m.id == id)
                     .cloned()
                     .unwrap_or_else(|| discovery::Model {
-                        id: id.into(),
+                        id,
                         profile: json!({}),
                         input_limit: None,
                     });
                 draft.model(&model);
-                return Ok(true);
-            }
-            selected if Some(selected) == cached => {
-                if pick_list(ui, draft)? {
-                    return Ok(true);
-                }
-            }
-            selected if Some(selected) == keep => return Ok(true),
+                Ok(true)
+            })(),
+            M::CachedModels => pick_list(ui, draft),
+            M::KeepModel => return Ok(true),
             _ => return Ok(false),
+        };
+        match result {
+            Ok(true) => return Ok(true),
+            Ok(false) | Err(Error::Back) => {}
+            Err(e) => return Err(e),
         }
     }
 }
-
 fn pick_list(ui: &mut impl Questions, draft: &mut Draft) -> Result<bool> {
     if draft.listed.is_empty() {
-        ui.tell(
-            "No models are available in the fetched list. Enter a model manually or fetch again.",
-        );
+        ui.say(M::EmptyModels, &[]);
         return Ok(false);
     }
     let mut options: Vec<_> = draft.listed.iter().map(|m| m.id.clone()).collect();
-    options.push("Back — manual entry is available".into());
-    let selected = ui.select("Available models (type to filter)", &options)?;
+    options.push(ui.label(M::Back));
+    let selected = ui.select(&ui.label(M::AvailableModels), &options)?;
     if let Some(model) = draft.listed.get(selected).cloned() {
         draft.model(&model);
         return Ok(true);

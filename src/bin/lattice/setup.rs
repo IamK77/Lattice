@@ -4,22 +4,31 @@ use lattice::{
     preset::PresetConfig,
 };
 use serde_json::{json, Value};
-use std::{io::IsTerminal, path::Path};
+use std::{collections::BTreeMap, io::IsTerminal, path::Path};
 
 #[path = "setup/discovery.rs"]
 mod discovery;
+#[path = "setup/i18n.rs"]
+mod i18n;
+#[path = "setup/input.rs"]
+mod input;
 #[path = "setup/probe.rs"]
 mod probe;
 #[path = "setup/prompts.rs"]
 mod prompts;
+#[path = "setup/repair.rs"]
+mod repair;
 #[cfg(test)]
 #[path = "setup/tests.rs"]
 mod tests;
 #[path = "setup/wizard.rs"]
 mod wizard;
+use i18n::{Id as M, Language};
+use input::Field;
 
 #[derive(Debug)]
 enum Error {
+    Back,
     Cancelled,
     Failed(String),
 }
@@ -31,6 +40,35 @@ impl From<String> for Error {
 }
 
 trait Questions {
+    fn language(&self) -> Language {
+        Language::English
+    }
+    fn set_language(&mut self, _language: Language) {}
+    fn message(&self, id: M, args: &[&str]) -> String {
+        i18n::text(self.language(), id, args)
+    }
+    fn label(&self, id: M) -> String {
+        self.message(id, &[])
+    }
+    fn say(&mut self, id: M, args: &[&str]) {
+        self.tell(&self.message(id, args));
+    }
+    fn input(
+        &mut self,
+        message: &str,
+        default: &str,
+        field: Field,
+        _suggestions: &[String],
+    ) -> Result<String> {
+        let mut draft = default.to_owned();
+        loop {
+            draft = self.text(message, &draft)?;
+            match field.validate(&draft) {
+                Ok(()) => return Ok(draft.trim().into()),
+                Err(id) => self.say(id, &[]),
+            }
+        }
+    }
     fn tell(&mut self, message: &str);
     fn select(&mut self, message: &str, options: &[String]) -> Result<usize>;
     fn multi_select(
@@ -47,12 +85,32 @@ trait SetupNetwork {
     fn test(&mut self, entry: &Entry) -> std::result::Result<(), String>;
     fn models(&mut self, spec: &Value) -> std::result::Result<Vec<discovery::Model>, String>;
 }
-
-fn choose(ui: &mut impl Questions, message: &str, options: &[&str]) -> Result<usize> {
+fn choose(ui: &mut impl Questions, message: M, options: &[M]) -> Result<usize> {
     ui.select(
-        message,
-        &options.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>(),
+        &ui.label(message),
+        &options.iter().map(|id| ui.label(*id)).collect::<Vec<_>>(),
     )
+}
+fn change_language(ui: &mut impl Questions, preferences: Option<&Path>) -> Result<()> {
+    let choice = ui.select(
+        &ui.label(M::LanguageChoice),
+        &["English".into(), "简体中文".into()],
+    )?;
+    let language = if choice == 1 {
+        Language::Chinese
+    } else {
+        Language::English
+    };
+    ui.set_language(language);
+    match preferences
+        .ok_or_else(|| "preferences have no configured path".to_owned())
+        .and_then(|path| {
+            lattice::preferences::set_in(path, "setupLanguage", json!(language.code())).map(|_| ())
+        }) {
+        Ok(()) => ui.say(M::LanguageSaved, &[]),
+        Err(error) => ui.say(M::LanguageNotSaved, &[&error]),
+    }
+    Ok(())
 }
 
 pub(crate) fn prepare() -> std::io::Result<Option<PresetConfig>> {
@@ -63,29 +121,34 @@ pub(crate) fn prepare() -> std::io::Result<Option<PresetConfig>> {
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
         return Err(std::io::Error::other("model configuration is incomplete; run lattice in an interactive terminal to configure it, or supply a valid catalog and credential"));
     }
-    let mut ui = prompts::Terminal;
-    ui.tell("Lattice needs a usable model configuration before opening the TUI.\nAnswer the following questions, or press Esc / Ctrl-C to exit.");
+    let preferences = lattice::preferences::path();
+    let saved = preferences
+        .as_deref()
+        .map(lattice::preferences::load_from)
+        .unwrap_or_else(|| json!({}));
+    let mut ui = prompts::Terminal {
+        language: Language::detect(
+            saved["setupLanguage"].as_str(),
+            Language::environment().as_deref(),
+        ),
+    };
+    ui.say(M::Welcome, &[]);
     let Some(path) = models::path() else {
-        ui.tell("The model catalog is disabled or has no location. Set HOME or LATTICE_MODELS, then run again.");
+        ui.say(M::NoCatalog, &[]);
         return Ok(None);
     };
     let mut connection = probe::HttpTest::new(path.with_file_name("setup-tests"));
-    match guide(
-        cfg,
-        &path,
-        lattice::preferences::path().as_deref(),
-        &mut ui,
-        &mut connection,
-    ) {
+    match guide(cfg, &path, preferences.as_deref(), &mut ui, &mut connection) {
         Ok(cfg) => Ok(Some(cfg)),
-        Err(Error::Cancelled) => {
-            ui.tell("Setup exited. Any configuration already saved remains available.");
+        Err(Error::Back | Error::Cancelled) => {
+            ui.say(M::Exited, &[]);
             Ok(None)
         }
-        Err(Error::Failed(message)) => Err(std::io::Error::other(message)),
+        Err(Error::Failed(message)) => {
+            Err(std::io::Error::other(ui.message(M::Failure, &[&message])))
+        }
     }
 }
-
 fn ready(cfg: &PresetConfig) -> bool {
     cfg.adapter == "scripted"
         || (crate::startup::has_key(cfg)
@@ -94,7 +157,6 @@ fn ready(cfg: &PresetConfig) -> bool {
             )
             .is_ok())
 }
-
 fn validate_target(spec: &Value) -> std::result::Result<(), String> {
     let field = |key| spec.get(key).and_then(Value::as_str).unwrap_or("");
     if !["openai", "anthropic", "responses"].contains(&field("adapter")) {
@@ -118,7 +180,6 @@ fn validate_target(spec: &Value) -> std::result::Result<(), String> {
     }
     Ok(())
 }
-
 fn target(cfg: &PresetConfig) -> Value {
     let mut spec = json!({"adapter":cfg.adapter,"model":cfg.model,"baseUrl":cfg.base_url});
     if let Some(profile) = &cfg.profile {
@@ -126,7 +187,6 @@ fn target(cfg: &PresetConfig) -> Value {
     }
     spec
 }
-
 fn apply(cfg: &mut PresetConfig, entry: &Entry) {
     cfg.adapter = entry.adapter.clone();
     cfg.model = entry.model.clone();
@@ -150,25 +210,29 @@ fn guide(
     connection: &mut impl SetupNetwork,
 ) -> Result<PresetConfig> {
     let mut drafts = [wizard::Session::new(false), wizard::Session::new(true)];
-    loop {
+    let mut repairs: BTreeMap<String, repair::Draft> = BTreeMap::new();
+    'setup: loop {
         let mut snapshot = match Snapshot::read(path) {
             Ok(snapshot) => snapshot,
             Err(error) => {
-                ui.tell(&error);
-                if choose(
+                ui.say(M::RawError, &[&error]);
+                match choose(
                     ui,
-                    "The catalog cannot be edited safely.",
-                    &["Check again after repair", "Exit"],
-                )? == 1
-                {
-                    return Err(Error::Cancelled);
+                    M::UnsafeCatalog,
+                    &[M::CheckAgain, M::LanguageMenu, M::Exit],
+                )? {
+                    0 => {}
+                    1 => match change_language(ui, preferences) {
+                        Ok(()) | Err(Error::Back) => {}
+                        Err(e) => return Err(e),
+                    },
+                    _ => return Err(Error::Cancelled),
                 }
                 continue;
             }
         };
         let (loaded, _) = models::load_from(path);
-        // Repairable raw entries include credentials rejected by the runtime
-        // loader (for example its own redaction placeholder).
+        // Include repairable raw entries whose keys the runtime loader rejects.
         let entries: Vec<Entry> = snapshot
             .entries()
             .filter(|(_, spec)| validate_target(spec).is_ok())
@@ -185,14 +249,11 @@ fn guide(
                 profile: spec.get("profile").cloned(),
             })
             .collect();
-        let mut options = vec![
-            "Choose a provider".to_owned(),
-            "Custom configuration".to_owned(),
-        ];
+        let mut options = vec![ui.label(M::Provider), ui.label(M::Custom)];
         options.extend(
             entries
                 .iter()
-                .map(|e| format!("Use / repair {} ({})", e.id, e.model)),
+                .map(|e| ui.message(M::RepairEntry, &[&e.id, &e.model])),
         );
         let explicit = [
             "LATTICE_ADAPTER",
@@ -202,118 +263,92 @@ fn guide(
         ]
         .iter()
         .any(|key| std::env::var_os(key).is_some());
-        let repair_launch = explicit && validate_target(&target(&cfg)).is_ok();
-        if repair_launch {
-            options.push(format!("Repair this launch: {}", cfg.model));
+        if explicit && validate_target(&target(&cfg)).is_ok() {
+            options.push(ui.message(M::RepairLaunch, &[&cfg.model]));
         }
-        options.push("Exit".into());
-        let selected = ui.select("Choose how to configure the model", &options)?;
+        let language_index = options.len();
+        options.extend([ui.label(M::LanguageMenu), ui.label(M::Exit)]);
+        let selected = ui.select(&ui.label(M::Home), &options)?;
         if selected == options.len() - 1 {
             return Err(Error::Cancelled);
         }
-        if explicit {
-            ui.tell("Your launch environment overrides saved preferences on future launches. This selection overrides it for this launch only.");
+        if selected == language_index {
+            match change_language(ui, preferences) {
+                Ok(()) | Err(Error::Back) => {}
+                Err(e) => return Err(e),
+            }
+            continue;
         }
-        let fresh = if selected < 2 {
-            let Some(configured) =
-                wizard::configure(ui, connection, path, &snapshot, &mut drafts[selected])?
+        if explicit {
+            ui.say(M::LaunchOverride, &[]);
+        }
+        let existing = selected.checked_sub(2).and_then(|i| entries.get(i));
+        let configured = if selected < 2 {
+            let Some(configured) = wizard::configure(
+                ui,
+                connection,
+                path,
+                &snapshot,
+                &mut drafts[selected],
+                preferences,
+            )?
             else {
                 continue;
             };
-            Some(configured)
+            configured
         } else {
-            None
-        };
-        let existing = selected.checked_sub(2).and_then(|i| entries.get(i));
-        let mut spec = if let Some(entry) = existing {
-            snapshot
-                .entry(&entry.id)
-                .cloned()
-                .ok_or_else(|| Error::Failed("catalog entry disappeared".into()))?
-        } else if let Some(configured) = &fresh {
-            configured.spec.clone()
-        } else {
-            target(&cfg)
-        };
-        if let Err(error) = validate_target(&spec) {
-            ui.tell(&error);
-            continue;
-        }
-        let id = if let Some(entry) = existing {
-            entry.id.clone()
-        } else if let Some(configured) = &fresh {
-            configured.id.clone()
-        } else {
-            loop {
-                let id = ui.text("Local name for this model", "my-model")?;
-                let id = id.trim();
-                if let Err(error) = models::catalog::validate_name(id) {
-                    ui.tell(&error);
-                    continue;
-                }
-                if snapshot.entry(id).is_some() {
-                    ui.tell(
-                        "That name already exists; choose another name or use its repair option.",
-                    );
-                    continue;
-                }
-                break id.to_owned();
-            }
-        };
-        let needs_key = existing.is_none_or(|e| !e.key_present());
-        let change_key = fresh.is_none()
-            && (needs_key || ui.confirm("Replace this model's existing credential?", false)?);
-        if change_key {
-            let (field, value) = credential(ui)?;
-            spec.as_object_mut()
-                .expect("validated model object")
-                .remove("apiKey");
-            spec.as_object_mut()
-                .expect("validated model object")
-                .remove("apiKeyEnv");
-            spec[field] = json!(value);
-        }
-        let local_key = spec.get("apiKey").is_some();
-        if fresh.is_none() {
-            ui.tell(&format!(
-                "Model: {}\nEndpoint: {}\nCatalog: {}\nCredential: {}",
-                spec["model"].as_str().unwrap_or(""),
-                spec["baseUrl"].as_str().unwrap_or(""),
-                path.display(),
-                if local_key {
-                    "stored locally (hidden)"
-                } else {
-                    "environment variable reference"
-                }
-            ));
-            if local_key {
-                ui.tell("A local key is saved in an agent-readable file. File-tool reads can place it in permanent history and model context.");
-            }
-            if spec["baseUrl"]
-                .as_str()
-                .is_some_and(|s| s.starts_with("http://"))
+            let original = if let Some(entry) = existing {
+                snapshot
+                    .entry(&entry.id)
+                    .cloned()
+                    .ok_or_else(|| Error::Failed("catalog entry disappeared".into()))?
+            } else {
+                target(&cfg)
+            };
+            let repair_id = existing
+                .map(|e| e.id.clone())
+                .unwrap_or_else(|| "_launch".into());
+            if repairs
+                .get(&repair_id)
+                .is_none_or(|draft| draft.original != original)
             {
-                ui.tell("Warning: this endpoint uses unencrypted HTTP, including its credential.");
+                let id = existing
+                    .map(|e| e.id.clone())
+                    .unwrap_or_else(|| wizard::suggested_name(&snapshot, &cfg.model));
+                repairs.insert(
+                    repair_id.clone(),
+                    repair::Draft::new(
+                        original,
+                        id,
+                        existing.is_none_or(|e| !e.key_present()),
+                        existing.is_some(),
+                    ),
+                );
             }
-        }
-        let preferred = if let Some(configured) = &fresh {
-            configured.preferred
-        } else {
-            let preferred = ui.confirm("Save as the default model for future launches?", true)?;
-            match choose(
-                ui,
-                "Review complete",
-                &["Save and continue", "Back to model selection", "Exit"],
-            )? {
-                1 => continue,
-                2 => return Err(Error::Cancelled),
-                _ => {}
+            let draft = repairs.get_mut(&repair_id).unwrap();
+            if !draft.configure(ui, preferences, path, &snapshot)? {
+                continue;
             }
-            preferred
+            wizard::Configured {
+                id: draft.id.clone(),
+                spec: draft.spec.clone(),
+                preferred: draft.preferred,
+            }
         };
+        let wizard::Configured {
+            id,
+            spec,
+            preferred,
+        } = configured;
+        validate_target(&spec)?;
+        let change_key = existing.is_some_and(|entry| snapshot.entry(&entry.id) != Some(&spec));
         if let Some(entry) = existing {
             if change_key {
-                let field = if local_key { "apiKey" } else { "apiKeyEnv" };
+                let field = if spec.get("apiKey").is_some() {
+                    "apiKey"
+                } else {
+                    "apiKeyEnv"
+                };
                 snapshot.credential(
                     &entry.id,
                     field,
@@ -325,16 +360,14 @@ fn guide(
         }
         if existing.is_none() || change_key {
             if let Err(error) = snapshot.save() {
-                ui.tell(&format!(
-                    "Not saved: {error}\nChoose again after correcting the problem."
-                ));
+                ui.say(M::NotSaved, &[&error]);
                 continue;
             }
         }
-        ui.tell("Model configuration saved / selected. Exiting now will not delete it.");
+        ui.say(M::Saved, &[]);
         let saved = Snapshot::read(path)?;
         if saved.entry(&id) != Some(&spec) {
-            ui.tell("The model changed after selection; review it again.");
+            ui.say(M::ChangedAfterSave, &[]);
             continue;
         }
         if selected < 2 {
@@ -348,7 +381,7 @@ fn guide(
                 Error::Failed("saved model could not be loaded; configuration was retained".into())
             })?;
         if !entry.key_present() {
-            ui.tell("The selected credential is no longer available; please repair it.");
+            ui.say(M::MissingKey, &[]);
             continue;
         }
         if preferred {
@@ -359,75 +392,80 @@ fn guide(
                 match result {
                     Ok(()) => break,
                     Err(error) => {
-                        ui.tell(&format!(
-                            "Model saved; default selection NOT saved: {error}"
-                        ));
+                        ui.say(M::DefaultNotSaved, &[&error]);
                         match choose(
                             ui,
-                            "How would you like to continue?",
-                            &[
-                                "Continue for this launch",
-                                "Retry saving the default",
-                                "Exit",
-                            ],
-                        )? {
-                            0 => break,
-                            1 => continue,
-                            _ => return Err(Error::Cancelled),
+                            M::RecoveryMenu,
+                            &[M::ContinueOnce, M::RetryDefault, M::Exit],
+                        ) {
+                            Ok(0) => break,
+                            Ok(1) => continue,
+                            Err(Error::Back) => continue 'setup,
+                            Ok(_) => return Err(Error::Cancelled),
+                            Err(e) => return Err(e),
                         }
                     }
                 }
             }
         }
         loop {
-            ui.tell("A connection test sends a short request to this provider and may incur a small charge. It does not test tools or a full conversation.");
-            match choose(ui, "Connection test (optional)", &["Skip test and enter TUI", "Send a test request", "Change configuration", "Exit"])? {
-                0 => { apply(&mut cfg, &entry); return Ok(cfg); }
-                1 => match connection.test(&entry) {
+            ui.say(M::TestNotice, &[]);
+            match choose(
+                ui,
+                M::TestMenu,
+                &[M::SkipTest, M::SendTest, M::ChangeConfiguration, M::Exit],
+            ) {
+                Ok(0) => {
+                    apply(&mut cfg, &entry);
+                    return Ok(cfg);
+                }
+                Ok(1) => match connection.test(&entry) {
                     Ok(()) => {
-                        ui.tell("The provider returned a valid test response.");
-                        if ui.confirm("Enter the TUI now?", true)? { apply(&mut cfg, &entry); return Ok(cfg); }
+                        ui.say(M::TestSuccess, &[]);
+                        match ui.confirm(&ui.label(M::EnterTui), true) {
+                            Ok(true) => {
+                                apply(&mut cfg, &entry);
+                                return Ok(cfg);
+                            }
+                            Ok(false) | Err(Error::Back) => {}
+                            Err(e) => return Err(e),
+                        }
                     }
-                    Err(error) => ui.tell(&format!("Test did not succeed: {error}\nYou may retry explicitly, change configuration, skip, or exit. Saved configuration was retained.")),
+                    Err(error) => ui.say(M::TestFailure, &[&error]),
                 },
-                2 => break,
-                _ => return Err(Error::Cancelled),
+                Ok(2) | Err(Error::Back) => break,
+                Ok(_) => return Err(Error::Cancelled),
+                Err(e) => return Err(e),
             }
         }
     }
 }
 
 fn credential(ui: &mut impl Questions) -> Result<(&'static str, String)> {
-    let mut options = Vec::new();
-    if cfg!(unix) {
-        options.push("Save a key locally".to_owned());
-    }
-    options.push("Use an existing environment variable".to_owned());
-    let selected = ui.select("How should Lattice obtain the key?", &options)?;
-    let local = cfg!(unix) && selected == 0;
     loop {
-        let value = if local {
-            ui.secret("API key")?
-        } else {
-            ui.text("Environment variable name", "")?
-        };
-        let value = value.trim();
-        if local {
-            if value.is_empty() || value == "[redacted]" || value.chars().any(char::is_control) {
-                ui.tell(
-                    "Enter a nonempty key without control characters, not a redaction placeholder.",
-                );
-                continue;
-            }
-            return Ok(("apiKey", value.into()));
+        let mut options = vec![];
+        if cfg!(unix) {
+            options.push(M::LocalKey);
         }
-        let valid = !value.is_empty()
-            && value.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-            && !value.starts_with(|c: char| c.is_ascii_digit());
-        if !valid || !std::env::var(value).is_ok_and(|v| !v.is_empty()) {
-            ui.tell("Choose an existing variable with a nonempty value and a valid variable name.");
-            continue;
+        options.push(M::EnvKey);
+        let selected = choose(ui, M::CredentialMenu, &options)?;
+        match credential_value(ui, options[selected] == M::LocalKey) {
+            Err(Error::Back) => {}
+            other => return other,
         }
-        return Ok(("apiKeyEnv", value.into()));
     }
+}
+fn credential_value(ui: &mut impl Questions, local: bool) -> Result<(&'static str, String)> {
+    if local {
+        ui.say(M::KeyWarning, &[]);
+        loop {
+            let value = ui.secret(&ui.label(M::ApiKey))?;
+            match Field::Key.validate(&value) {
+                Ok(()) => return Ok(("apiKey", value.trim().into())),
+                Err(id) => ui.say(id, &[]),
+            }
+        }
+    }
+    let value = ui.input(&ui.label(M::EnvName), "", Field::Env, &[])?;
+    Ok(("apiKeyEnv", value))
 }

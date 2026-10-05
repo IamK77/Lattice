@@ -386,6 +386,18 @@ fn the_preferences_canon_blesses_every_rung_and_the_saved_model() {
         "a word off the ladder (the escape hatch)",
     );
     assert_valid(&canon, &json!({"model": "sonnet"}), "a saved model choice");
+    for language in ["en", "zh-CN"] {
+        assert_valid(
+            &canon,
+            &json!({"setupLanguage":language}),
+            "an explicit setup language",
+        );
+    }
+    assert_rejected(
+        &canon,
+        &json!({"setupLanguage":"unsupported"}),
+        "an unsupported language code",
+    );
     assert_valid(
         &canon,
         &json!({"unknown-to-this-version": 1}),
