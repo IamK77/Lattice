@@ -1,6 +1,8 @@
 //! Ordinary-terminal questions. Inquire restores its terminal on prompt return.
 use super::{Error, Questions, Result};
-use inquire::{error::InquireError, Confirm, Password, PasswordDisplayMode, Select, Text};
+use inquire::{
+    error::InquireError, Confirm, MultiSelect, Password, PasswordDisplayMode, Select, Text,
+};
 
 pub struct Terminal;
 
@@ -45,6 +47,29 @@ impl Questions for Terminal {
             })
             .collect();
         Ok(Select::new(message, choices).prompt().map_err(error)?.index)
+    }
+    fn multi_select(
+        &mut self,
+        message: &str,
+        options: &[String],
+        selected: &[usize],
+    ) -> Result<Vec<usize>> {
+        let choices = options
+            .iter()
+            .enumerate()
+            .map(|(index, label)| Choice {
+                index,
+                label: label.clone(),
+            })
+            .collect();
+        Ok(MultiSelect::new(message, choices)
+            .with_default(selected)
+            .with_help_message("Space: toggle | Enter: confirm | Esc: exit setup")
+            .prompt()
+            .map_err(error)?
+            .into_iter()
+            .map(|choice| choice.index)
+            .collect())
     }
     fn text(&mut self, message: &str, default: &str) -> Result<String> {
         Text::new(message)

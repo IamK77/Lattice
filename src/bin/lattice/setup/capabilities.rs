@@ -9,6 +9,49 @@ pub(super) struct Capabilities {
     edited: BTreeSet<String>,
 }
 
+/// Decimal suffixes are exact arithmetic, never binary units or floating-point rounding.
+pub(super) fn parse_tokens(text: &str) -> Option<u64> {
+    let text = text.trim();
+    if text.is_empty() || text.len() > 64 {
+        return None;
+    }
+    let lower = text.to_ascii_lowercase();
+    let (number, multiplier) = if let Some(number) = lower.strip_suffix('m') {
+        (number.trim(), 1_000_000u128)
+    } else if let Some(number) = lower.strip_suffix('k') {
+        (number.trim(), 1_000u128)
+    } else {
+        (lower.as_str(), 1u128)
+    };
+    let (whole, fraction) = number.split_once('.').unwrap_or((number, ""));
+    if (whole.is_empty() && fraction.is_empty())
+        || !whole.bytes().all(|b| b.is_ascii_digit())
+        || !fraction.bytes().all(|b| b.is_ascii_digit())
+        || (number.contains('.') && fraction.is_empty())
+    {
+        return None;
+    }
+    let scale = 10u128.checked_pow(fraction.len().try_into().ok()?)?;
+    let whole = if whole.is_empty() {
+        0
+    } else {
+        whole.parse::<u128>().ok()?
+    };
+    let fraction = if fraction.is_empty() {
+        0
+    } else {
+        fraction.parse::<u128>().ok()?
+    };
+    let scaled = whole
+        .checked_mul(scale)?
+        .checked_add(fraction)?
+        .checked_mul(multiplier)?;
+    if scaled % scale != 0 {
+        return None;
+    }
+    u64::try_from(scaled / scale).ok().filter(|n| *n > 0)
+}
+
 impl Capabilities {
     pub fn new(
         model: &str,
@@ -158,7 +201,7 @@ impl Capabilities {
         loop {
             self.show(ui);
             match choose(ui, "Confirm model capabilities", &[
-                "Confirm and continue", "Edit context and output limits", "Edit image input support",
+                "Confirm and continue", "Edit context and output limits", "Select enabled capabilities",
                 "Edit thinking effort rungs", "Advanced settings", "Back to model selection",
             ])? {
                 0 if self.valid() => return Ok(true),
@@ -167,19 +210,15 @@ impl Capabilities {
                     for (key, label) in [("contextWindow", "Context window in tokens"), ("maxOutputTokens", "Maximum output tokens")] {
                         loop {
                             let default = self.value[key].as_u64().map(|n| n.to_string()).unwrap_or_default();
-                            let text = ui.text(label, &default)?;
-                            match text.trim().parse::<u64>() {
-                                Ok(n) if n > 0 => { self.set(key, json!(n)); break; }
-                                _ => ui.tell("Enter a positive whole number."),
+                            let text = ui.text(&format!("{label} (1k = 1000; 1M = 1000000; decimals allowed)"), &default)?;
+                            match parse_tokens(&text) {
+                                Some(n) => { ui.tell(&format!("{label}: {n} tokens")); self.set(key, json!(n)); break; }
+                                None => ui.tell("Enter a positive whole token count, e.g. 1000000, 1000k or 1M. k/M are decimal, not binary; fractional tokens and overflow are rejected."),
                             }
                         }
                     }
                 }
-                2 => {
-                    let selected = choose(ui, "Can this model receive images?", &["Supported", "Not supported", "Unknown — keep image input disabled"])?;
-                    self.set("acceptsImages", json!(selected == 0));
-                    if selected == 2 { self.sources.insert("acceptsImages".into(), "unknown; not enabled".into()); }
-                }
+                2 => self.switches(ui, adapter)?,
                 3 => {
                     let old = self.value["effort"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")).unwrap_or_default();
                     let text = ui.text("Effort rungs, weakest first, comma-separated (empty = unknown)", &old)?;
@@ -188,30 +227,47 @@ impl Capabilities {
                         ui.tell("Use provider effort names, separated by commas.");
                     } else { self.set("effort", json!(rungs)); }
                 }
-                4 => self.advanced(ui, adapter)?,
+                4 => self.advanced(ui)?,
                 _ => return Ok(false),
             }
         }
     }
 
-    fn advanced(&mut self, ui: &mut impl Questions, adapter: &str) -> Result<()> {
+    fn switches(&mut self, ui: &mut impl Questions, adapter: &str) -> Result<()> {
+        let mut fields = vec![("acceptsImages", "Image input (send images to the model)")];
         if adapter == "responses" {
-            ui.tell("Enable hosted tools only if BOTH this model and this serving endpoint support them.");
-            for (key, label) in [
-                ("nativeWebSearch", "Enable hosted web search?"),
+            fields.extend([
+                ("nativeWebSearch", "Hosted web search"),
                 (
                     "nativeImageGeneration",
-                    "Enable hosted image generation (not image input)?",
+                    "Hosted image generation (create images)",
                 ),
-            ] {
-                let selected = ui.confirm(label, self.value[key] == true)?;
-                self.set(key, json!(selected));
-            }
+            ]);
         } else {
-            ui.tell(
-                "Hosted search and image generation settings apply only to the Responses adapter.",
-            );
+            ui.tell("Hosted search and image generation require the Responses adapter; they are not offered for this format.");
         }
+        ui.tell("Select capabilities supported by BOTH this model and endpoint. Unknown capabilities remain unchecked. Unchecked means not enabled, not a claim that the model cannot support it.");
+        let options = fields
+            .iter()
+            .map(|(_, label)| (*label).to_owned())
+            .collect::<Vec<_>>();
+        let checked = fields
+            .iter()
+            .enumerate()
+            .filter_map(|(i, (key, _))| (self.value[*key] == true).then_some(i))
+            .collect::<Vec<_>>();
+        let selected =
+            ui.multi_select("Enabled capabilities (Space to toggle)", &options, &checked)?;
+        for (index, (key, _)) in fields.iter().enumerate() {
+            let enabled = selected.contains(&index);
+            if enabled != (self.value[*key] == true) {
+                self.set(key, json!(enabled));
+            }
+        }
+        Ok(())
+    }
+
+    fn advanced(&mut self, ui: &mut impl Questions) -> Result<()> {
         if ui.confirm("Edit usage field mapping?", false)? {
             let mut fields = self.value["usageFields"].clone();
             for key in ["input", "output", "cacheRead", "cacheWrite"] {

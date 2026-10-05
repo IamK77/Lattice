@@ -33,6 +33,12 @@ impl From<String> for Error {
 trait Questions {
     fn tell(&mut self, message: &str);
     fn select(&mut self, message: &str, options: &[String]) -> Result<usize>;
+    fn multi_select(
+        &mut self,
+        message: &str,
+        options: &[String],
+        selected: &[usize],
+    ) -> Result<Vec<usize>>;
     fn text(&mut self, message: &str, default: &str) -> Result<String>;
     fn secret(&mut self, message: &str) -> Result<String>;
     fn confirm(&mut self, message: &str, default: bool) -> Result<bool>;

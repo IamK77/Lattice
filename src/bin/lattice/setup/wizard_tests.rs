@@ -26,6 +26,100 @@ fn model(id: &str) -> discovery::Model {
 }
 
 #[test]
+fn token_suffixes_are_decimal_exact_and_checked() {
+    use super::capabilities::parse_tokens;
+    for (text, expected) in [
+        ("1000000", 1_000_000),
+        ("1M", 1_000_000),
+        ("1000k", 1_000_000),
+        ("1.5m", 1_500_000),
+        ("32K", 32_000),
+        (".5M", 500_000),
+        ("0.000001M", 1),
+        ("1048576", 1_048_576),
+        (" 1 M ", 1_000_000),
+        ("18446744073709551615", u64::MAX),
+    ] {
+        assert_eq!(parse_tokens(text), Some(expected), "{text}");
+    }
+    for text in [
+        "",
+        "0",
+        "0M",
+        "-1",
+        "1.1",
+        "0.0000001M",
+        "1.2.3M",
+        "1Mi",
+        "NaN",
+        "1e6",
+        "1.",
+        "18446744073709551616",
+        "18446744073709551615M",
+    ] {
+        assert_eq!(parse_tokens(text), None, "{text}");
+    }
+    assert_eq!(parse_tokens(&"9".repeat(65)), None);
+}
+
+#[test]
+fn capability_checkboxes_preserve_defaults_and_update_only_changed_fields() {
+    let remote = json!({"contextWindow":1000,"maxOutputTokens":100,"acceptsImages":true});
+    let mut caps = Capabilities::new(
+        "synthetic",
+        "responses",
+        &remote,
+        None,
+        "https://example.invalid",
+    );
+    let mut ui = Script::new([
+        Select(2),
+        Multi(&[1, 2]),
+        Select(2),
+        Multi(&[1, 2]),
+        Select(0),
+    ]);
+    assert!(caps.edit(&mut ui, "responses").unwrap());
+    assert_eq!(ui.multi_prompts[0].1, [0]);
+    assert_eq!(ui.multi_prompts[1].1, [1, 2]);
+    assert_eq!(ui.multi_prompts[0].0.len(), 3);
+    assert_eq!(caps.value["acceptsImages"], false);
+    assert_eq!(caps.value["nativeWebSearch"], true);
+    assert_eq!(caps.value["nativeImageGeneration"], true);
+    caps.refresh(Capabilities::new(
+        "synthetic",
+        "responses",
+        &remote,
+        None,
+        "https://example.invalid",
+    ));
+    assert_eq!(caps.value["acceptsImages"], false);
+    assert_eq!(caps.value["nativeImageGeneration"], true);
+    let mut unknown = Capabilities::new(
+        "synthetic",
+        "openai",
+        &json!({"contextWindow":1000,"maxOutputTokens":100}),
+        None,
+        "https://example.invalid",
+    );
+    let mut ui = Script::new([Select(2), Multi(&[]), Select(0)]);
+    assert!(unknown.edit(&mut ui, "openai").unwrap());
+    assert!(ui.multi_prompts[0].1.is_empty());
+    assert_eq!(ui.multi_prompts[0].0.len(), 1);
+    unknown.refresh(Capabilities::new(
+        "synthetic",
+        "openai",
+        &remote,
+        None,
+        "https://example.invalid",
+    ));
+    assert_eq!(
+        unknown.value["acceptsImages"], true,
+        "confirming an unchanged checkbox must not freeze unknown metadata"
+    );
+}
+
+#[test]
 fn provider_and_protocol_are_distinct_and_only_documented_combinations_are_offered() {
     assert_eq!(
         Provider::OpenAI
@@ -68,7 +162,7 @@ fn changing_identity_invalidates_capabilities_lists_and_endpoint_credentials() {
     draft.spec["apiKey"] = json!("SYNTHETIC");
     draft.listed = vec![model("first")];
     draft.model(&model("first"));
-    let mut ui = Script::new([Select(2), Select(1), Select(0)]);
+    let mut ui = Script::new([Select(2), Multi(&[]), Select(0)]);
     assert!(draft
         .capabilities
         .as_mut()
@@ -137,7 +231,7 @@ fn fetched_model_and_user_corrections_survive_review_and_connection_navigation()
         Confirm(false),
         Select(3),
         Select(2),
-        Select(1),
+        Multi(&[]),
         Select(0),
         Select(1),
         Text("https://api.openai.com/v1"),
@@ -199,7 +293,7 @@ fn failed_and_empty_discovery_allow_manual_input_without_guessed_capabilities() 
         Text("4096"),
         Text("1024"),
         Select(2),
-        Select(2),
+        Multi(&[]),
         Select(0),
         Text("manual"),
         Confirm(false),
@@ -236,13 +330,7 @@ fn input_limit_is_not_added_to_output_and_unknown_images_stay_disabled() {
     assert_eq!(capabilities.value["contextWindow"], 1000);
     assert_eq!(capabilities.value["acceptsImages"], false);
     assert_eq!(capabilities.value["nativeWebSearch"], false);
-    let mut ui = Script::new([
-        Select(4),
-        Confirm(true),
-        Confirm(false),
-        Confirm(false),
-        Select(0),
-    ]);
+    let mut ui = Script::new([Select(2), Multi(&[1]), Select(0)]);
     assert!(capabilities.edit(&mut ui, "responses").unwrap());
     assert_eq!(capabilities.value["nativeWebSearch"], true);
     assert_eq!(capabilities.value["nativeImageGeneration"], false);

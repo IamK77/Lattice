@@ -18,10 +18,10 @@ fn custom_endpoint_uses_explicit_limits_and_an_environment_reference() {
         Select(1),
         Text("custom-model"),
         Select(1),
-        Text("4096"),
-        Text("1024"),
+        Text("1M"),
+        Text("32k"),
         Select(2),
-        Select(0),
+        Multi(&[0]),
         Select(0),
         Text("custom"),
         Confirm(false),
@@ -38,7 +38,15 @@ fn custom_endpoint_uses_explicit_limits_and_an_environment_reference() {
     let stored = std::fs::read_to_string(path).unwrap();
     assert!(!stored.contains("synthetic-custom-key"));
     let value: Value = serde_json::from_str(&stored).unwrap();
-    assert_eq!(value["models"]["custom"]["profile"]["contextWindow"], 4096);
+    assert_eq!(
+        value["models"]["custom"]["profile"]["contextWindow"],
+        1_000_000
+    );
+    assert_eq!(
+        value["models"]["custom"]["profile"]["maxOutputTokens"],
+        32_000
+    );
+    assert_eq!(value["models"]["custom"]["profile"]["acceptsImages"], true);
     assert_eq!(probe.calls, 0);
 }
 
@@ -94,6 +102,7 @@ fn redaction_placeholder_can_be_repaired_without_recreating_the_entry() {
 #[derive(Debug)]
 pub(super) enum Answer {
     Select(usize),
+    Multi(&'static [usize]),
     Text(&'static str),
     Secret,
     Key(&'static str),
@@ -103,12 +112,14 @@ pub(super) enum Answer {
 pub(super) struct Script {
     pub(super) answers: VecDeque<Answer>,
     pub(super) messages: Vec<String>,
+    pub(super) multi_prompts: Vec<(Vec<String>, Vec<usize>)>,
 }
 impl Script {
     pub(super) fn new(answers: impl IntoIterator<Item = Answer>) -> Self {
         Self {
             answers: answers.into_iter().collect(),
             messages: vec![],
+            multi_prompts: vec![],
         }
     }
     fn next(&mut self) -> Result<Answer> {
@@ -128,6 +139,20 @@ impl Questions for Script {
         };
         assert!(i < options.len());
         Ok(i)
+    }
+    fn multi_select(
+        &mut self,
+        _: &str,
+        options: &[String],
+        selected: &[usize],
+    ) -> Result<Vec<usize>> {
+        self.multi_prompts
+            .push((options.to_vec(), selected.to_vec()));
+        let Answer::Multi(indices) = self.next()? else {
+            panic!("expected multiple selection");
+        };
+        assert!(indices.iter().all(|i| *i < options.len()));
+        Ok(indices.to_vec())
     }
     fn text(&mut self, _: &str, _: &str) -> Result<String> {
         let Answer::Text(text) = self.next()? else {

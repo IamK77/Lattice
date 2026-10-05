@@ -284,8 +284,14 @@ fn model_discovery_search_and_capability_edit_work_in_the_real_terminal() {
     terminal.send(b"\x1b[B\x1b[B\x1b[B\r");
     terminal.wait("Confirm model capabilities");
     terminal.send(b"\x1b[B\x1b[B\r");
-    terminal.wait("Can this model receive images?");
-    terminal.send(b"\x1b[B\x1b[B\r");
+    terminal.wait("Enabled capabilities (Space to toggle)");
+    terminal.send(b" \x1b[B \x1b[B \r");
+    terminal.wait("Confirm model capabilities");
+    terminal.send(b"\x1b[B\r");
+    terminal.wait("Context window in tokens (1k = 1000; 1M = 1000000; decimals allowed)");
+    terminal.send(b"\x7f\x7f\x7f\x7f\x7f1M\r");
+    terminal.wait("Maximum output tokens (1k = 1000; 1M = 1000000; decimals allowed)");
+    terminal.send(b"\x7f\x7f\x7f\x7f32k\r");
     terminal.wait("Confirm model capabilities");
     terminal.send(b"\r");
     terminal.wait("Review complete");
@@ -305,7 +311,10 @@ fn model_discovery_search_and_capability_edit_work_in_the_real_terminal() {
     let entry = &saved["models"]["vision-model"];
     assert_eq!(entry["adapter"], "responses");
     assert_eq!(entry["profile"]["acceptsImages"], false);
-    assert_eq!(entry["profile"]["contextWindow"], 65536);
+    assert_eq!(entry["profile"]["contextWindow"], 1_000_000);
+    assert_eq!(entry["profile"]["maxOutputTokens"], 32_000);
+    assert_eq!(entry["profile"]["nativeWebSearch"], true);
+    assert_eq!(entry["profile"]["nativeImageGeneration"], true);
     assert!(!String::from_utf8_lossy(&terminal.bytes).contains("SYNTHETIC_PTY_DISCOVERY_KEY"));
     let records: Vec<_> = std::fs::read_dir(home.path().join(".lattice/setup-tests"))
         .unwrap()
