@@ -6,6 +6,8 @@ use lattice::{
 use serde_json::{json, Value};
 use std::{io::IsTerminal, path::Path};
 
+#[path = "setup/discovery.rs"]
+mod discovery;
 #[path = "setup/probe.rs"]
 mod probe;
 #[path = "setup/prompts.rs"]
@@ -13,6 +15,8 @@ mod prompts;
 #[cfg(test)]
 #[path = "setup/tests.rs"]
 mod tests;
+#[path = "setup/wizard.rs"]
+mod wizard;
 
 #[derive(Debug)]
 enum Error {
@@ -33,8 +37,9 @@ trait Questions {
     fn secret(&mut self, message: &str) -> Result<String>;
     fn confirm(&mut self, message: &str, default: bool) -> Result<bool>;
 }
-trait ConnectionTest {
+trait SetupNetwork {
     fn test(&mut self, entry: &Entry) -> std::result::Result<(), String>;
+    fn models(&mut self, spec: &Value) -> std::result::Result<Vec<discovery::Model>, String>;
 }
 
 fn choose(ui: &mut impl Questions, message: &str, options: &[&str]) -> Result<usize> {
@@ -122,12 +127,12 @@ fn apply(cfg: &mut PresetConfig, entry: &Entry) {
     cfg.base_url = entry.base_url.clone();
     cfg.key_env = entry.key_env.clone();
     cfg.profile = entry.profile.clone();
-    cfg.usage_input_field = if entry.adapter == "anthropic" {
-        "input_tokens"
-    } else {
-        "prompt_tokens"
-    }
-    .into();
+    cfg.usage_input_field = entry
+        .usage_fields()
+        .get("input")
+        .and_then(Value::as_str)
+        .unwrap_or("prompt_tokens")
+        .into();
     cfg.catalog_problems.clear();
 }
 
@@ -136,8 +141,9 @@ fn guide(
     path: &Path,
     preferences: Option<&Path>,
     ui: &mut impl Questions,
-    connection: &mut impl ConnectionTest,
+    connection: &mut impl SetupNetwork,
 ) -> Result<PresetConfig> {
+    let mut drafts = [wizard::Session::new(false), wizard::Session::new(true)];
     loop {
         let mut snapshot = match Snapshot::read(path) {
             Ok(snapshot) => snapshot,
@@ -174,8 +180,8 @@ fn guide(
             })
             .collect();
         let mut options = vec![
-            "Configure DeepSeek Flash".to_owned(),
-            "Custom endpoint and model".to_owned(),
+            "Choose a provider".to_owned(),
+            "Custom configuration".to_owned(),
         ];
         options.extend(
             entries
@@ -199,18 +205,27 @@ fn guide(
         if selected == options.len() - 1 {
             return Err(Error::Cancelled);
         }
+        if explicit {
+            ui.tell("Your launch environment overrides saved preferences on future launches. This selection overrides it for this launch only.");
+        }
+        let fresh = if selected < 2 {
+            let Some(configured) =
+                wizard::configure(ui, connection, path, &snapshot, &mut drafts[selected])?
+            else {
+                continue;
+            };
+            Some(configured)
+        } else {
+            None
+        };
         let existing = selected.checked_sub(2).and_then(|i| entries.get(i));
         let mut spec = if let Some(entry) = existing {
             snapshot
                 .entry(&entry.id)
                 .cloned()
                 .ok_or_else(|| Error::Failed("catalog entry disappeared".into()))?
-        } else if selected == 0 {
-            serde_json::from_str::<Value>(include_str!("setup/deepseek.json"))
-                .expect("tested bundled setup template")["entry"]
-                .clone()
-        } else if selected == 1 {
-            custom(ui)?
+        } else if let Some(configured) = &fresh {
+            configured.spec.clone()
         } else {
             target(&cfg)
         };
@@ -218,34 +233,30 @@ fn guide(
             ui.tell(&error);
             continue;
         }
-        let id = match existing {
-            Some(entry) => entry.id.clone(),
-            None => {
-                loop {
-                    let id = ui.text(
-                        "Local name for this model",
-                        if selected == 0 {
-                            "deepseek"
-                        } else {
-                            "my-model"
-                        },
-                    )?;
-                    let id = id.trim();
-                    if let Err(error) = models::catalog::validate_name(id) {
-                        ui.tell(&error);
-                        continue;
-                    }
-                    if snapshot.entry(id).is_some() {
-                        ui.tell("That name already exists; choose another name or use its repair option.");
-                        continue;
-                    }
-                    break id.to_owned();
+        let id = if let Some(entry) = existing {
+            entry.id.clone()
+        } else if let Some(configured) = &fresh {
+            configured.id.clone()
+        } else {
+            loop {
+                let id = ui.text("Local name for this model", "my-model")?;
+                let id = id.trim();
+                if let Err(error) = models::catalog::validate_name(id) {
+                    ui.tell(&error);
+                    continue;
                 }
+                if snapshot.entry(id).is_some() {
+                    ui.tell(
+                        "That name already exists; choose another name or use its repair option.",
+                    );
+                    continue;
+                }
+                break id.to_owned();
             }
         };
         let needs_key = existing.is_none_or(|e| !e.key_present());
-        let change_key =
-            needs_key || ui.confirm("Replace this model's existing credential?", false)?;
+        let change_key = fresh.is_none()
+            && (needs_key || ui.confirm("Replace this model's existing credential?", false)?);
         if change_key {
             let (field, value) = credential(ui)?;
             spec.as_object_mut()
@@ -257,39 +268,43 @@ fn guide(
             spec[field] = json!(value);
         }
         let local_key = spec.get("apiKey").is_some();
-        ui.tell(&format!(
-            "Model: {}\nEndpoint: {}\nCatalog: {}\nCredential: {}",
-            spec["model"].as_str().unwrap_or(""),
-            spec["baseUrl"].as_str().unwrap_or(""),
-            path.display(),
+        if fresh.is_none() {
+            ui.tell(&format!(
+                "Model: {}\nEndpoint: {}\nCatalog: {}\nCredential: {}",
+                spec["model"].as_str().unwrap_or(""),
+                spec["baseUrl"].as_str().unwrap_or(""),
+                path.display(),
+                if local_key {
+                    "stored locally (hidden)"
+                } else {
+                    "environment variable reference"
+                }
+            ));
             if local_key {
-                "stored locally (hidden)"
-            } else {
-                "environment variable reference"
+                ui.tell("A local key is saved in an agent-readable file. File-tool reads can place it in permanent history and model context.");
             }
-        ));
-        if local_key {
-            ui.tell("A local key is saved in an agent-readable file. File-tool reads can place it in permanent history and model context.");
+            if spec["baseUrl"]
+                .as_str()
+                .is_some_and(|s| s.starts_with("http://"))
+            {
+                ui.tell("Warning: this endpoint uses unencrypted HTTP, including its credential.");
+            }
         }
-        if spec["baseUrl"]
-            .as_str()
-            .is_some_and(|s| s.starts_with("http://"))
-        {
-            ui.tell("Warning: this endpoint uses unencrypted HTTP, including its credential.");
-        }
-        if explicit {
-            ui.tell("Your launch environment overrides saved preferences on future launches. This selection overrides it for this launch only.");
-        }
-        let preferred = ui.confirm("Save as the default model for future launches?", true)?;
-        match choose(
-            ui,
-            "Review complete",
-            &["Save and continue", "Back to model selection", "Exit"],
-        )? {
-            1 => continue,
-            2 => return Err(Error::Cancelled),
-            _ => {}
-        }
+        let preferred = if let Some(configured) = &fresh {
+            configured.preferred
+        } else {
+            let preferred = ui.confirm("Save as the default model for future launches?", true)?;
+            match choose(
+                ui,
+                "Review complete",
+                &["Save and continue", "Back to model selection", "Exit"],
+            )? {
+                1 => continue,
+                2 => return Err(Error::Cancelled),
+                _ => {}
+            }
+            preferred
+        };
         if let Some(entry) = existing {
             if change_key {
                 let field = if local_key { "apiKey" } else { "apiKeyEnv" };
@@ -315,6 +330,9 @@ fn guide(
         if saved.entry(&id) != Some(&spec) {
             ui.tell("The model changed after selection; review it again.");
             continue;
+        }
+        if selected < 2 {
+            drafts[selected] = wizard::Session::new(selected == 1);
         }
         let entry = models::load_from(path)
             .0
@@ -405,48 +423,5 @@ fn credential(ui: &mut impl Questions) -> Result<(&'static str, String)> {
             continue;
         }
         return Ok(("apiKeyEnv", value.into()));
-    }
-}
-
-fn custom(ui: &mut impl Questions) -> Result<Value> {
-    let adapter = ["openai", "responses", "anthropic"][choose(
-        ui,
-        "API protocol",
-        &[
-            "OpenAI Chat Completions",
-            "OpenAI Responses",
-            "Anthropic Messages",
-        ],
-    )?];
-    loop {
-        let model = ui.text("Exact model identifier", "")?;
-        let route = match adapter {
-            "anthropic" => "/v1/messages",
-            "responses" => "/responses",
-            _ => "/chat/completions",
-        };
-        let base_url = ui.text(&format!("API base URL (Lattice appends {route})"), "")?;
-        let mut spec = json!({"adapter":adapter,"model":model.trim(),"baseUrl":base_url.trim().trim_end_matches('/')});
-        if let Err(error) = validate_target(&spec) {
-            ui.tell(&error);
-            continue;
-        }
-        let context = number(ui, "Context window in tokens (from your provider)")?;
-        let output = number(ui, "Maximum output tokens (from your provider)")?;
-        if output >= context {
-            ui.tell("The output limit must leave room for input in the context window.");
-            continue;
-        }
-        spec["profile"] = json!({"contextWindow":context,"maxOutputTokens":output,"acceptsImages":false,"effort":[]});
-        return Ok(spec);
-    }
-}
-
-fn number(ui: &mut impl Questions, label: &str) -> Result<u64> {
-    loop {
-        match ui.text(label, "")?.trim().parse::<u64>() {
-            Ok(value) if value > 0 => return Ok(value),
-            _ => ui.tell("Enter a positive whole number."),
-        }
     }
 }

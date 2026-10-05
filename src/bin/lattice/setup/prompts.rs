@@ -48,7 +48,7 @@ impl Questions for Terminal {
     }
     fn text(&mut self, message: &str, default: &str) -> Result<String> {
         Text::new(message)
-            .with_default(default)
+            .with_initial_value(default)
             .prompt()
             .map_err(error)
     }

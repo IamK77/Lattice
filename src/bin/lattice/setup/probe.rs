@@ -1,6 +1,6 @@
 //! Explicit setup probe, not a chat turn. Never retries or follows redirects.
 //! A separate private journal records intent/outcome without credentials or bodies.
-use super::{validate_target, ConnectionTest};
+use super::{validate_target, SetupNetwork};
 use lattice::models::Entry;
 use serde_json::{json, Value};
 use std::{io::Write, path::PathBuf, time::Duration};
@@ -53,7 +53,34 @@ impl HttpTest {
     }
 }
 
-impl ConnectionTest for HttpTest {
+impl SetupNetwork for HttpTest {
+    fn models(&mut self, spec: &Value) -> Result<Vec<super::discovery::Model>, String> {
+        let (url, _) = super::discovery::endpoint(spec)?;
+        let key = super::discovery::key(spec)?;
+        let mut journal = self.new_record()?;
+        Self::record(
+            &mut journal,
+            &json!({"v":1,"phase":"requested","operation":"models","reason":"user explicitly selected model discovery","url":url.as_str()}),
+        )?;
+        let result = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|_| "cannot start model-list executor".to_owned())
+            .and_then(|runtime| {
+                runtime.block_on(async {
+                    tokio::time::timeout(
+                        Duration::from_secs(30),
+                        super::discovery::fetch(spec, &key),
+                    )
+                    .await
+                    .map_err(|_| "model discovery timed out; it was not repeated".to_owned())?
+                })
+            });
+        Self::record(&mut journal, &json!({"v":1,"phase":"completed","operation":"models","ok":result.is_ok(),"count":result.as_ref().ok().map(Vec::len),"detail":result.as_ref().err()}))
+            .map_err(|e| format!("{e}; discovery may already have completed; it was not repeated"))?;
+        result
+    }
+
     fn test(&mut self, entry: &Entry) -> Result<(), String> {
         validate_target(
             &json!({"adapter":entry.adapter,"model":entry.model,"baseUrl":entry.base_url}),

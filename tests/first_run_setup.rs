@@ -180,12 +180,26 @@ fn guided_save_hands_off_to_tui_without_echoing_key_or_testing_automatically() {
     let mut terminal = Terminal::start(home.path());
     terminal.wait("Choose how to configure the model");
     terminal.send(b"\r");
-    terminal.wait("Local name for this model");
+    terminal.wait("Choose a provider");
+    terminal.send(b"\x1b[B\x1b[B\r");
+    terminal.wait("Choose the API format");
+    terminal.send(b"\r");
+    terminal.wait("API base URL");
+    terminal.send(b"\r");
+    terminal.wait("Connection settings");
     terminal.send(b"\r");
     terminal.wait("How should Lattice obtain the key?");
     terminal.send(b"\r");
     terminal.wait("API key");
     terminal.send(b"SYNTHETIC_PTY_KEY_NO_ECHO\r");
+    terminal.wait("Choose a model");
+    terminal.send(b"\x1b[B\r");
+    terminal.wait("Exact model identifier");
+    terminal.send(b"deepseek-flash\r");
+    terminal.wait("Confirm model capabilities");
+    terminal.send(b"\r");
+    terminal.wait("Local name for this model");
+    terminal.send(b"\r");
     terminal.wait("Save as the default model");
     terminal.send(b"\r");
     terminal.wait("Review complete");
@@ -206,7 +220,7 @@ fn guided_save_hands_off_to_tui_without_echoing_key_or_testing_automatically() {
         &std::fs::read(home.path().join(".lattice/preferences.json")).unwrap(),
     )
     .unwrap();
-    assert_eq!(preferences["model"], "deepseek");
+    assert_eq!(preferences["model"], "deepseek-flash");
     // A subsequent launch uses the saved entry without repeating setup.
     let mut second = Terminal::with_args(home.path(), &["-c"]);
     second.wait("\x1b[?1049h");
@@ -214,4 +228,103 @@ fn guided_save_hands_off_to_tui_without_echoing_key_or_testing_automatically() {
     second.wait("\x1b[?1049l");
     second.exited_cleanly();
     assert!(!String::from_utf8_lossy(&second.bytes).contains("Choose how to configure the model"));
+}
+
+#[test]
+fn model_discovery_search_and_capability_edit_work_in_the_real_terminal() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut request = Vec::new();
+        let mut byte = [0];
+        while !request.ends_with(b"\r\n\r\n") {
+            assert_eq!(stream.read(&mut byte).unwrap(), 1);
+            request.push(byte[0]);
+        }
+        let request = String::from_utf8(request).unwrap();
+        assert!(request.starts_with("GET /models "));
+        assert!(request.contains("Bearer SYNTHETIC_PTY_DISCOVERY_KEY"));
+        let body = r#"{"data":[{"id":"text-model"},{"id":"vision-model","context_window":65536,"max_output_tokens":4096,"input_modalities":["text","image"]}]}"#;
+        write!(
+            stream,
+            "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        )
+        .unwrap();
+    });
+    let home = tempfile::tempdir().unwrap();
+    let mut terminal = Terminal::start(home.path());
+    terminal.wait("Choose how to configure the model");
+    terminal.send(b"\x1b[B\r");
+    terminal.wait("Choose the API format");
+    terminal.send(b"\x1b[B\r");
+    terminal.wait("API base URL");
+    terminal.send(format!("http://{address}\r").as_bytes());
+    terminal.wait("Connection settings");
+    terminal.send(b"\r");
+    terminal.wait("How should Lattice obtain the key?");
+    terminal.send(b"\r");
+    terminal.wait("API key");
+    terminal.send(b"SYNTHETIC_PTY_DISCOVERY_KEY\r");
+    terminal.wait("Choose a model");
+    terminal.send(b"\r");
+    terminal.wait("Available models (type to filter)");
+    terminal.send(b"vision\r");
+    terminal.wait("Confirm model capabilities");
+    terminal.send(b"\r");
+    terminal.wait("Local name for this model");
+    terminal.send(b"\r");
+    terminal.wait("Save as the default model");
+    terminal.send(b"\r");
+    terminal.wait("Review complete");
+    terminal.send(b"\x1b[B\x1b[B\x1b[B\r");
+    terminal.wait("Confirm model capabilities");
+    terminal.send(b"\x1b[B\x1b[B\r");
+    terminal.wait("Can this model receive images?");
+    terminal.send(b"\x1b[B\x1b[B\r");
+    terminal.wait("Confirm model capabilities");
+    terminal.send(b"\r");
+    terminal.wait("Review complete");
+    assert!(!home.path().join(".lattice/models.json").exists());
+    assert!(!home.path().join(".lattice/ledgers").exists());
+    terminal.send(b"\r");
+    terminal.wait("Connection test (optional)");
+    terminal.send(b"\r");
+    terminal.wait("\x1b[?1049h");
+    terminal.send(b"\x04");
+    terminal.wait("\x1b[?1049l");
+    terminal.exited_cleanly();
+    server.join().unwrap();
+    let saved: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(home.path().join(".lattice/models.json")).unwrap())
+            .unwrap();
+    let entry = &saved["models"]["vision-model"];
+    assert_eq!(entry["adapter"], "responses");
+    assert_eq!(entry["profile"]["acceptsImages"], false);
+    assert_eq!(entry["profile"]["contextWindow"], 65536);
+    assert!(!String::from_utf8_lossy(&terminal.bytes).contains("SYNTHETIC_PTY_DISCOVERY_KEY"));
+    let records: Vec<_> = std::fs::read_dir(home.path().join(".lattice/setup-tests"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
+    assert_eq!(records.len(), 1);
+    let journal = std::fs::read_to_string(&records[0]).unwrap();
+    assert!(!journal.contains("SYNTHETIC_PTY_DISCOVERY_KEY"));
+    assert!(
+        !journal.contains("vision-model"),
+        "discovery journals omit provider bodies"
+    );
+    let events: Vec<serde_json::Value> = journal
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0]["operation"], "models");
+    assert_eq!(events[0]["phase"], "requested");
+    assert_eq!(events[1]["ok"], true);
+    assert_eq!(events[1]["count"], 2);
 }

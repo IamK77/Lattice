@@ -11,13 +11,19 @@ fn custom_endpoint_uses_explicit_limits_and_an_environment_reference() {
     let mut ui = Script::new([
         Select(1),
         Select(0),
-        Text("custom-model"),
         Text("https://example.invalid/v1"),
-        Text("4096"),
-        Text("1024"),
-        Text("custom"),
+        Select(0),
         Select(env_choice),
         Text("LATTICE_SETUP_CUSTOM_SYNTHETIC"),
+        Select(1),
+        Text("custom-model"),
+        Select(1),
+        Text("4096"),
+        Text("1024"),
+        Select(2),
+        Select(0),
+        Select(0),
+        Text("custom"),
         Confirm(false),
         Select(0),
         Select(0),
@@ -86,19 +92,20 @@ fn redaction_placeholder_can_be_repaired_without_recreating_the_entry() {
 }
 
 #[derive(Debug)]
-enum Answer {
+pub(super) enum Answer {
     Select(usize),
     Text(&'static str),
     Secret,
+    Key(&'static str),
     Confirm(bool),
     Cancel,
 }
-struct Script {
-    answers: VecDeque<Answer>,
-    messages: Vec<String>,
+pub(super) struct Script {
+    pub(super) answers: VecDeque<Answer>,
+    pub(super) messages: Vec<String>,
 }
 impl Script {
-    fn new(answers: impl IntoIterator<Item = Answer>) -> Self {
+    pub(super) fn new(answers: impl IntoIterator<Item = Answer>) -> Self {
         Self {
             answers: answers.into_iter().collect(),
             messages: vec![],
@@ -129,10 +136,11 @@ impl Questions for Script {
         Ok(text.into())
     }
     fn secret(&mut self, _: &str) -> Result<String> {
-        let Answer::Secret = self.next()? else {
-            panic!("expected secret")
-        };
-        Ok("FAKE_SETUP_KEY_NEVER_PRINT".into())
+        match self.next()? {
+            Answer::Secret => Ok("FAKE_SETUP_KEY_NEVER_PRINT".into()),
+            Answer::Key(key) => Ok(key.into()),
+            _ => panic!("expected secret"),
+        }
     }
     fn confirm(&mut self, _: &str, _: bool) -> Result<bool> {
         let Answer::Confirm(value) = self.next()? else {
@@ -145,7 +153,10 @@ struct Probe {
     calls: usize,
     fail: bool,
 }
-impl ConnectionTest for Probe {
+impl SetupNetwork for Probe {
+    fn models(&mut self, _: &Value) -> std::result::Result<Vec<discovery::Model>, String> {
+        panic!("model discovery must require an explicit selection");
+    }
     fn test(&mut self, _: &Entry) -> std::result::Result<(), String> {
         self.calls += 1;
         if self.fail {
@@ -177,9 +188,16 @@ fn first_steps(preferred: bool) -> Vec<Answer> {
     use Answer::*;
     vec![
         Select(0),
-        Text("setup-test"),
+        Select(2),
+        Select(0),
+        Text("https://api.deepseek.com"),
+        Select(0),
         Select(0),
         Secret,
+        Select(1),
+        Text("deepseek-flash"),
+        Select(0),
+        Text("setup-test"),
         Confirm(preferred),
         Select(0),
     ]
@@ -189,7 +207,7 @@ fn first_steps(preferred: bool) -> Vec<Answer> {
 fn cancel_before_saving_creates_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("not-created/models.json");
-    let mut ui = Script::new([Answer::Select(0), Answer::Text("new"), Answer::Cancel]);
+    let mut ui = Script::new([Answer::Select(0), Answer::Select(2), Answer::Cancel]);
     let mut probe = Probe {
         calls: 0,
         fail: false,
@@ -309,6 +327,60 @@ fn endpoint_validation_rejects_hidden_credentials_and_non_http_schemes() {
             validate_target(&json!({"adapter":"openai","model":"test","baseUrl":url})).is_err()
         );
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn returning_to_setup_choices_retains_the_complete_unsaved_draft() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("models.json");
+    let mut answers = first_steps(false);
+    answers.pop();
+    answers.extend([
+        Answer::Select(7),
+        Answer::Select(0),
+        Answer::Select(0),
+        Answer::Select(0),
+    ]);
+    let mut ui = Script::new(answers);
+    let mut network = Probe {
+        calls: 0,
+        fail: false,
+    };
+    let result = guide(cfg(), &path, None, &mut ui, &mut network).unwrap();
+    assert_eq!(result.model, "deepseek-flash");
+    assert!(ui.answers.is_empty());
+    assert_eq!(network.calls, 0);
+}
+
+#[test]
+fn confirmed_capabilities_reach_runtime_configuration_not_only_the_catalog() {
+    let entry = Entry {
+        id: "chosen".into(),
+        adapter: "responses".into(),
+        model: "synthetic".into(),
+        base_url: "https://example.invalid".into(),
+        key_env: "SYNTHETIC_KEY_ENV".into(),
+        profile: Some(
+            json!({"contextWindow":8192,"maxOutputTokens":2048,"acceptsImages":true,
+            "effort":["low","high"],"nativeWebSearch":true,"nativeImageGeneration":true,
+            "usageFields":{"input":"custom.input","output":"custom.output"}}),
+        ),
+    };
+    let mut launch = cfg();
+    apply(&mut launch, &entry);
+    assert_eq!(launch.usage_input_field, "custom.input");
+    let running = lattice::preset::running_entry(&launch);
+    assert!(running.accepts_images());
+    let gate = lattice::preset::model_profile(&launch);
+    assert_eq!(gate["contextWindow"], 8192);
+    assert_eq!(gate["usageFields"]["input"], "custom.input");
+    let model = lattice::preset::main_model_config(&running, launch.thinking.as_ref());
+    assert_eq!(model["maxTokens"], 2048);
+    assert_eq!(model["effort"], json!(["low", "high"]));
+    assert_eq!(model["nativeWebSearch"], true);
+    assert_eq!(model["nativeImageGeneration"], true);
+    assert_eq!(launch.workspace, cfg().workspace);
 }
 
 #[test]
