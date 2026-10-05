@@ -1,6 +1,30 @@
 use super::*;
 
 #[test]
+fn wizard_keeps_the_original_latest_target_and_rejects_its_disappearance() {
+    let home = tempfile::tempdir().unwrap();
+    let dir = home.path().join(".lattice/ledgers");
+    std::fs::create_dir_all(&dir).unwrap();
+    let original = dir.join("20260101-000000.jsonl");
+    std::fs::write(&original, "{\"seq\":1}\n").unwrap();
+    let selected = ConversationSelection::capture(home.path(), Resume::Latest).unwrap();
+    std::fs::write(dir.join("20260102-000000.jsonl"), "{\"seq\":1}\n").unwrap();
+    assert_eq!(selected.finish(home.path()).unwrap().0, original);
+    let selected =
+        ConversationSelection::capture(home.path(), Resume::Named("20260101-000000".into()))
+            .unwrap();
+    std::fs::remove_file(original).unwrap();
+    assert!(selected.finish(home.path()).is_err());
+}
+
+#[test]
+fn cancelled_fresh_selection_has_no_filesystem_side_effects() {
+    let home = tempfile::tempdir().unwrap();
+    let _selection = ConversationSelection::capture(home.path(), Resume::Fresh).unwrap();
+    assert_eq!(std::fs::read_dir(home.path()).unwrap().count(), 0);
+}
+
+#[test]
 fn startup_note_preserves_entry_time_and_is_consumed_by_the_first_frame() {
     let mut trace = Trace::start();
     // A wall-clock label is deliberately unrelated to elapsed measurement.

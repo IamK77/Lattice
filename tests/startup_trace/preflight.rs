@@ -32,8 +32,8 @@ fn refusal(output: Output) -> String {
 }
 
 #[test]
-fn missing_key_stops_before_catalog_warning_workspace_and_ledger_selection() {
-    for args in [vec!["--resume", "missing"], vec!["serve"]] {
+fn missing_configuration_never_creates_a_workspace_or_ledger() {
+    for args in [vec![], vec!["serve"]] {
         let home = tempfile::tempdir().unwrap();
         broken_catalog(home.path());
         let workspace = home.path().join("new/workspace");
@@ -48,7 +48,8 @@ fn missing_key_stops_before_catalog_warning_workspace_and_ledger_selection() {
                 .unwrap(),
         );
         assert!(
-            error.contains("no model this installation can reach"),
+            error.contains("no model this installation can reach")
+                || error.contains("model configuration is incomplete"),
             "{error}"
         );
         assert!(!error.contains("warning:"), "{error}");
@@ -64,7 +65,7 @@ fn missing_key_stops_before_catalog_warning_workspace_and_ledger_selection() {
 
 #[test]
 fn catalog_warning_precedes_workspace_failure_in_both_hosts() {
-    for args in [vec!["--resume", "missing"], vec!["serve"]] {
+    for args in [vec![], vec!["serve"]] {
         let home = tempfile::tempdir().unwrap();
         broken_catalog(home.path());
         let workspace = home.path().join("not-a-directory");
@@ -88,7 +89,7 @@ fn catalog_warning_precedes_workspace_failure_in_both_hosts() {
 }
 
 #[test]
-fn workspace_is_prepared_before_a_missing_conversation_is_reported() {
+fn missing_conversation_is_reported_before_setup_or_workspace_creation() {
     let home = tempfile::tempdir().unwrap();
     broken_catalog(home.path());
     let workspace = home.path().join("new/workspace");
@@ -100,36 +101,39 @@ fn workspace_is_prepared_before_a_missing_conversation_is_reported() {
             .output()
             .unwrap(),
     );
-    assert!(error.starts_with("warning:"), "{error}");
+    assert!(!error.contains("warning:"), "{error}");
     assert!(error.contains("no conversation called"), "{error}");
     assert!(
-        workspace.is_dir(),
-        "workspace preparation precedes ledger selection"
+        !workspace.exists(),
+        "invalid history selection must not prepare a workspace"
     );
     assert!(!home.path().join(".lattice/ledgers").exists());
 }
 
 #[test]
-fn an_existing_empty_key_still_passes_the_launch_check() {
-    let home = tempfile::tempdir().unwrap();
-    let workspace = home.path().join("workspace");
-    let error = refusal(
-        command(home.path())
-            .args(["--resume", "missing"])
-            .env("LATTICE_ADAPTER", "openai")
-            .env("LATTICE_MODEL", "fixture")
-            .env("LATTICE_API_KEY_ENV", "LATTICE_TEST_EMPTY_KEY")
-            .env("LATTICE_TEST_EMPTY_KEY", "")
-            .env("LATTICE_WORKSPACE", &workspace)
-            .output()
-            .unwrap(),
-    );
-    assert!(error.contains("no conversation called"), "{error}");
-    assert!(
-        !error.contains("no model this installation can reach"),
-        "{error}"
-    );
-    assert!(workspace.is_dir());
+fn an_empty_key_is_not_a_usable_credential_in_either_host() {
+    for args in [vec![], vec!["serve"]] {
+        let home = tempfile::tempdir().unwrap();
+        let workspace = home.path().join("workspace");
+        let error = refusal(
+            command(home.path())
+                .args(args)
+                .env("LATTICE_ADAPTER", "openai")
+                .env("LATTICE_MODEL", "fixture")
+                .env("LATTICE_API_KEY_ENV", "LATTICE_TEST_EMPTY_KEY")
+                .env("LATTICE_TEST_EMPTY_KEY", "")
+                .env("LATTICE_WORKSPACE", &workspace)
+                .output()
+                .unwrap(),
+        );
+        assert!(
+            error.contains("no model this installation can reach")
+                || error.contains("model configuration is incomplete"),
+            "{error}"
+        );
+        assert!(!workspace.exists());
+        assert!(!home.path().join(".lattice/ledgers").exists());
+    }
 }
 
 #[test]

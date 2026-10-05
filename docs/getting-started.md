@@ -24,6 +24,25 @@ export LATTICE_BIN="$PWD/target/release/lattice"
 
 ## 2. Connect a model
 
+### Guided setup
+
+Move into your project and run `"$LATTICE_BIN"` in an interactive terminal. If its model configuration is incomplete, Lattice asks questions **before opening the full-screen TUI**:
+
+1. Choose DeepSeek Flash, a custom endpoint/model, or an existing entry to repair.
+2. Supply a masked key for local storage (the default recommendation), or name an existing nonempty environment variable.
+3. Review the model, endpoint and destination file; choose whether to save it as your default, then save.
+4. Skip the optional connection test and enter the TUI, or explicitly send a short, potentially billable test request. A failed test can be retried explicitly, corrected, skipped, or followed by exit; it is never retried automatically.
+
+Esc or Ctrl-C exits the guide. Cancelling before saving creates neither a model entry nor a conversation; configuration already saved remains available. A usable existing configuration skips the guide. Background/noninteractive commands do not prompt. Your requested resumed conversation is retained throughout setup.
+
+A local key is stored in an **agent-readable file**: file-tool reads can put it into persistent history and model input. On Unix the writer creates its temporary file owner-only before writing credentials. This is not a promise that the agent cannot read the key. Environment references remain available; setup does not edit shell startup files. Unsupported protected storage on other platforms is not presented as safe local-key storage.
+
+Connection tests are frontend operations, not chat messages. Each explicit attempt has a separate record under `setup-tests/` beside the catalog, containing request intent and outcome but no key, request body or provider response body. A record without a completed outcome means the result is unknown; it is not replayed. A successful short text probe does not validate tools, reasoning history or every provider feature. The bundled DeepSeek template is based on the official references recorded in `src/bin/lattice/setup/deepseek.json`; real-account acceptance is separate.
+
+Invalid catalogs are never reset. Repair the indicated file and choose to check again. If the model saves but the default preference does not, the guide says so and offers continuing for this launch. Launch environment overrides still take precedence on later launches.
+
+### Manual configuration (optional)
+
 The default model catalog is `~/.lattice/models.json`. Create its parent directory if necessary:
 
 ```bash

@@ -1,0 +1,324 @@
+use super::*;
+use std::collections::VecDeque;
+
+#[test]
+fn custom_endpoint_uses_explicit_limits_and_an_environment_reference() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("models.json");
+    std::env::set_var("LATTICE_SETUP_CUSTOM_SYNTHETIC", "synthetic-custom-key");
+    use Answer::*;
+    let env_choice = usize::from(cfg!(unix));
+    let mut ui = Script::new([
+        Select(1),
+        Select(0),
+        Text("custom-model"),
+        Text("https://example.invalid/v1"),
+        Text("4096"),
+        Text("1024"),
+        Text("custom"),
+        Select(env_choice),
+        Text("LATTICE_SETUP_CUSTOM_SYNTHETIC"),
+        Confirm(false),
+        Select(0),
+        Select(0),
+    ]);
+    let mut probe = Probe {
+        calls: 0,
+        fail: false,
+    };
+    let result = guide(cfg(), &path, None, &mut ui, &mut probe).unwrap();
+    assert_eq!(result.model, "custom-model");
+    assert_eq!(result.key_env, "LATTICE_SETUP_CUSTOM_SYNTHETIC");
+    let stored = std::fs::read_to_string(path).unwrap();
+    assert!(!stored.contains("synthetic-custom-key"));
+    let value: Value = serde_json::from_str(&stored).unwrap();
+    assert_eq!(value["models"]["custom"]["profile"]["contextWindow"], 4096);
+    assert_eq!(probe.calls, 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn each_failed_probe_requires_a_new_explicit_action_and_exit_keeps_configuration() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("models.json");
+    let mut answers = first_steps(false);
+    answers.extend([Answer::Select(1), Answer::Select(1), Answer::Select(3)]);
+    let mut ui = Script::new(answers);
+    let mut probe = Probe {
+        calls: 0,
+        fail: true,
+    };
+    assert!(matches!(
+        guide(cfg(), &path, None, &mut ui, &mut probe),
+        Err(Error::Cancelled)
+    ));
+    assert_eq!(probe.calls, 2);
+    assert!(path.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn redaction_placeholder_can_be_repaired_without_recreating_the_entry() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("models.json");
+    let original = json!({"models":{"broken-key":{"adapter":"openai","model":"synthetic","baseUrl":"https://example.invalid","apiKey":"[redacted]","note":"keep","profile":{"contextWindow":4096}}},"unknown":"keep"});
+    std::fs::write(&path, original.to_string()).unwrap();
+    use Answer::*;
+    let mut ui = Script::new([
+        Select(2),
+        Select(0),
+        Secret,
+        Confirm(false),
+        Select(0),
+        Select(0),
+    ]);
+    let mut probe = Probe {
+        calls: 0,
+        fail: false,
+    };
+    let result = guide(cfg(), &path, None, &mut ui, &mut probe).unwrap();
+    assert_eq!(result.model, "synthetic");
+    let saved: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    let mut expected = original;
+    expected["models"]["broken-key"]["apiKey"] = json!("FAKE_SETUP_KEY_NEVER_PRINT");
+    assert_eq!(saved, expected);
+    assert_eq!(probe.calls, 0);
+}
+
+#[derive(Debug)]
+enum Answer {
+    Select(usize),
+    Text(&'static str),
+    Secret,
+    Confirm(bool),
+    Cancel,
+}
+struct Script {
+    answers: VecDeque<Answer>,
+    messages: Vec<String>,
+}
+impl Script {
+    fn new(answers: impl IntoIterator<Item = Answer>) -> Self {
+        Self {
+            answers: answers.into_iter().collect(),
+            messages: vec![],
+        }
+    }
+    fn next(&mut self) -> Result<Answer> {
+        match self.answers.pop_front().expect("unexpected extra prompt") {
+            Answer::Cancel => Err(Error::Cancelled),
+            value => Ok(value),
+        }
+    }
+}
+impl Questions for Script {
+    fn tell(&mut self, text: &str) {
+        self.messages.push(text.into());
+    }
+    fn select(&mut self, _: &str, options: &[String]) -> Result<usize> {
+        let Answer::Select(i) = self.next()? else {
+            panic!("expected selection")
+        };
+        assert!(i < options.len());
+        Ok(i)
+    }
+    fn text(&mut self, _: &str, _: &str) -> Result<String> {
+        let Answer::Text(text) = self.next()? else {
+            panic!("expected text")
+        };
+        Ok(text.into())
+    }
+    fn secret(&mut self, _: &str) -> Result<String> {
+        let Answer::Secret = self.next()? else {
+            panic!("expected secret")
+        };
+        Ok("FAKE_SETUP_KEY_NEVER_PRINT".into())
+    }
+    fn confirm(&mut self, _: &str, _: bool) -> Result<bool> {
+        let Answer::Confirm(value) = self.next()? else {
+            panic!("expected confirmation")
+        };
+        Ok(value)
+    }
+}
+struct Probe {
+    calls: usize,
+    fail: bool,
+}
+impl ConnectionTest for Probe {
+    fn test(&mut self, _: &Entry) -> std::result::Result<(), String> {
+        self.calls += 1;
+        if self.fail {
+            Err("synthetic refusal".into())
+        } else {
+            Ok(())
+        }
+    }
+}
+fn cfg() -> PresetConfig {
+    PresetConfig {
+        adapter: "openai".into(),
+        model: "original".into(),
+        base_url: "https://example.invalid".into(),
+        key_env: "LATTICE_SETUP_TEST_MISSING".into(),
+        workspace: Some("do-not-create-workspace".into()),
+        context_window: 1000,
+        usage_input_field: "prompt_tokens".into(),
+        profile: None,
+        catalog_problems: vec![],
+        system: "preserve system".into(),
+        thinking: None,
+        scripted: None,
+        overlay: None,
+        assembly: None,
+    }
+}
+fn first_steps(preferred: bool) -> Vec<Answer> {
+    use Answer::*;
+    vec![
+        Select(0),
+        Text("setup-test"),
+        Select(0),
+        Secret,
+        Confirm(preferred),
+        Select(0),
+    ]
+}
+
+#[test]
+fn cancel_before_saving_creates_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("not-created/models.json");
+    let mut ui = Script::new([Answer::Select(0), Answer::Text("new"), Answer::Cancel]);
+    let mut probe = Probe {
+        calls: 0,
+        fail: false,
+    };
+    assert!(matches!(
+        guide(cfg(), &path, None, &mut ui, &mut probe),
+        Err(Error::Cancelled)
+    ));
+    assert!(!path.parent().unwrap().exists());
+    assert_eq!(probe.calls, 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn save_and_skip_makes_no_request_and_preserves_launch_configuration() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("models.json");
+    let preferences = dir.path().join("preferences.json");
+    let mut answers = first_steps(true);
+    answers.push(Answer::Select(0));
+    let mut ui = Script::new(answers);
+    let mut probe = Probe {
+        calls: 0,
+        fail: false,
+    };
+    let result = guide(cfg(), &path, Some(&preferences), &mut ui, &mut probe).unwrap();
+    assert_eq!(result.model, "deepseek-flash");
+    assert_eq!(result.workspace, cfg().workspace);
+    assert_eq!(result.system, cfg().system);
+    assert_eq!(probe.calls, 0);
+    assert!(!ui
+        .messages
+        .join("\n")
+        .contains("FAKE_SETUP_KEY_NEVER_PRINT"));
+    assert!(ui.answers.is_empty());
+    assert_eq!(
+        lattice::preferences::load_from(&preferences)["model"],
+        "setup-test"
+    );
+    assert!(!dir.path().join("ledgers").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn failed_probe_is_not_retried_and_user_can_skip() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut answers = first_steps(false);
+    answers.extend([Answer::Select(1), Answer::Select(0)]);
+    let mut ui = Script::new(answers);
+    let mut probe = Probe {
+        calls: 0,
+        fail: true,
+    };
+    assert!(guide(
+        cfg(),
+        &dir.path().join("models.json"),
+        None,
+        &mut ui,
+        &mut probe
+    )
+    .is_ok());
+    assert_eq!(probe.calls, 1);
+    assert!(ui.messages.join("\n").contains("synthetic refusal"));
+}
+
+#[cfg(unix)]
+#[test]
+fn preference_failure_does_not_rollback_the_saved_model() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("models.json");
+    let pref = dir.path().join("preferences.json");
+    std::fs::write(&pref, "broken").unwrap();
+    let mut answers = first_steps(true);
+    answers.extend([Answer::Select(0), Answer::Select(0)]);
+    let mut ui = Script::new(answers);
+    let mut probe = Probe {
+        calls: 0,
+        fail: false,
+    };
+    assert!(guide(cfg(), &path, Some(&pref), &mut ui, &mut probe).is_ok());
+    assert_eq!(std::fs::read_to_string(pref).unwrap(), "broken");
+    assert!(path.exists());
+    assert!(ui
+        .messages
+        .join("\n")
+        .contains("default selection NOT saved"));
+}
+
+#[test]
+fn invalid_catalog_is_not_treated_as_first_installation() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("models.json");
+    let original = r#"{"models": ["do not destroy"]}"#;
+    std::fs::write(&path, original).unwrap();
+    let mut ui = Script::new([Answer::Select(1)]);
+    let mut probe = Probe {
+        calls: 0,
+        fail: false,
+    };
+    assert!(matches!(
+        guide(cfg(), &path, None, &mut ui, &mut probe),
+        Err(Error::Cancelled)
+    ));
+    assert_eq!(std::fs::read_to_string(path).unwrap(), original);
+}
+
+#[test]
+fn endpoint_validation_rejects_hidden_credentials_and_non_http_schemes() {
+    for url in [
+        "file:///tmp/model",
+        "https://key@example.invalid",
+        "https://example.invalid?key=secret",
+        "https://example.invalid/#secret",
+        "",
+    ] {
+        assert!(
+            validate_target(&json!({"adapter":"openai","model":"test","baseUrl":url})).is_err()
+        );
+    }
+}
+
+#[test]
+fn guided_template_is_complete_but_does_not_seed_a_catalog() {
+    let template: Value = serde_json::from_str(include_str!("deepseek.json")).unwrap();
+    let entry = &template["entry"];
+    validate_target(entry).unwrap();
+    assert_eq!(entry["profile"]["contextWindow"], 1048576);
+    assert_eq!(entry["profile"]["maxOutputTokens"], 393216);
+    assert!(entry.get("apiKey").is_none());
+    assert!(entry.get("apiKeyEnv").is_none());
+    assert!(!template["sources"].as_array().unwrap().is_empty());
+}

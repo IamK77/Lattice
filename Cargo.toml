@@ -32,6 +32,7 @@ similar = "2.7"
 # can drop it with default-features = false. The lib core never uses them.
 ratatui = { version = "0.30", optional = true }
 ctrlc = { version = "3", optional = true }
+inquire = { version = "=0.9.4", default-features = false, features = ["crossterm"], optional = true }
 ignore = "0.4.31"
 grep-searcher = "0.1.17"
 grep-regex = "0.1.14"
@@ -54,7 +55,7 @@ libc = "0.2"
 [features]
 default = ["cli"]
 # The `lattice` binary (in-process TUI + `serve` daemon)
-cli = ["dep:ratatui", "dep:ctrlc"]
+cli = ["dep:ratatui", "dep:ctrlc", "dep:inquire"]
 
 [[bin]]
 name = "lattice"

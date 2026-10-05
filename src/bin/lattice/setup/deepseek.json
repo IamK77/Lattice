@@ -1,0 +1,28 @@
+{
+  "revision": 1,
+  "label": "DeepSeek Flash",
+  "sources": [
+    "https://api-docs.deepseek.com/",
+    "https://api-docs.deepseek.com/api/list-models/",
+    "https://api-docs.deepseek.com/api/create-chat-completion/",
+    "https://api-docs.deepseek.com/guides/thinking_mode",
+    "https://api-docs.deepseek.com/guides/vision/"
+  ],
+  "verification": "Official documentation reviewed for issue #60; live endpoint acceptance remains separate.",
+  "entry": {
+    "adapter": "openai",
+    "model": "deepseek-flash",
+    "baseUrl": "https://api.deepseek.com",
+    "profile": {
+      "contextWindow": 1048576,
+      "maxOutputTokens": 393216,
+      "acceptsImages": true,
+      "effort": ["low", "high", "max"],
+      "usageFields": {
+        "input": "prompt_tokens",
+        "output": "completion_tokens",
+        "cacheRead": "prompt_cache_hit_tokens"
+      }
+    }
+  }
+}
