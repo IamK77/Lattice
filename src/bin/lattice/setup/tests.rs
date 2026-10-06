@@ -25,9 +25,9 @@ fn custom_endpoint_uses_explicit_limits_and_an_environment_reference() {
         Select(2),
         Multi(&[0]),
         Select(0),
-        Select(4),
+        More(1),
         Text("custom"),
-        Select(5),
+        More(2),
         Select(0),
         Select(0),
     ]);
@@ -105,6 +105,7 @@ fn redaction_placeholder_can_be_repaired_without_recreating_the_entry() {
 #[derive(Debug)]
 pub(super) enum Answer {
     Select(usize),
+    More(usize),
     Multi(&'static [usize]),
     Text(&'static str),
     Secret,
@@ -124,7 +125,13 @@ pub(super) struct Script {
 impl Script {
     pub(super) fn new(answers: impl IntoIterator<Item = Answer>) -> Self {
         Self {
-            answers: answers.into_iter().collect(),
+            answers: answers
+                .into_iter()
+                .flat_map(|answer| match answer {
+                    Answer::More(index) => vec![Answer::Select(4), Answer::Select(index)],
+                    other => vec![other],
+                })
+                .collect(),
             messages: vec![],
             multi_prompts: vec![],
             language: Language::English,
@@ -239,11 +246,11 @@ fn first_steps(preferred: bool) -> Vec<Answer> {
         Secret,
         Select(1),
         Text("deepseek-flash"),
-        Select(4),
+        More(1),
         Text("setup-test"),
     ];
     if !preferred {
-        answers.push(Select(5));
+        answers.push(More(2));
     }
     answers.push(Select(0));
     answers
@@ -383,7 +390,7 @@ fn returning_to_setup_choices_retains_the_complete_unsaved_draft() {
     let mut answers = first_steps(false);
     answers.pop();
     answers.extend([
-        Answer::Select(7),
+        Answer::More(5),
         Answer::Select(0),
         Answer::Select(0),
         Answer::Select(0),

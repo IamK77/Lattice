@@ -49,6 +49,7 @@ macro_rules! messages {
     };
 }
 messages! {
+    LimitsSummary, CapabilitiesSummary, NoRungs, LongSuggestions, ToolsSummary, PageTitle, PageDetails, PageCounter, NextPage, PreviousPage, DetailsShown, SmallTerminal, PendingModels, PendingTest, MoreSettings, CompactSummary, UncertainCapabilities, ShowDetails, PageHelp, ConnectionStage,
     Welcome, NoCatalog, Exited, Failure, RawError, Back, Exit, Continue, LanguageMenu, LanguageChoice, LanguageSaved, LanguageNotSaved,
     SelectHelp, MultiHelp, InputHelp, SecretHelp, ConfirmHelp, Yes, No, Unknown, Enabled, Disabled,
     Home, Provider, Custom, RepairEntry, RepairLaunch, UnsafeCatalog, CheckAgain, LaunchOverride,

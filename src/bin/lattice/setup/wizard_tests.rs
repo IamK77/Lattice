@@ -2,6 +2,29 @@ use super::super::tests::{Answer::*, Script};
 use super::*;
 use std::collections::VecDeque;
 
+#[test]
+fn compact_summary_distinguishes_empty_rungs_from_missing_metadata() {
+    let capabilities = Capabilities::new(
+        "synthetic-unlisted",
+        "openai",
+        &json!({"effort": []}),
+        None,
+        "https://example.invalid",
+    );
+    let mut ui = Script::new([]);
+    capabilities.summary(&mut ui);
+    let summary = ui.messages.join("\n");
+    assert!(
+        summary.contains("thinking rungs: none configured"),
+        "{summary}"
+    );
+    assert!(!summary.contains("Usage field mapping"));
+    assert!(capabilities
+        .lines(&ui)
+        .join("\n")
+        .contains("Usage field mapping"));
+}
+
 struct Network {
     replies: VecDeque<std::result::Result<Vec<discovery::Model>, String>>,
     requests: Vec<Value>,
@@ -291,9 +314,9 @@ fn fetched_model_and_user_corrections_survive_review_and_connection_navigation()
         Secret,
         Select(0),
         Select(0),
-        Select(4),
+        More(1),
         Text("chosen"),
-        Select(5),
+        More(2),
         Select(3),
         Select(2),
         Multi(&[]),
@@ -355,9 +378,9 @@ fn failed_and_empty_discovery_allow_manual_input_without_guessed_capabilities() 
         Select(2),
         Multi(&[]),
         Select(0),
-        Select(4),
+        More(1),
         Text("manual"),
-        Select(5),
+        More(2),
         Select(0),
     ]);
     let result = configure(
@@ -392,7 +415,7 @@ fn input_limit_is_not_added_to_output_and_unknown_images_stay_disabled() {
     assert_eq!(capabilities.value["contextWindow"], 1000);
     assert_eq!(capabilities.value["acceptsImages"], false);
     assert_eq!(capabilities.value["nativeWebSearch"], false);
-    let mut ui = Script::new([Select(2), Multi(&[1]), Select(0)]);
+    let mut ui = Script::new([Select(2), Multi(&[1]), Select(5), Select(0), Select(0)]);
     assert!(capabilities.edit(&mut ui, "responses").unwrap());
     assert_eq!(capabilities.value["nativeWebSearch"], true);
     assert_eq!(capabilities.value["nativeImageGeneration"], false);
@@ -572,7 +595,7 @@ fn changing_format_keeps_a_custom_endpoint_and_key_but_refreshes_its_model_metad
         Secret,
         Select(0),
         Select(0),
-        Select(6),
+        More(3),
         Select(1),
         Text("https://custom.invalid/v1"),
         Select(3),

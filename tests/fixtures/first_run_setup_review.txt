@@ -1,0 +1,17 @@
+Lattice · Model setup
+
+Model: deepseek-flash
+API: OpenAI Chat Completions
+Endpoint: https://api.deepseek.com
+Local name: deepseek-flash
+On save: set this model as default
+Credential: stored locally (hidden)
+Limits: context 1,048,576 tokens · output 393,216 tokens
+Image input: enabled · thinking rungs: low, high, max
+? 3/3 Review configuration
+> Save and continue
+  Edit endpoint or credential
+  Choose another model
+  Edit model capabilities
+  More settings and details
+[Type to filter | arrows: move | Enter: select | Esc: back | Ctrl+C: exit]

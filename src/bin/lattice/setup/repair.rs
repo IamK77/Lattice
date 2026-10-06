@@ -1,5 +1,8 @@
 //! Credential-only repair keeps the original catalog payload and an unsaved draft.
-use super::{change_language, choose, credential, Error, Field, Questions, Result, M};
+use super::{
+    api_name, change_language, choose, connection_context, credential, Error, Field, Questions,
+    Result, M,
+};
 use lattice::models::catalog::Snapshot;
 use serde_json::{json, Value};
 use std::path::Path;
@@ -34,6 +37,7 @@ impl Draft {
     ) -> Result<bool> {
         loop {
             if self.prompt_key {
+                ui.page(M::ConnectionStage, &connection_context(&self.spec));
                 match credential(ui) {
                     Ok((field, value)) => {
                         self.spec.as_object_mut().unwrap().remove("apiKey");
@@ -46,14 +50,14 @@ impl Draft {
                 }
                 self.prompt_key = false;
             }
+            ui.page(M::PageTitle, &[]);
             ui.say(
-                M::ReviewSummary,
+                M::CompactSummary,
                 &[
-                    &self.id,
                     self.spec["model"].as_str().unwrap(),
-                    self.spec["adapter"].as_str().unwrap(),
+                    api_name(self.spec["adapter"].as_str().unwrap()),
                     self.spec["baseUrl"].as_str().unwrap(),
-                    &path.display().to_string(),
+                    &self.id,
                     &ui.label(if self.preferred {
                         M::SetDefault
                     } else {
@@ -84,7 +88,7 @@ impl Draft {
             if !self.existing {
                 options.push(M::EditName);
             }
-            options.extend([M::HomeBack, M::Exit]);
+            options.extend([M::HomeBack, M::Exit, M::ShowDetails]);
             let action = match choose(ui, M::Review, &options) {
                 Ok(choice) => options[choice],
                 Err(Error::Back) => return Ok(false),
@@ -112,6 +116,24 @@ impl Draft {
                     Err(Error::Back) => {}
                     Err(e) => return Err(e),
                 },
+                M::ShowDetails => ui.details(
+                    M::ShowDetails,
+                    &[ui.message(
+                        M::ReviewSummary,
+                        &[
+                            &self.id,
+                            self.spec["model"].as_str().unwrap(),
+                            api_name(self.spec["adapter"].as_str().unwrap()),
+                            self.spec["baseUrl"].as_str().unwrap(),
+                            &path.display().to_string(),
+                            &ui.label(if self.preferred {
+                                M::SetDefault
+                            } else {
+                                M::KeepDefault
+                            }),
+                        ],
+                    )],
+                )?,
                 M::Exit => return Err(Error::Cancelled),
                 _ => return Ok(false),
             }

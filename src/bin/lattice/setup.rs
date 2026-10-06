@@ -18,6 +18,8 @@ mod probe;
 mod prompts;
 #[path = "setup/repair.rs"]
 mod repair;
+#[path = "setup/screen.rs"]
+mod screen;
 #[cfg(test)]
 #[path = "setup/tests.rs"]
 mod tests;
@@ -40,6 +42,24 @@ impl From<String> for Error {
 }
 
 trait Questions {
+    fn page(&mut self, _title: M, _context: &[String]) {}
+    fn busy(&mut self, message: M) -> Result<()> {
+        self.say(message, &[]);
+        Ok(())
+    }
+    fn details(&mut self, title: M, lines: &[String]) -> Result<()>
+    where
+        Self: Sized,
+    {
+        self.page(title, &[]);
+        for line in lines {
+            self.tell(line);
+        }
+        match choose(self, title, &[M::Back]) {
+            Ok(_) | Err(Error::Back) => Ok(()),
+            Err(error) => Err(error),
+        }
+    }
     fn language(&self) -> Language {
         Language::English
     }
@@ -91,6 +111,55 @@ fn choose(ui: &mut impl Questions, message: M, options: &[M]) -> Result<usize> {
         &options.iter().map(|id| ui.label(*id)).collect::<Vec<_>>(),
     )
 }
+fn api_name(adapter: &str) -> &str {
+    match adapter {
+        "openai" => "OpenAI Chat Completions",
+        "responses" => "OpenAI Responses",
+        "anthropic" => "Anthropic Messages",
+        other => other,
+    }
+}
+fn connection_context(spec: &Value) -> Vec<String> {
+    match (spec["adapter"].as_str(), spec["baseUrl"].as_str()) {
+        (Some(adapter), Some(base)) if !base.is_empty() => {
+            vec![format!("{} · {base}", api_name(adapter))]
+        }
+        _ => vec![],
+    }
+}
+fn review_action(ui: &mut impl Questions) -> Result<usize> {
+    match choose(
+        ui,
+        M::Review,
+        &[
+            M::SaveContinue,
+            M::EditConnection,
+            M::EditModel,
+            M::EditCapabilities,
+            M::MoreSettings,
+        ],
+    )? {
+        action @ 0..=3 => Ok(action),
+        _ => match choose(
+            ui,
+            M::MoreSettings,
+            &[
+                M::ShowDetails,
+                M::EditName,
+                M::ToggleDefault,
+                M::EditProvider,
+                M::LanguageMenu,
+                M::HomeBack,
+                M::Exit,
+                M::Back,
+            ],
+        ) {
+            Ok(index) => Ok([10, 4, 5, 6, 8, 7, 9, 11][index]),
+            Err(Error::Back) => Ok(11),
+            Err(error) => Err(error),
+        },
+    }
+}
 fn change_language(ui: &mut impl Questions, preferences: Option<&Path>) -> Result<()> {
     let choice = ui.select(
         &ui.label(M::LanguageChoice),
@@ -118,7 +187,10 @@ pub(crate) fn prepare() -> std::io::Result<Option<PresetConfig>> {
     if ready(&cfg) {
         return Ok(Some(cfg));
     }
-    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+    if !std::io::stdin().is_terminal()
+        || !std::io::stdout().is_terminal()
+        || !std::io::stderr().is_terminal()
+    {
         return Err(std::io::Error::other("model configuration is incomplete; run lattice in an interactive terminal to configure it, or supply a valid catalog and credential"));
     }
     let preferences = lattice::preferences::path();
@@ -126,22 +198,24 @@ pub(crate) fn prepare() -> std::io::Result<Option<PresetConfig>> {
         .as_deref()
         .map(lattice::preferences::load_from)
         .unwrap_or_else(|| json!({}));
-    let mut ui = prompts::Terminal {
-        language: Language::detect(
-            saved["setupLanguage"].as_str(),
-            Language::environment().as_deref(),
-        ),
-    };
-    ui.say(M::Welcome, &[]);
+    let language = Language::detect(
+        saved["setupLanguage"].as_str(),
+        Language::environment().as_deref(),
+    );
     let Some(path) = models::path() else {
-        ui.say(M::NoCatalog, &[]);
+        eprintln!("{}", i18n::text(language, M::NoCatalog, &[]));
         return Ok(None);
     };
+    let mut ui = prompts::Terminal::new(language)?;
     let mut connection = probe::HttpTest::new(path.with_file_name("setup-tests"));
-    match guide(cfg, &path, preferences.as_deref(), &mut ui, &mut connection) {
+    let result = guide(cfg, &path, preferences.as_deref(), &mut ui, &mut connection);
+    // The main TUI gets its own terminal lifetime only after setup has restored
+    // the primary buffer, including when configuration was already saved.
+    ui.close()?;
+    match result {
         Ok(cfg) => Ok(Some(cfg)),
         Err(Error::Back | Error::Cancelled) => {
-            ui.say(M::Exited, &[]);
+            eprintln!("{}", ui.label(M::Exited));
             Ok(None)
         }
         Err(Error::Failed(message)) => {
@@ -212,6 +286,7 @@ fn guide(
     let mut drafts = [wizard::Session::new(false), wizard::Session::new(true)];
     let mut repairs: BTreeMap<String, repair::Draft> = BTreeMap::new();
     'setup: loop {
+        ui.page(M::PageTitle, &[]);
         let mut snapshot = match Snapshot::read(path) {
             Ok(snapshot) => snapshot,
             Err(error) => {
@@ -409,6 +484,7 @@ fn guide(
             }
         }
         loop {
+            ui.page(M::PageTitle, &connection_context(&spec));
             ui.say(M::TestNotice, &[]);
             match choose(
                 ui,
@@ -419,20 +495,23 @@ fn guide(
                     apply(&mut cfg, &entry);
                     return Ok(cfg);
                 }
-                Ok(1) => match connection.test(&entry) {
-                    Ok(()) => {
-                        ui.say(M::TestSuccess, &[]);
-                        match ui.confirm(&ui.label(M::EnterTui), true) {
-                            Ok(true) => {
-                                apply(&mut cfg, &entry);
-                                return Ok(cfg);
+                Ok(1) => {
+                    ui.busy(M::PendingTest)?;
+                    match connection.test(&entry) {
+                        Ok(()) => {
+                            ui.say(M::TestSuccess, &[]);
+                            match ui.confirm(&ui.label(M::EnterTui), true) {
+                                Ok(true) => {
+                                    apply(&mut cfg, &entry);
+                                    return Ok(cfg);
+                                }
+                                Ok(false) | Err(Error::Back) => {}
+                                Err(e) => return Err(e),
                             }
-                            Ok(false) | Err(Error::Back) => {}
-                            Err(e) => return Err(e),
                         }
+                        Err(error) => ui.say(M::TestFailure, &[&error]),
                     }
-                    Err(error) => ui.say(M::TestFailure, &[&error]),
-                },
+                }
                 Ok(2) | Err(Error::Back) => break,
                 Ok(_) => return Err(Error::Cancelled),
                 Err(e) => return Err(e),

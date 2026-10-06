@@ -65,9 +65,9 @@ fn switching_language_on_review_keeps_the_entire_draft_and_network_quiet() {
     let mut answers = first_steps(false);
     answers.pop();
     answers.extend([
-        Select(8),
+        More(4),
         Select(1),
-        Select(4),
+        More(1),
         Text("cn-saved"),
         Select(0),
         Select(0),
@@ -165,7 +165,7 @@ fn back_and_unchanged_connection_keep_completed_fields_without_reentering_the_ke
         Select(0),
         Text("https://api.deepseek.com"),
         Select(3),
-        Select(5),
+        More(2),
         Select(0),
         Select(0),
     ]);
@@ -199,6 +199,8 @@ fn credential_repair_keeps_its_unsaved_key_across_home_and_language_changes() {
         Select(2),
         Select(0),
         Secret,
+        Select(6),
+        Select(0),
         Select(4),
         Select(2),
         Select(3),
@@ -229,6 +231,10 @@ fn credential_repair_keeps_its_unsaved_key_across_home_and_language_changes() {
         1
     );
     assert_eq!(ui.language, Language::Chinese);
+    let messages = ui.messages.join("\n");
+    assert!(messages.contains("API format: OpenAI Chat Completions"));
+    assert!(messages.contains(&path.display().to_string()));
+    assert!(!messages.contains("FAKE_SETUP_KEY_NEVER_PRINT"));
     assert!(ui.answers.is_empty());
     assert_eq!(network.calls, 0);
 }

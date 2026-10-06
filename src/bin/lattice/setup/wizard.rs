@@ -6,8 +6,8 @@
 //! https://api-docs.deepseek.com/guides/anthropic_api/
 //! https://api-docs.deepseek.com/guides/responses_api/
 use super::{
-    change_language, choose, credential_value, discovery, Error, Field, Questions, Result,
-    SetupNetwork, M,
+    api_name, change_language, choose, connection_context, credential_value, discovery,
+    review_action, Error, Field, Questions, Result, SetupNetwork, M,
 };
 use lattice::models::catalog::{validate_name, Snapshot};
 use serde_json::{json, Value};
@@ -212,6 +212,25 @@ pub(super) fn configure(
     loop {
         // Handle Back at the owning step. Completed fields remain in the draft;
         // a cancelled input never commits its unsubmitted text.
+        let context = if matches!(
+            session.step,
+            Step::Provider | Step::Review | Step::Capabilities
+        ) {
+            vec![]
+        } else {
+            connection_context(&session.draft.spec)
+        };
+        ui.page(
+            if matches!(
+                session.step,
+                Step::Connection | Step::Protocol | Step::Endpoint
+            ) {
+                M::ConnectionStage
+            } else {
+                M::PageTitle
+            },
+            &context,
+        );
         let outcome: Result<Transition> = (|| {
             match session.step {
                 Step::Provider => {
@@ -296,13 +315,6 @@ pub(super) fn configure(
                 }
                 Step::Connection => {
                     let draft = &mut session.draft;
-                    ui.say(
-                        M::ConnectionSummary,
-                        &[
-                            draft.spec["adapter"].as_str().unwrap(),
-                            draft.spec["baseUrl"].as_str().unwrap(),
-                        ],
-                    );
                     if draft.spec["baseUrl"]
                         .as_str()
                         .is_some_and(|s| s.starts_with("http://"))
@@ -376,13 +388,12 @@ pub(super) fn configure(
                             suggested_name(snapshot, session.draft.spec["model"].as_str().unwrap());
                     }
                     ui.say(
-                        M::ReviewSummary,
+                        M::CompactSummary,
                         &[
-                            &session.id,
                             session.draft.spec["model"].as_str().unwrap(),
-                            session.draft.spec["adapter"].as_str().unwrap(),
+                            api_name(session.draft.spec["adapter"].as_str().unwrap()),
                             session.draft.spec["baseUrl"].as_str().unwrap(),
-                            &path.display().to_string(),
+                            &session.id,
                             &ui.label(if session.preferred {
                                 M::SetDefault
                             } else {
@@ -398,23 +409,8 @@ pub(super) fn configure(
                         },
                         &[],
                     );
-                    session.draft.capabilities.as_ref().unwrap().show(ui);
-                    let action = choose(
-                        ui,
-                        M::Review,
-                        &[
-                            M::SaveContinue,
-                            M::EditConnection,
-                            M::EditModel,
-                            M::EditCapabilities,
-                            M::EditName,
-                            M::ToggleDefault,
-                            M::EditProvider,
-                            M::HomeBack,
-                            M::LanguageMenu,
-                            M::Exit,
-                        ],
-                    )?;
+                    session.draft.capabilities.as_ref().unwrap().summary(ui);
+                    let action = review_action(ui)?;
                     session.editing_from_review = matches!(action, 1..=4 | 6);
                     match action {
                         0 => {
@@ -450,6 +446,26 @@ pub(super) fn configure(
                             Ok(()) | Err(Error::Back) => {}
                             Err(e) => return Err(e),
                         },
+                        10 => {
+                            let mut lines = vec![ui.message(
+                                M::ReviewSummary,
+                                &[
+                                    &session.id,
+                                    session.draft.spec["model"].as_str().unwrap(),
+                                    api_name(session.draft.spec["adapter"].as_str().unwrap()),
+                                    session.draft.spec["baseUrl"].as_str().unwrap(),
+                                    &path.display().to_string(),
+                                    &ui.label(if session.preferred {
+                                        M::SetDefault
+                                    } else {
+                                        M::KeepDefault
+                                    }),
+                                ],
+                            )];
+                            lines.extend(session.draft.capabilities.as_ref().unwrap().lines(ui));
+                            ui.details(M::ShowDetails, &lines)?;
+                        }
+                        11 => {}
                         _ => return Err(Error::Cancelled),
                     }
                 }
@@ -518,10 +534,11 @@ fn select_model(
         if draft.capabilities.is_some() {
             options.push(M::KeepModel);
         }
-        options.push(M::Back);
+        options.extend([M::EditConnection, M::Back]);
         let action = options[choose(ui, M::ModelMenu, &options)?];
         let result = match action {
             M::FetchModels => {
+                ui.busy(M::PendingModels)?;
                 match network.models(&draft.spec) {
                     Ok(models) => draft.listed = models,
                     Err(error) => {

@@ -130,8 +130,57 @@ impl Capabilities {
         self.value[key] = value;
         self.sources.insert(key.into(), M::SourceEdited.into());
     }
-    pub fn show(&self, ui: &mut impl Questions) {
-        ui.say(M::CapabilitiesTitle, &[]);
+    pub fn summary(&self, ui: &mut impl Questions) {
+        let context = self.value["contextWindow"]
+            .as_u64()
+            .map(format_tokens)
+            .unwrap_or_else(|| ui.label(M::Unknown));
+        let output = self.value["maxOutputTokens"]
+            .as_u64()
+            .map(format_tokens)
+            .unwrap_or_else(|| ui.label(M::Unknown));
+        ui.say(M::LimitsSummary, &[&context, &output]);
+        let enabled = |key: &str| {
+            ui.label(if self.value[key] == true {
+                M::Enabled
+            } else {
+                M::Disabled
+            })
+        };
+        let images = enabled("acceptsImages");
+        let search = enabled("nativeWebSearch");
+        let generation = enabled("nativeImageGeneration");
+        let rungs = self.value["effort"]
+            .as_array()
+            .map(|a| {
+                if a.is_empty() {
+                    ui.label(M::NoRungs)
+                } else {
+                    a.iter()
+                        .filter_map(Value::as_str)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                }
+            })
+            .unwrap_or_else(|| ui.label(M::Unknown));
+        ui.say(M::CapabilitiesSummary, &[&images, &rungs]);
+        if self.value["nativeWebSearch"] == true || self.value["nativeImageGeneration"] == true {
+            ui.say(M::ToolsSummary, &[&search, &generation]);
+        }
+        if self.sources.values().any(|s| {
+            matches!(
+                s.label,
+                M::SourceUnknownImage
+                    | M::SourceUnknownEffort
+                    | M::SourceConflict
+                    | M::SourceInputCeiling
+            )
+        }) {
+            ui.say(M::UncertainCapabilities, &[]);
+        }
+    }
+    pub fn lines(&self, ui: &impl Questions) -> Vec<String> {
+        let mut lines = vec![ui.label(M::CapabilitiesTitle)];
         for (key, label) in [
             ("contextWindow", M::ContextWindow),
             ("maxOutputTokens", M::OutputLimit),
@@ -160,8 +209,24 @@ impl Capabilities {
                     }
                 })
                 .unwrap_or_else(|| ui.label(M::SourceMissing));
-            ui.say(M::FieldSummary, &[&ui.label(label), &value, &source]);
+            lines.push(ui.message(M::FieldSummary, &[&ui.label(label), &value, &source]));
         }
+        lines.push(
+            ui.message(
+                M::FieldSummary,
+                &[
+                    &ui.label(M::UsageMapping),
+                    &self.value["usageFields"].to_string(),
+                    &ui.label(
+                        self.sources
+                            .get("usageFields")
+                            .map(|s| s.label)
+                            .unwrap_or(M::SourceMissing),
+                    ),
+                ],
+            ),
+        );
+        lines
     }
     pub fn valid(&self) -> bool {
         matches!((self.value["contextWindow"].as_u64(), self.value["maxOutputTokens"].as_u64()), (Some(c), Some(o)) if o > 0 && c > o)
@@ -193,7 +258,7 @@ impl Capabilities {
     }
     pub fn edit(&mut self, ui: &mut impl Questions, adapter: &str) -> Result<bool> {
         loop {
-            self.show(ui);
+            self.summary(ui);
             let choice = match choose(
                 ui,
                 M::CapabilitiesMenu,
@@ -203,6 +268,7 @@ impl Capabilities {
                     M::SelectCapabilities,
                     M::EditEffort,
                     M::Advanced,
+                    M::ShowDetails,
                 ],
             ) {
                 Err(Error::Back) => return Ok(false),
@@ -213,6 +279,7 @@ impl Capabilities {
                 2 => self.switches(ui, adapter),
                 3 => self.effort_rungs(ui),
                 4 => self.advanced(ui),
+                5 => ui.details(M::ShowDetails, &self.lines(ui)),
                 _ => return Ok(true),
             };
             match result {
