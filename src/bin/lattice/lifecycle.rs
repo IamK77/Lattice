@@ -7,11 +7,17 @@ use ratatui::crossterm::{
 };
 
 pub(crate) fn run_tui(resume: Resume, mut startup: StartupTrace) -> std::io::Result<()> {
-    let cfg = startup::config()?;
-
+    // Resolve existing history read-only before a potentially long wizard.
+    // Fresh allocation must wait until the user actually completes setup.
+    let selected = startup::ConversationSelection::capture(&home(), resume)?;
+    let Some(cfg) = crate::setup::prepare()? else {
+        return Ok(());
+    };
+    startup.checkpoint("setup");
+    startup::report_catalog(&cfg);
+    startup::ensure_workspace(cfg.workspace.as_ref())?;
     startup.checkpoint("config");
-    // The ledger goes to disk: this session is replayable and auditable
-    let (ledger_path, reopened) = startup::ledger_for(&home(), resume)?;
+    let (ledger_path, reopened) = selected.finish(&home())?;
     startup.selected(reopened);
     let ledger_at = ledger_path.clone();
     // The brand's meta line: model · where the tools are working. Confined,
@@ -42,12 +48,13 @@ pub(crate) fn run_tui(resume: Resume, mut startup: StartupTrace) -> std::io::Res
     let parts = session_build::preview(&cfg);
 
     // Where a subagent runs. One template per expert, built on the session's
-    // thread, reading the environment there just as the daemon does.
+    // thread from the frontend's final model selection.
     let main_stream = lattice::EventLog::stream_of(&ledger_path).unwrap_or_default();
-    let experts: Box<dyn FnOnce() -> lattice::StreamHost + Send> = Box::new(|| {
-        let cfg = PresetConfig::from_env();
+    let expert_cfg = cfg.clone();
+    let experts: Box<dyn FnOnce() -> lattice::StreamHost + Send> = Box::new(move || {
+        // Keep the model explicitly selected in setup, including launch-only overrides.
         // Experts disappear after answering; their ledgers remain readable.
-        lattice::preset::expert_host(&cfg).with_ledger_path(|stream| {
+        lattice::preset::expert_host(&expert_cfg).with_ledger_path(|stream| {
             let dir = experts_dir()?;
             std::fs::create_dir_all(&dir).ok();
             Some(lattice::ledgers::named_path(&dir, stream))
@@ -69,19 +76,45 @@ pub(crate) fn run_tui(resume: Resume, mut startup: StartupTrace) -> std::io::Res
 
     // The ledger now exists. Capture before entering raw/full-screen mode,
     // and keep stderr off-screen until all background sessions finish.
-    let mut diagnostics =
-        diagnostics::Capture::start(&lattice::contracts::document::documents_dir(&ledger_at))?;
-    terminal::enable_raw_mode()?;
-    let mut stdout = std::io::stdout();
-    // Bracketed paste delivers a paste as one event. With mouse capture,
-    // native text selection still uses the terminal's Shift escape hatch.
-    execute!(
-        stdout,
-        terminal::EnterAlternateScreen,
-        EnableBracketedPaste,
-        EnableMouseCapture
-    )?;
-    let mut term = Terminal::new(ratatui::backend::CrosstermBackend::new(stdout))?;
+    let acquire = (|| -> std::io::Result<_> {
+        let diagnostics =
+            diagnostics::Capture::start(&lattice::contracts::document::documents_dir(&ledger_at))?;
+        terminal::enable_raw_mode()?;
+        let mut stdout = std::io::stdout();
+        // Bracketed paste delivers a paste as one event. With mouse capture,
+        // native text selection still uses the terminal's Shift escape hatch.
+        execute!(
+            stdout,
+            terminal::EnterAlternateScreen,
+            EnableBracketedPaste,
+            EnableMouseCapture
+        )?;
+        let term = Terminal::new(ratatui::backend::CrosstermBackend::new(stdout))?;
+        Ok((diagnostics, term))
+    })();
+    let (mut diagnostics, mut term) = match acquire {
+        Ok(resources) => resources,
+        Err(error) => {
+            session.request_shutdown();
+            let restored = restore_all(|step| match step {
+                Restore::Raw => terminal::disable_raw_mode(),
+                Restore::Screen => execute!(
+                    std::io::stdout(),
+                    DisableMouseCapture,
+                    DisableBracketedPaste,
+                    terminal::LeaveAlternateScreen
+                ),
+                Restore::Cursor => execute!(std::io::stdout(), ratatui::crossterm::cursor::Show),
+            });
+            for failure in restored.into_iter().filter_map(Result::err) {
+                eprintln!("terminal restoration failed: {failure}");
+            }
+            if let Err(failure) = session.finish_shutdown() {
+                eprintln!("startup cleanup failed: {failure}");
+            }
+            return Err(error);
+        }
+    };
 
     // Subscription is already active. Freeze its overlap boundary without
     // allocating a second object tree for the entire conversation.
