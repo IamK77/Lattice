@@ -71,10 +71,8 @@ fn parse_page(value: &Value, anthropic: bool) -> Result<Vec<Model>, String> {
                 .ok_or("model list contains an invalid identifier")?;
             let mut profile = json!({});
             if anthropic {
-                for (remote, local) in [("max_tokens", "maxOutputTokens")] {
-                    if let Some(n) = item[remote].as_u64().filter(|n| *n > 0) {
-                        profile[local] = json!(n);
-                    }
+                if let Some(n) = item["max_tokens"].as_u64().filter(|n| *n > 0) {
+                    profile["maxOutputTokens"] = json!(n);
                 }
                 if let Some(images) = item["capabilities"]["image_input"]["supported"].as_bool() {
                     profile["acceptsImages"] = json!(images);
