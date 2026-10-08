@@ -172,6 +172,31 @@ impl ResponsesModel {
     }
 }
 
+/// Trigger compaction consumes retained hosted items even when new searches
+/// are disabled in the current profile. Declare only what the input requires;
+/// requesting search sources is unnecessary for this provider operation.
+fn declare_compaction_web_history(body: &mut Value) {
+    let has_web_history = body["input"]
+        .as_array()
+        .is_some_and(|items| items.iter().any(|item| item["type"] == "web_search_call"));
+    if !has_web_history {
+        return;
+    }
+    let tools = body["tools"].as_array_mut().expect("request tools array");
+    let mut declared = false;
+    tools.retain(|tool| {
+        if tool["type"] != "web_search" {
+            return true;
+        }
+        let first = !declared;
+        declared = true;
+        first
+    });
+    if !declared {
+        tools.push(json!({"type":"web_search"}));
+    }
+}
+
 fn history_observation(ctx: &Ctx) -> Value {
     let at = chrono::Utc::now().to_rfc3339();
     match ctx.log().memory_stats() {
@@ -227,6 +252,7 @@ impl Component for ResponsesModel {
                         .remove("reasoning");
                 }
                 if trigger_compact {
+                    declare_compaction_web_history(&mut body);
                     body["input"]
                         .as_array_mut()
                         .expect("materialized input array")
@@ -443,5 +469,61 @@ impl Component for ResponsesModel {
             "result",
             EventDraft::new(ce::MODEL_CALL_COMPLETED, &[&event.id], result),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compaction_declaration_preserves_options_and_other_tools_idempotently() {
+        let local = json!({"type":"function","name":"web_search","parameters":{"type":"object"}});
+        let hosted = json!({"type":"web_search","search_context_size":"low","filters":{"allowed_domains":["example.invalid"]}});
+        for declarations in [
+            vec![],
+            vec![hosted.clone()],
+            vec![
+                hosted.clone(),
+                json!({"type":"web_search","search_context_size":"high"}),
+            ],
+        ] {
+            let mut tools = vec![local.clone()];
+            tools.extend(declarations.clone());
+            tools.push(json!({"type":"image_generation"}));
+            let mut body = json!({
+                "input":[{"type":"web_search_call","id":"ws_one"},{"type":"web_search_call","id":"ws_two"}],
+                "tools":tools,
+                "include":["reasoning.encrypted_content"]
+            });
+            let input = body["input"].clone();
+            declare_compaction_web_history(&mut body);
+            let expected = if declarations.is_empty() {
+                json!([local, {"type":"image_generation"}, {"type":"web_search"}])
+            } else {
+                json!([local, hosted, {"type":"image_generation"}])
+            };
+            assert_eq!(body["tools"], expected);
+            assert_eq!(body["input"], input);
+            assert_eq!(body["include"], json!(["reasoning.encrypted_content"]));
+            let once = body.clone();
+            declare_compaction_web_history(&mut body);
+            assert_eq!(body, once);
+        }
+    }
+
+    #[test]
+    fn compaction_declaration_ignores_text_and_nested_hosted_items() {
+        let mut body = json!({
+            "input":[
+                {"type":"message","role":"user","content":"{\"type\":\"web_search_call\"}"},
+                {"type":"function_call_output","call_id":"local_call","output":{"type":"web_search_call"}}
+            ],
+            "tools":[{"type":"web_search"},{"type":"web_search","search_context_size":"low"}],
+            "include":[]
+        });
+        let before = body.clone();
+        declare_compaction_web_history(&mut body);
+        assert_eq!(body, before, "no hosted history means no request changes");
     }
 }

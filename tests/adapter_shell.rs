@@ -26,6 +26,9 @@ use lattice::{
     EventEnvelope, Factory, Kernel, KernelOptions, PortDecl, RuntimeKind, Wire,
 };
 
+#[path = "adapter_shell/compaction_history.rs"]
+mod compaction_history;
+
 /// One canned exchange the fake provider performs per incoming request.
 enum Canned {
     /// Respond with this HTTP status and a short body
@@ -443,7 +446,7 @@ fn responses_native_compact_keeps_sealed_replacement() {
 }
 
 #[test]
-fn responses_native_search_is_offered_only_on_normal_calls() {
+fn responses_profile_search_opt_in_does_not_change_json_compaction() {
     use lattice::components::responses_model;
     ensure_key();
     for purpose in [None, Some("context.compact.responses")] {
