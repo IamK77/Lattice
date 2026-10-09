@@ -67,16 +67,54 @@ pub fn set(key: &str, value: Value) -> Result<PathBuf, String> {
 
 /// `set`, told where to write.
 pub fn set_in(path: &std::path::Path, key: &str, value: Value) -> Result<PathBuf, String> {
-    let mut doc = load_from(path);
+    use std::io::Write;
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(std::path::Path::new("."));
+    std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(path.with_extension("json.lock"))
+        .map_err(|e| e.to_string())?;
+    lock.try_lock()
+        .map_err(|_| "preferences are being edited; try again".to_string())?;
+    let original = match std::fs::read(path) {
+        Ok(bytes) => Some(bytes),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(format!("cannot read {}: {e}", path.display())),
+    };
+    let mut doc = match &original {
+        Some(bytes) => serde_json::from_slice::<Value>(bytes).map_err(|_| {
+            format!(
+                "{} is invalid JSON; refusing to overwrite preferences",
+                path.display()
+            )
+        })?,
+        None => json!({}),
+    };
     if !doc.is_object() {
-        doc = json!({});
+        return Err("preferences must be an object; refusing to overwrite them".into());
     }
     doc[key] = value;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+    let mut staged = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
+    serde_json::to_writer_pretty(staged.as_file_mut(), &doc).map_err(|e| e.to_string())?;
+    staged.write_all(b"\n").map_err(|e| e.to_string())?;
+    staged.as_file().sync_all().map_err(|e| e.to_string())?;
+    let current = match std::fs::read(path) {
+        Ok(bytes) => Some(bytes),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(e.to_string()),
+    };
+    if current != original {
+        return Err("preferences changed during save; try again".into());
     }
-    let text = serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())?;
-    std::fs::write(path, format!("{text}\n")).map_err(|e| format!("{}: {e}", path.display()))?;
+    staged
+        .persist(path)
+        .map_err(|e| format!("cannot replace preferences: {}", e.error))?;
     Ok(path.to_path_buf())
 }
 

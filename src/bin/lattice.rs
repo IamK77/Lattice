@@ -3,6 +3,8 @@
 mod cli;
 #[path = "lattice/process_commands.rs"]
 mod process_commands;
+#[path = "lattice/setup.rs"]
+mod setup;
 #[path = "lattice/startup.rs"]
 mod startup;
 #[path = "lattice/terminal_host.rs"]

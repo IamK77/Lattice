@@ -29,6 +29,8 @@ use std::path::PathBuf;
 
 use serde_json::Value;
 
+pub mod catalog;
+
 /// One reachable model: which dialect, and where.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -212,59 +214,6 @@ pub fn load() -> Vec<Entry> {
     load_reported().0
 }
 
-/// Write the catalog file, replacing it only once the new text is completely
-/// on disk.
-///
-/// Not a nicety. This file holds keys written in full, and a key here may be
-/// the only copy of itself; a half-written file is an unrecoverable one. Write
-/// beside it, then rename — a rename within a directory either happened or did
-/// not, so an interruption leaves the old file exactly as it was.
-fn write_catalog(path: &std::path::Path, document: &Value) -> Result<(), String> {
-    let text = serde_json::to_string_pretty(document)
-        .map_err(|problem| format!("cannot write the catalog: {problem}"))?;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|problem| format!("{} cannot be created: {problem}", parent.display()))?;
-    }
-    let staged = path.with_extension("json.writing");
-    std::fs::write(&staged, format!("{text}\n"))
-        .map_err(|problem| format!("{} cannot be written: {problem}", staged.display()))?;
-    // Keys live in here; keep it to the owner, as it was before this touched it
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let owner_only = std::fs::Permissions::from_mode(0o600);
-        let _ = std::fs::set_permissions(&staged, owner_only);
-    }
-    std::fs::rename(&staged, path)
-        .map_err(|problem| format!("{} cannot be replaced: {problem}", path.display()))
-}
-
-/// The catalog file as a document, for editing it. A missing file reads as an
-/// empty catalog so that the first model can be added to nothing.
-fn open_catalog(path: &std::path::Path) -> Result<Value, String> {
-    let document = match std::fs::read_to_string(path) {
-        Ok(text) => serde_json::from_str(&text).map_err(|problem| {
-            format!(
-                "{} is not valid JSON ({problem}). Fix it by hand first — \
-                 rewriting a file this program cannot read would throw away \
-                 whatever else is in it.",
-                path.display()
-            )
-        })?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            serde_json::json!({"models": {}})
-        }
-        Err(error) => {
-            return Err(format!(
-                "cannot read {}: {error}; refusing to rewrite it",
-                path.display()
-            ))
-        }
-    };
-    Ok(document)
-}
-
 /// Where the catalog is, or why there is nowhere to put one.
 fn catalog_path() -> Result<PathBuf, String> {
     path().ok_or_else(|| "there is no home directory to keep a catalog in".to_string())
@@ -281,17 +230,9 @@ pub fn remove(id: &str) -> Result<(), String> {
 
 /// [`remove`], told which file.
 pub fn remove_from(path: &std::path::Path, id: &str) -> Result<(), String> {
-    let mut document = open_catalog(path)?;
-    let Some(models) = document.get_mut("models").and_then(Value::as_object_mut) else {
-        return Err(format!("{} has no \"models\" object", path.display()));
-    };
-    if models.remove(id).is_none() {
-        return Err(format!(
-            "{} does not have a model called {id:?}",
-            path.display()
-        ));
-    }
-    write_catalog(path, &document)
+    let mut snapshot = catalog::Snapshot::read(path)?;
+    snapshot.remove(id)?;
+    snapshot.save()
 }
 
 /// Put one model into the catalog. `spec` is the entry exactly as the file
@@ -306,31 +247,9 @@ pub fn add(id: &str, spec: Value) -> Result<(), String> {
 
 /// [`add`], told which file.
 pub fn add_to(path: &std::path::Path, id: &str, spec: Value) -> Result<(), String> {
-    if id.is_empty() {
-        return Err("a model needs a short name to be chosen by".to_string());
-    }
-    if !id
-        .chars()
-        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "._-".contains(c))
-        || !id.starts_with(|c: char| c.is_ascii_lowercase() || c.is_ascii_digit())
-    {
-        return Err(format!(
-            "{id:?} cannot be a short name — lower-case letters, digits, dot, \
-             dash and underscore, starting with a letter or digit"
-        ));
-    }
-    let mut document = open_catalog(path)?;
-    if !document.get("models").is_some_and(Value::is_object) {
-        document["models"] = serde_json::json!({});
-    }
-    let models = document["models"]
-        .as_object_mut()
-        .expect("just ensured it is an object");
-    if models.contains_key(id) {
-        return Err(format!("{id:?} is already in the catalog"));
-    }
-    models.insert(id.to_string(), spec);
-    write_catalog(path, &document)
+    let mut snapshot = catalog::Snapshot::read(path)?;
+    snapshot.insert(id, spec)?;
+    snapshot.save()
 }
 
 /// The catalog, and everything wrong with the user's file that they should

@@ -15,10 +15,14 @@ pub(super) fn config() -> std::io::Result<PresetConfig> {
     Ok(cfg)
 }
 
-/// Refuse to start when the chosen model has no key. Describe the configured
-/// choices rather than guessing a provider or a key variable for the user.
+/// Local credential readiness only; this does not authenticate with a provider.
+pub(super) fn has_key(cfg: &PresetConfig) -> bool {
+    cfg.adapter == "scripted"
+        || !cfg.key_env.is_empty() && std::env::var(&cfg.key_env).is_ok_and(|v| !v.is_empty())
+}
+
 fn require_key(cfg: &PresetConfig) {
-    if cfg.adapter == "scripted" || !cfg.key_env.is_empty() && std::env::var(&cfg.key_env).is_ok() {
+    if has_key(cfg) {
         return;
     }
     let catalog = lattice::models::load();
@@ -77,7 +81,7 @@ pub(super) fn report_catalog(cfg: &PresetConfig) {
 
 /// Filesystem tools and shell children start here when confined. Without an
 /// explicit workspace they use the existing process directory; create nothing.
-fn ensure_workspace(workspace: Option<&String>) -> std::io::Result<()> {
+pub(super) fn ensure_workspace(workspace: Option<&String>) -> std::io::Result<()> {
     match workspace {
         Some(dir) => std::fs::create_dir_all(dir),
         None => Ok(()),
@@ -155,6 +159,28 @@ pub(super) fn ledger_for(home: &Path, resume: Resume) -> std::io::Result<(PathBu
                     recent.join("\n  ")
                 ),
             ))
+        }
+    }
+}
+
+/// Capture existing history without creating a fresh ledger parent for a wizard.
+pub(super) struct ConversationSelection(Option<PathBuf>);
+
+impl ConversationSelection {
+    pub(super) fn capture(home: &Path, resume: Resume) -> std::io::Result<Self> {
+        match resume {
+            Resume::Fresh => Ok(Self(None)),
+            other => ledger_for(home, other).map(|(path, _)| Self(Some(path))),
+        }
+    }
+
+    pub(super) fn finish(self, home: &Path) -> std::io::Result<(PathBuf, bool)> {
+        match self.0 {
+            Some(path) => {
+                std::fs::metadata(&path)?;
+                Ok((path, true))
+            }
+            None => ledger_for(home, Resume::Fresh),
         }
     }
 }
