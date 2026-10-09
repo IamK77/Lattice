@@ -117,7 +117,8 @@ fn pre_text(html: &[u8]) -> Result<String, String> {
             match token {
                 Token::CharacterTokens(text) => self.0.borrow_mut().push_str(&text),
                 Token::TagToken(tag)
-                    if tag.kind == TagKind::StartTag && tag.name.as_ref() == "br" =>
+                    if tag.kind == TagKind::StartTag
+                        && tag.name == html5ever::local_name!("br") =>
                 {
                     self.0.borrow_mut().push('\n')
                 }
@@ -186,6 +187,12 @@ fn noise(node: &Handle) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preformatted_break_tags_preserve_line_boundaries() {
+        let text = pre_text(b"one<br>two<BR/>three<br class='break'>four<b>five</b>").unwrap();
+        assert_eq!(text, "one\ntwo\nthree\nfourfive");
+    }
 
     #[test]
     fn article_keeps_code_entities_and_links_but_not_page_chrome() {
