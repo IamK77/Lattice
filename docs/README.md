@@ -17,7 +17,7 @@ Choose the task you are doing. Using Lattice on a software project does not requ
 
 ## Configure and customize
 
-These are supported product settings and optional integrations, not instructions to modify the kernel.
+Choose what you want to adjust: connect a model, add project guidance, or configure optional tools such as the browser and desktop.
 
 - [Model configuration](model-configuration.md): service connections, manual model files, capabilities, capacity, language and credentials.
 - [Project conventions](getting-started.md#5-add-your-project-conventions): guide the agent with your project's rules.
@@ -25,7 +25,7 @@ These are supported product settings and optional integrations, not instructions
 - [Desktop setup](desktop.md): optional macOS driver and permissions.
 - [JavaScript/Ink client](../clients/ink/README.md): alternative client startup and controls.
 
-Using an existing integration and writing a new component are different tasks. For the latter, use the development route below. Costs, data exposure and destructive-action warnings remain with the relevant operation; a technical reference is not a substitute for those warnings.
+To write your own tools or change how Lattice runs, use Develop and maintain below.
 
 ## Develop and maintain
 
@@ -50,6 +50,6 @@ For a model-free component demonstration, run from the source checkout:
 cargo run --locked --example heartbeat
 ```
 
-This uses scripted replies to demonstrate the event flow; it is not a real model conversation or evidence of provider compatibility. For scripted terminal checks and their limits, see [setup development notes](setup-development.md#developer-checks-without-a-provider).
+This example uses preset replies to show events passing between components. Connect a real model with [First conversation](getting-started.md); see [setup development notes](setup-development.md#developer-checks-without-a-provider) for developer checks.
 
-Deep design references may remain Chinese and are labeled above. Filenames use English basenames; Chinese documentation uses `.zh-CN.md`. The [path migration map](path-migrations.json) records older names. Follow these current entry points rather than assuming a prototype or an old acceptance record describes the current product.
+Start here for current usage guides; historical prototypes and acceptance records are collected in [Development references](development.md). Deep design documents are mainly Chinese, with their language identified in the English navigation. Filenames use English basenames and `.zh-CN.md` for Chinese documents; the [path migration map](path-migrations.json) records older names.

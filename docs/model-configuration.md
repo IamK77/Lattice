@@ -2,48 +2,73 @@
 
 [Documentation](README.md) · [First conversation](getting-started.md) · [简体中文](model-configuration.zh-CN.md)
 
-For people connecting a service or adjusting its settings. Use the [guided first-use path](getting-started.md#2-connect-a-model) if you do not need detailed configuration. You do not need to change components or runtime assemblies to connect a model.
+This reference explains how to connect a model service, enter capacity values and save settings. Start with [guided setup](getting-started.md#2-connect-a-model), then return here to look up individual options.
 
 ## Choose the connection
 
-The guide offers OpenAI, Anthropic and DeepSeek presets, custom configuration, and repair of existing entries. A preset suggests the API format and endpoint; check both before supplying credentials. It is not a guarantee that every model supports every feature.
+The following steps describe initial setup. With a usable model already configured, startup goes directly to the conversation. To change a saved address or capacity, find and edit the model file using [Manual configuration](#manual-configuration).
 
-You may explicitly fetch a service's model list, filter it, or enter an exact identifier manually. Failed or empty discovery does not block manual entry. Previously fetched names offer Tab completion without another request; long names remain searchable in the list even when inline completion would not fit. Fetching the list is not a generation request or a compatibility test.
+Choosing OpenAI, Anthropic or DeepSeek fills in a suggested API format and service address. Choose custom configuration for another service, or repair an existing configuration. Before entering a key, confirm that the address belongs to the service you intend to use.
 
-Review the model, API format, endpoint, local name, default-preference action and main capabilities before saving. **More settings and details** exposes the full configuration, save location, capability sources, name, default and language settings. Leaving the default preference unchanged does not unset a previously chosen default.
+Choose a model from the service's list or enter its name. If fetching the list fails, continue with manual entry. Previously fetched names are searchable and support Tab completion using the existing list. Long names can be selected through list search.
 
-The optional connection test sends a short request and **may be billed**. You can skip it. After failure, explicitly retry, edit, skip or exit; the guide does not retry automatically. Success does not establish compatibility with tools, reasoning history or every hosted feature.
+Before saving, check the service address, model name, API format and whether to make this the default model. **More settings and details** includes the save location, sources of capability information, local name and language. Keeping the previous default preserves that selection.
+
+The **connection test** sends a short question to check whether the service answers, billed under its pricing rules. You can skip it. After a failure, setup offers retry, edit, skip and exit so you can choose the next step. Select capabilities such as image input using the service's documentation. Thinking levels record the strengths the model supports; choose the active strength during the conversation.
 
 ## Capabilities and capacity
 
-The guide uses available metadata and asks for missing or invalid capacity values. Confirm suggestions against the service you use:
+### Enter capacity values
 
-- Image input is separate from hosted image generation. Hosted search and image generation are offered only for the Responses format. Unknown capabilities stay unchecked.
-- Space toggles capability checkboxes and Enter confirms. Thinking checkboxes declare supported levels, not the current thinking strength. Common names appear weakest first; custom names retain their order. Advanced settings retain custom level names/order and usage-field mappings.
-- Token limits accept exact integers and case-insensitive decimal suffixes: `1M = 1000k = 1000000`, `1.5M = 1500000`. These are not binary units: enter `1048576` if that is the exact documented limit. Fractional tokens and overflow are rejected, not rounded. The submitted value displays its expanded count; output must leave room for input.
-- A reported input ceiling is not necessarily the total context window. Anthropic input limits are presented as a **conservative total-budget suggestion**, without adding output tokens. Confirm or edit the suggestion.
+Capacity describes how much content fits in a model request, measured in tokens, the model's unit for content length. There are two main values:
+
+- **Context window:** the combined limit for input and the model's response in one request.
+- **Maximum output:** the limit for one response. Keep it below the context window to leave room for your question and conversation history.
+
+Setup uses available model information and asks for missing values. Follow your service's documentation. You can enter integers or use `k` and `M`: `32k` means `32000`, and `1.5M` means `1500000`; suffixes are case-insensitive. Enter exact values such as `1048576` directly when specified by the service. Setup displays the expanded number and asks you to correct invalid input.
+
+Some services report only an input limit. For Anthropic, setup uses that number as a conservative suggestion for total capacity, without adding output tokens. Confirm or adjust it using the service's documentation.
+
+### Choose capabilities
+
+Use Space to select options in the capability list and Enter to confirm. Leave image input, hosted search or image generation unchecked until you know whether the service supports them.
+
+- **Image input** lets the model see pictures; **image generation** asks the service to create them. Hosted search and image generation use the Responses format.
+- **Thinking levels** list the strengths the model supports. Configure the available choices here and select the strength when using the model. Common levels appear weakest first; custom levels retain their order.
 
 ## Language, navigation and saving
 
-Setup and credential repair support English and Simplified Chinese, independently of the main terminal interface. Select **Language / 语言** at home or under the new-model review's **More settings and details**; repair offers the option directly on review.
+### Change language
 
-An explicit language choice is saved as `setupLanguage` (`en` or `zh-CN`) in preferences. Without a saved choice, detection tries `LC_ALL`, `LC_MESSAGES`, then `LANG`: Chinese locales use Simplified Chinese; otherwise English. Automatic detection does not save a choice. A failed preference write is reported; the language still applies for this run. Provider diagnostics are shown as original text.
+Choose **Language / 语言** directly on the setup home page. On the new-model review page, find it under **More settings and details**. Credential repair puts the option on its review page. It applies to setup and credential-repair pages.
 
-Esc returns to the previous step or exits at home. Ctrl-C exits while waiting for input; during a network request, cancellation is handled after that bounded request finishes and does not resend it. Submitted fields remain in the draft, but unsubmitted text cancelled in a prompt is not saved. Returning home keeps new-model and credential-repair drafts. Changing the endpoint, API format or account refreshes dependent lists/capabilities; changing the model resets its capabilities. A new endpoint does not inherit the old key. Re-fetching the same model's information does not overwrite fields you already edited.
+Your choice is saved as `setupLanguage`, with value `en` or `zh-CN`. Initially, setup checks `LC_ALL`, `LC_MESSAGES` and `LANG` in that order: Chinese locales use Simplified Chinese, and others use English. Once you choose a language, the saved choice takes precedence. If saving fails, setup uses your choice for this run and displays the save error. Service diagnostics retain their original wording to help with troubleshooting.
 
-Cancelling before model save creates neither a model entry nor a conversation. Explicitly saved language preferences and earlier saved configuration remain. An existing usable configuration skips setup; background/noninteractive commands do not open it. If you asked to resume a conversation, setup does not replace that selection with a different conversation.
+### Go back or exit
 
-Do not delete a damaged model file to get past an error: invalid catalogs are not reset. Repair the indicated file and check again. If the model saves but the default preference cannot, the guide reports that and can continue with the model for this launch. Existing startup environment overrides can still take precedence next time; see [model troubleshooting](troubleshooting.md#no-usable-model-or-unexpected-provider).
+Esc goes back, or exits from the first page. Ctrl-C also exits while waiting for input. Cancellation during a network request is handled after the current request finishes, without sending it again.
+
+Confirmed fields stay in this setup session's draft, including when returning home. Cancelling a text field discards its unconfirmed text. Exiting before saving the model leaves the draft unsaved; a language choice saved before exiting remains in place.
+
+### Change connection details
+
+After changing the address, API format or account, fetch the list again and confirm capabilities. Changing the model also requires confirming its capabilities. Enter a key again for a new address; the old key stays with the old address. Fetching information again for the same model preserves fields you have edited yourself.
+
+### Resolve save errors
+
+If a configuration file cannot be read, back it up and repair it using the reported error. Lattice keeps the original file to preserve existing accounts. If the model saves but the default selection fails to save, setup explains what happened and can still use that model for this conversation. If the next launch selects another model, check environment variables and defaults using [model troubleshooting](troubleshooting.md#no-usable-model-or-unexpected-provider).
+
+Startup opens the conversation directly when a usable configuration exists; background and noninteractive commands also skip setup. When resuming a conversation, completing setup returns to the conversation you selected. Exiting setup before saving the model ends that launch.
 
 ## Manual configuration
 
-The default model catalog is `~/.lattice/models.json`. Create the parent directory if needed:
+The default model configuration file is `~/.lattice/models.json`. Create its parent directory if needed:
 
 ```bash
 mkdir -p "$HOME/.lattice"
 ```
 
-Create or edit `models.json` in your editor. **Preserve existing entries.** `LATTICE_MODELS` can point to another catalog file. The following is a configuration example, not a usable account; replace the endpoint, model identifier and limits using the provider's documentation. The `.invalid` address deliberately cannot connect to a real service.
+Open or create `models.json` in an editor. Add models to the existing contents when a configuration is already present. `LATTICE_MODELS` selects another configuration file. This example uses a placeholder address and model; replace the address, model and capacity with your service's values:
 
 ```json
 {
@@ -62,15 +87,17 @@ Create or edit `models.json` in your editor. **Preserve existing entries.** `LAT
 }
 ```
 
-| Adapter | Endpoint protocol |
+`adapter` selects the API format. Choose the row that matches your service's documentation:
+
+| `adapter` value | API format |
 | --- | --- |
 | `openai` | Chat Completions |
 | `responses` | Responses |
 | `anthropic` | Anthropic Messages |
 
-These select a protocol, not guaranteed support for every provider extension. Use the endpoint root, exact model ID, limits and settings appropriate to your service. Full field references: [model catalog](../schemas/model_catalog.json) and [model profile](../schemas/model_profile.json).
+See [model configuration fields](../schemas/model_catalog.json) and [model profile fields](../schemas/model_profile.json) for other options.
 
-Supply credentials using your existing credential manager, or enter a key in **Bash** without putting its literal value in shell history:
+Supply the key using your credential manager, or run these commands in **Bash** and enter the key when prompted. Input is hidden and stays out of shell command history:
 
 ```bash
 printf 'API key: '
@@ -79,13 +106,24 @@ printf '\n'
 export LATTICE_MODEL_KEY
 ```
 
-Keep this terminal open when launching Lattice. `apiKeyEnv` names the variable; it does not contain the key itself. The alternative `apiKey` stores the literal key in the catalog. Prefer an environment-variable reference, and never commit a real key. See [First conversation](getting-started.md#2-connect-a-model) to launch with this configuration.
+Keep this terminal open and launch Lattice using [First conversation](getting-started.md#2-connect-a-model).
 
-## Credential and terminal limitations
+<a id="credential-and-terminal-limitations"></a>
 
-- A locally saved key is in an **agent-readable file**. Tool reads can place it into saved history and model input. Keeping a key out of shell history or using an environment variable does not hide it from tools.
-- On Unix, setup creates its temporary credential file with owner-only access before writing the key. This is not isolation from the agent. Platforms without supported protected storage are not presented with a supposedly safe local-key option. Setup does not edit shell startup files.
-- Setup requires interactive input, output and error streams and a terminal at least 40 columns by 14 rows. Its pages replace the previous task rather than accumulating questions; ordinary cancellation, errors and handoff restore the previous terminal screen. A forced kill or crash is not covered by that restoration guarantee.
-- If you resize while waiting in an input field, the whole page does not immediately redraw; layout is recalculated between questions and detail pages. Long explanations have separate pages; retries replace the error rather than add a transcript.
+## Key storage and terminal use
 
-For implementation, request records and model-free developer checks, see [setup development notes](setup-development.md). These are not additional configuration steps.
+### Store a key
+
+`apiKeyEnv` records an environment-variable name in the configuration; `apiKey` records the key itself. Prefer environment variables to reduce copies of keys in files.
+
+Tools can read either location. Keys read from files or command output are saved with tool results in conversation records and may be sent to the model service. Check for keys and other sensitive material before committing configuration or sharing records.
+
+On Unix, setup writes keys with owner-only file permissions; the running agent can read the file too. Platforms that cannot set those permissions use the environment-variable method. Setup leaves your shell startup files in place.
+
+### Use the terminal
+
+Run setup in an interactive terminal at least 40 columns wide and 14 rows high. Each step updates the current page, and long explanations have separate pages. After resizing, moving to the next page recalculates the layout.
+
+Normal exits restore the previous terminal screen. If the display is left in an unusual state after a forced stop or crash, open a new terminal.
+
+See [setup development notes](setup-development.md) for implementation and tests.

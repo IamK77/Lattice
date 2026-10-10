@@ -2,53 +2,61 @@
 
 [简体中文](desktop.zh-CN.md) · [Documentation](README.md) · [Developer reference (Chinese)](desktop-development.zh-CN.md)
 
-`Desktop` lets the agent observe and operate a selected **local application window**. It is not the isolated Browser. The standard assembly includes the tool, but you must separately provide its macOS driver and system permissions. The selected model must support image input; see [model configuration](model-configuration.md).
+`Desktop` lets Lattice view and operate applications on your computer, including clicking buttons, filling fields and scrolling. On macOS, install the driver, grant system permissions and select a model with image input; see [Model configuration](model-configuration.md). You can use ordinary text conversations while preparing these tools.
 
 ## Install the driver and grant system permissions
 
-The included backend supports macOS and starts a separate Cua Driver process on demand. The driver is not bundled with the CLI; its absence produces an explicit error when needed, without preventing ordinary chat from starting.
+This guide describes configuration with **Cua Driver 0.26.1**. Install the driver separately; Lattice starts it when the desktop tool is used. Obtain it from the publisher and check the version, checksum, archive paths and application signature before running it. After changing driver versions, use a small task to check observation and input.
 
-The documented compatibility baseline is **Cua Driver 0.26.1**, not an automatic version lock. Obtain the driver from its publisher and verify the version, checksum, archive paths and application signature before running it. Lattice does not perform those checks for you. Other versions need separate compatibility verification.
-
-The default entry is `~/.lattice/drivers/desktop`; it can point to a separately installed `CuaDriver.app/Contents/MacOS/cua-driver`. That layout is an example, not a required installation directory. Inspect an existing entry before replacing it. To use another location, set this **before starting Lattice**, in the same terminal:
+The default driver entry is `~/.lattice/drivers/desktop`, which can point to an installed `CuaDriver.app/Contents/MacOS/cua-driver`. Inspect an existing entry's target first. Alternatively, set the driver location in the same terminal **before starting Lattice**:
 
 ```bash
 export LATTICE_DESKTOP_DRIVER="/path/to/CuaDriver.app/Contents/MacOS/cua-driver"
 ```
 
-If your assembly sets `executable`, that setting takes precedence over the environment variable. A path override does not make an arbitrary executable a compatible driver. Lattice starts the driver with a cleaned environment and a temporary home directory; this does not sandbox the applications being operated or prevent their network activity.
+For a custom assembly, its `executable` setting takes precedence over this environment variable.
 
-In **System Settings → Privacy & Security**, grant the actual terminal or host application that launches Lattice:
+In **System Settings → Privacy & Security**, enable these permissions for the terminal or host application that starts Lattice:
 
-- **Screen Recording** (the label can also mention system audio) for observation.
-- **Accessibility** for input.
+- **Screen Recording**, sometimes labeled to include system audio, for viewing windows.
+- **Accessibility** for clicks and input.
 
-Missing permission is reported before input; the driver does not request a bypass. If macOS requires the host to quit and reopen, end the conversation and do that yourself. Do not ask the agent to restart the terminal carrying its current conversation.
+The tool reports missing permissions. If macOS asks you to reopen the application, end the current conversation and reopen the terminal yourself to avoid cutting off an active session.
 
 ## Use it through the agent
 
-You do not need to write tool JSON. Describe the intended task and the allowed actions, then follow this order:
+Tell Lattice which application to use and what you want to accomplish. For example:
 
-1. List the available targets and select the intended application/window.
-2. Observe that same target before input. Never reuse coordinates guessed from another window.
-3. Perform a bounded action, then inspect the resulting screenshot and actual application state.
+> Look at this application's settings window and tell me which options are available. For this step, inspect it and wait for my confirmation before making changes.
 
-The tool can click, type, press keys, scroll and drag, with at most eight actions in a batch. Input brings the target to the foreground and can interrupt what you are doing. Do not rely on focus being restored, especially after interruption or driver failure. A size change requires a new observation; an identity change invalidates the target. A title change alone does not.
+Follow this order:
 
-Screenshots are retained alongside the conversation history and sent to the current model as images. Keep secrets out of the window. Observation and input require persistent history; an image problem is reported rather than silently dropping the image. A failed screenshot after input does **not** mean the input did not happen.
+1. List windows and select the target application and window.
+2. View a screenshot of that window to establish its current state.
+3. Perform a small batch of actions, then check the screenshot and the result in the application.
 
-There is no additional Desktop-specific approval for every window, batch or click. Window text is external content, not your authorization to disclose data, send a message, enter credentials or destroy information.
+The tool supports clicks, typing, keys, scrolling and dragging, with up to eight actions in a batch. Input brings the target window to the foreground; switch back manually when you want to continue your own work. Observe again after a size change. Select a new target after its identity changes; a title change alone allows continued use.
+
+Screenshots are saved beside the conversation records and sent to the current model. Put away keys and private content before observation. Desktop operates your real local applications, which continue to read, write and use the network. Desktop uses the existing authorization flow, without a separate approval dialog for each click. Explicitly confirm the task and scope before sending messages, entering credentials or deleting data.
 
 ## Partial actions, closing and protection
 
-A batch can finish only partly. A reported completed action means the driver operation ended, not that the intended business effect succeeded. After an uncertain or interrupted action, establish what actually happened; never automatically replay the whole batch. The driver rejects further input after uncertainty: explicitly close the connection, list targets again and observe before deciding on another action.
+### After interruption
 
-`close` releases the driver connection and target state. It does not close your applications or undo input. Reopening a saved conversation does not replay historical inputs.
+A batch may have completed only partly. Input may also have happened when the screenshot taken afterward fails. Check the application's actual state before choosing the next action.
 
-The current process and its host ancestors are protected. The standard assembly also excludes a configured list of terminal, proxy and system-control applications. Changing the host or proxy may require maintaining that configuration; do not evade a refused target by selecting a different one. These protections reduce stale-target mistakes, not malicious-application risk, and do not make external actions reversible.
+When input state is uncertain, the driver pauses further input. Have Lattice close the driver connection, list windows again and observe before continuing. Completed changes and external sends remain in effect.
+
+### Closing and returning to a conversation
+
+`close` releases the driver connection and window records. Applications remain open and existing input stays in place. Reopening a saved conversation reads its history without repeating past desktop actions. Observe the current window before continuing.
+
+### Protected windows
+
+The current Lattice process and its host ancestors are protected. The default configuration also excludes specified terminals, proxies and system-control applications to avoid cutting off the conversation. When a target is refused, inspect the reason and configuration. Check that exclusion list after changing hosts or proxies too.
 
 ## Help and developer reference
 
-For a missing driver, permission or model-image error, check the corresponding requirement above and report a short inspected diagnostic through [Support](../SUPPORT.md). Do not share private screenshots or disable operating-system security checks to get past an error.
+For driver, permission or image errors, check the relevant steps above. For help, send [Support](../SUPPORT.md) the error and reproduction steps with private content removed; inspect screenshots before sharing them too.
 
-The [developer reference (Chinese)](desktop-development.zh-CN.md) contains tool parameters, backend integration, image-storage details and regression/live-test commands. Those tests are not installation steps for ordinary use.
+See the [developer reference (Chinese)](desktop-development.zh-CN.md) for tool parameters, backend integration, image storage and tests.

@@ -2,13 +2,17 @@
 
 [Home](../README.md) · [Documentation](README.md) · [简体中文](getting-started.zh-CN.md)
 
-This guide is for using the included terminal agent in your own project. You supply a model account and credentials; the provider may charge for usage. Lattice can read and change files, run programs, and send material to your selected provider. **It is not a sandbox.** Start in a project whose access you are comfortable granting.
+Let Lattice help you understand a project, then work together on a small change. This guide takes you through starting the program, connecting a model, asking a question and returning to the conversation later.
+
+Have a model-service account and API key ready. Your model service charges for usage. Lattice can read files, change code and run commands, including accessing files outside the project directory. Start with a practice project and save your existing work first.
 
 ## 1. Build Lattice
 
-Check [Installation and upgrades](installation.md) for available installation sources, tested platforms, download verification, and rollback. For a source build, use macOS or Linux with Rust/Cargo and a C toolchain. Linux also needs OpenSSL development libraries and `pkg-config` (`libssl-dev` and `pkg-config` on Debian/Ubuntu). This guide does not provide a supported Windows path.
+**Already have the program?** If you just built it using the landing page, run `export LATTICE_BIN="$PWD/target/release/lattice"` from the Lattice source directory. For an existing installation elsewhere, use `export LATTICE_BIN="/path/to/lattice"` with its actual full path. Then go straight to [step 2](#2-connect-a-model).
 
-The commands below use **Bash**. Enter `bash` if you use another shell, and keep this terminal open through setup:
+For a first build, follow the steps below. Source builds use macOS or Linux with Rust/Cargo and a C toolchain. Linux also needs OpenSSL development libraries and `pkg-config` (`libssl-dev` and `pkg-config` on Debian/Ubuntu). See [Installation and upgrades](installation.md) for other installation options.
+
+Run these commands in a terminal. They use **Bash**; enter `bash` first if you use another shell:
 
 ```bash
 git clone https://github.com/IamK77/Lattice.git
@@ -18,11 +22,11 @@ export LATTICE_BIN="$PWD/target/release/lattice"
 "$LATTICE_BIN" --version
 ```
 
-`LATTICE_BIN` is this guide's convenience variable, not a product setting. Its absolute path lets you launch after changing directories. In a new terminal, set it again or use the executable's full path. If you already installed Lattice, use your verified executable instead of building again.
+Once you see a version number, keep using this terminal. `LATTICE_BIN` remembers the program's location so you can launch it from your project. Set it again when opening a new terminal. If Lattice is already installed, you can use that executable.
 
 ## 2. Connect a model
 
-Move into your project and start Lattice. Replace the example path:
+Replace the path below with your project directory, then start Lattice:
 
 ```bash
 cd /path/to/your/project
@@ -31,73 +35,79 @@ cd /path/to/your/project
 
 ### Guided setup
 
-When you need to connect a model, setup runs before the conversation. An existing configuration that passes local checks skips it; skipping setup does not mean the account or connection has been verified. Use an interactive terminal at least 40 columns wide and 14 rows high.
+Lattice opens setup when you first connect a model. Choose **Language / 语言** on its first page to change the setup language. With a usable configuration, it opens the conversation directly.
 
-1. **Connect a service.** Choose a provider or a custom service, check the address and API format, and supply a key or the name of an environment variable containing it. You can also repair an existing entry.
-2. **Choose a model.** Fetch and filter the service's list, or enter its exact model name. An unavailable list does not prevent manual entry.
-3. **Review and save.** Check the model, service address and capacity. Use **More settings and details** for other settings. If a capacity is unknown, consult the provider rather than guessing. Setup's **Language / 语言** option switches English/Simplified Chinese; it does not change the main interface's language.
-4. **Start the conversation.** You can skip the optional connection test. Running it sends a short request that **may cost money**; it is not retried automatically. A successful test does not prove that every tool or model feature works.
+1. **Connect a service.** Choose your model service, check its address and enter your API key. If the key is already in an environment variable, enter the variable's name instead.
+2. **Choose a model.** Select from the service's list or enter the model name yourself. Manual entry also works when the list cannot be fetched.
+3. **Review and save.** Check the model and service address. If asked for capacity, use the service's published values; [Model configuration](model-configuration.md#capabilities-and-capacity) explains them. Other options are under **More settings and details**.
+4. **Start the conversation.** You can first run a connection test to see whether the service answers. It sends a short question, billed under the service's pricing rules. You can also skip it.
 
-Esc goes back, or exits from the first page; Ctrl-C exits while waiting for input. During a network request, cancellation is handled after that bounded request finishes. Cancelling before you save the model creates neither a model entry nor a conversation; settings already explicitly saved, including language, remain saved.
+Press Esc to go back, or to exit from the first page. See [Returning and saving](model-configuration.md#language-navigation-and-saving) for more controls.
 
-**Credentials:** A key saved in a local configuration file is readable by the agent. If a tool reads it, it may enter saved history and model input. An environment-variable reference avoids putting the literal key in that file, but does not hide the environment from tools. Do not commit real keys.
+**Looking after your key:** Prefer an environment-variable reference to reduce copies of the key in configuration files. Tools can read both files and environment variables; keys they read enter conversation records and may be sent to the model service with the conversation. Check for keys before committing code or sharing records.
 
 ### Manual configuration (optional)
 
-For a hand-written model file, custom endpoint, capacity or language settings, use [Model configuration](model-configuration.md). You do not need that reference to complete the guided path.
+If you prefer editing a configuration file, see [Model configuration](model-configuration.md#manual-configuration).
 
 <a id="3-start-in-your-project"></a>
 
 ## 3. Ask your first question
 
-With Lattice open in your project, use `/model` to inspect the selected model before sharing sensitive work. Start by asking for understanding rather than a change:
+Enter `/model` and press Enter to view the selected model. Press Esc to close the model panel, then type the question below and press Enter to send it:
 
-> Explain how this repository is organized. Identify the main entry points and relevant tests. Do not edit files or run project commands yet.
+> Help me understand this project: what does it do, where is the main code, and how are tests run? For this step, read the files and tell me what you find.
 
-Then choose a small, reviewable task. Inspect the diff and test results yourself. Instructions guide the agent; they do not enforce operating-system isolation.
+After reading the answer, choose a small task, such as adding a test or explaining an error. Ask Lattice to show the changes and test results so you can review them.
+
+When you are finished for now, enter `/exit` and press Enter. You can return to this conversation later.
 
 ## 4. Return to a conversation
 
-From your project directory, with the model credentials still available, run:
+In a new terminal, set the program path and return to your project. Replace both example paths below with yours; a source build is at `target/release/lattice` inside the repository from step 1:
 
 ```bash
+export LATTICE_BIN="/path/to/Lattice/target/release/lattice"
+cd /path/to/your/project
 "$LATTICE_BIN" -c
 ```
 
-This continues the most recent conversation visible to that project. Older records without a project identity may also appear. Recovery does not repeat historical tool actions, but an interrupted action may already have partly taken effect. Check the recorded result and actual files or processes before retrying. **Cancellation is not rollback.**
+Lattice continues the most recent conversation. Make the model key available as before. See [Troubleshooting](troubleshooting.md) for help finding other conversations.
+
+If the previous session stopped during an edit or command, ask Lattice to check progress before continuing. Files already written and requests already sent remain in effect; the restored conversation retains the records of those operations.
 
 ## 5. Add your project conventions
 
-This is optional. Put project-specific guidance in `AGENTS.md` or `CLAUDE.md`; edit existing files rather than overwriting them. For example:
+Put project guidance in `AGENTS.md` or `CLAUDE.md`. If a file already exists, add to its existing contents. For example:
 
 ```text
 Explain the intended change before editing.
-Keep changes focused on the task.
-Run the affected tests and report their results.
-Do not add dependencies without discussing the trade-off.
+Keep each change focused on one task.
+Run the relevant tests and tell me the results.
+Discuss new dependencies with me before adding them.
 ```
 
-Lattice searches upward from the working directory for the nearest directory with recognized rules files. Rules are read at startup, not continuously refreshed; start a new session after changing them. They guide behavior, not permissions, and cannot guarantee compliance.
+At startup, Lattice searches upward from the current directory and reads the nearest directory containing recognized rules files. Start a new session after editing them. Project guidance tells the model how to work; file access is governed by the system and tool configuration.
 
 ## Optional tools
 
-These are not prerequisites for your first conversation:
+After your first conversation, prepare these tools as your tasks call for them:
 
-- **Browser:** requires Chrome/Chromium; `LATTICE_BROWSER` selects another executable.
-- **Code navigation:** requires a local language server for that language; missing servers are reported, not automatically installed.
-- **Desktop:** requires macOS, an external driver and system permissions. See [desktop setup](desktop.md).
-- **Alternative client:** see [JavaScript/Ink](../clients/ink/README.md) for its own startup and controls.
+- **Browser:** install Chrome/Chromium. `LATTICE_BROWSER` selects the browser executable.
+- **Code navigation:** install your language's language server so Lattice can find definitions and references. The tool reports what is missing when needed.
+- **Desktop:** on macOS, follow [desktop setup](desktop.md) to install the driver and grant system permissions.
+- **Alternative client:** try [JavaScript/Ink](../clients/ink/README.md).
 
 ## Data and permissions
 
-- **The working directory is not a boundary.** Tools can read and change files, execute programs and access the network.
-- **Local storage does not mean local-only processing.** Conversations, tool requests/results and attachments are saved and may be sent to the selected provider. Browser and desktop screenshots are retained and sent to the model when used.
-- **Do not rely on automatic secret removal.** Secrets read by tools, including keys obtained during a session, can enter persistent history and model input.
-- **Only use extensions you trust.** Permission prompts are not a sandbox. Contents at an approved URL or path can change without a new prompt. Permanent installation trust is separate from permissions for individual actions; its revocation currently requires managing the grants file manually.
-- **Check before sharing or retrying.** Local history and configuration under `~/.lattice/` may contain secrets. Cancellation neither undoes changes nor guarantees that every descendant process stopped. Review external sending, credential entry and system permissions carefully.
+These details help you choose which work to share with Lattice:
+
+- **Conversation material.** Conversations, tool operations and attachments are stored locally and may be sent to your chosen model service. Browser and desktop screenshots are also retained and sent to the model.
+- **Stopping work.** Existing changes and external sends remain in effect after cancellation. Programs started by a tool that run independently may continue; check files and running programs before retrying.
+- **Installing extensions.** Choose trusted sources. Approving an extension's installation and approving one of its actions are separate choices. An installation grant for a URL or path remains valid after its contents change. Permanent grants default to `~/.lattice/trust.json`; edit that record to revoke them. See the [grant file format](../schemas/trust_grants.json) for its fields.
 
 ## If setup does not work
 
-Use [Troubleshooting](troubleshooting.md) for build errors, unavailable models, rejected requests, missing conversations or tools. Do not delete your data to reset the application, paste keys, dump the environment, or upload an entire conversation to ask for help. [Support](../SUPPORT.md) explains what to include in a report and where to report security issues privately.
+Start with the matching symptom in [Troubleshooting](troubleshooting.md), such as a failed build, an unreachable model or a missing conversation. When asking for help, share the steps and an error message with keys removed, while keeping your original local configuration and records. [Support](../SUPPORT.md) explains how to report problems and privately report security issues.
 
-For the next task, choose [using, customizing or developing Lattice](README.md). You do not need the architecture or component contracts to use the terminal agent.
+Return to [Documentation](README.md) to choose your next task.

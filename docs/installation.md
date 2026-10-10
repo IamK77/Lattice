@@ -17,16 +17,18 @@ Choose one route; the other routes are not prerequisites:
 
 ### Platform scope
 
-| Package target | Build/startup checks exercised | Not established by those checks |
-|---|---|---|
-| `x86_64-unknown-linux-gnu` | Ubuntu 24.04, x86-64 | Older distributions, musl, ARM Linux |
-| `aarch64-apple-darwin` | macOS 15, Apple Silicon | Older macOS, Intel Macs |
+| Package target | Tested build/startup environment |
+|---|---|
+| `x86_64-unknown-linux-gnu` | Ubuntu 24.04, x86-64 |
+| `aarch64-apple-darwin` | macOS 15, Apple Silicon |
 
-There is no supported native Windows package. The archives contain the CLI, attribution, license texts, build records, and dependency reports; see [artifact contents](release-artifacts.md). Browser, Desktop, language servers, model credentials, and the optional Ink client are not installed by extracting the CLI. No Apple Developer ID signing or notarization is claimed.
+Other system versions and architectures are untested; a native Windows package is currently unavailable. Packages contain the program, attribution, licenses, build records and dependency reports; see [artifact contents](release-artifacts.md). macOS packages currently lack Apple Developer ID signing and notarization.
+
+Install the browser, desktop driver, language servers and Ink client as needed. Configure your model account at first startup.
 
 ## Source build available now
 
-Use Rust/Cargo and a C toolchain. Linux builds also need OpenSSL development headers and `pkg-config`. The declared minimum Rust is 1.89; CI checks compilation at 1.89.0, not the entire test suite at that version.
+Use Rust 1.89 or newer, Cargo and a C toolchain. Linux also needs OpenSSL development headers and `pkg-config`.
 
 ```bash
 git clone https://github.com/IamK77/Lattice.git
@@ -36,7 +38,7 @@ cargo build --locked --release --bin lattice
 ./target/release/lattice --version
 ```
 
-An optimized source build still reports a development identity. Do not set `LATTICE_RELEASE_VERSION` merely to make a local build look official. Keep the source checkout and its license/notice files together. Set `LATTICE_BIN` to the absolute binary path for the [configuration guide](getting-started.md); that name is a shell convenience, not a product setting.
+The version output identifies this as a development build. Keep the source licenses and attribution files, then follow [First conversation](getting-started.md) to set the program path and connect a model.
 
 ## Verify a named official release before running it
 
@@ -64,13 +66,13 @@ for asset in lattice-v"$version"-*.tar.gz SHA256SUMS release-manifest.json; do
 done
 ```
 
-The current pipeline creates lightweight tags; an unexpected tag type is a reason to inspect, not guess. On Linux run `sha256sum --check SHA256SUMS`; on macOS run `shasum -a 256 --check SHA256SUMS`. Both archive checks must pass. The signing-runner constraint does not independently prove every earlier build host; the workflow policy fixes those hosts separately.
+The release workflow uses lightweight tags. The script stops on other tag types; ask the maintainer to confirm the corresponding commit. Next run `sha256sum --check SHA256SUMS` on Linux or `shasum -a 256 --check SHA256SUMS` on macOS and confirm that both archives pass. See [artifact contents](release-artifacts.md) for build-environment and signing-job records.
 
 ## Verify a signing preview
 
-Use only a preview explicitly identified by a maintainer, with its run, candidate commit, candidate ref and version. Obtain both archives, `SHA256SUMS`, `release-manifest.json` and `provenance.json` from that run's `release-preview` Actions artifact. Stop if those identities or verification instructions are missing; ask for them rather than choosing an arbitrary successful workflow run.
+Get the preview's run ID, candidate commit, candidate branch, version and verification instructions from the maintainer. Download both archives, `SHA256SUMS`, `release-manifest.json` and `provenance.json` from that run's `release-preview` Actions artifact. Ask the maintainer to fill in missing information before continuing.
 
-The attestation and checksum checks still matter, but use the exact candidate commit and candidate ref, not `refs/heads/main`. There is no release tag or immutable GitHub Release to query. Never relabel this as official-release verification. The [signed-preview acceptance record](signed-preview-acceptance.md) is maintainer evidence for a particular run, not a promise that another run is equivalent.
+Verify attestations and checksums against that preview's candidate commit and branch. Previews use the candidate branch identity; official releases use `refs/heads/main` and a release tag. Verify each through its respective route. The [signed-preview acceptance record](signed-preview-acceptance.md) gives a complete example; check each new preview's own files and identity.
 
 ## User-level installation
 
@@ -93,7 +95,7 @@ installed_version="$("$destination/lattice" --version)" || exit 1
 
 For a **first installation only**, create `~/.local/bin/lattice` as a symlink to `"$destination/lattice"` with `ln -s`. Do not replace an existing file or link without inspecting it. Add `~/.local/bin` to your shell's PATH, then inspect `command -v lattice`, `ls -l "$HOME/.local/bin/lattice"`, and `lattice --version`. A different installation earlier in PATH can otherwise keep winning.
 
-Now configure a model and start in your project directory using [First conversation](getting-started.md). `--version` and `--help` passing does not prove a paid provider or optional integration works.
+Connect a model and start in your project directory using [First conversation](getting-started.md). Follow the corresponding tool guide when you need a browser or desktop integration.
 
 ## Upgrade without losing the previous program
 
@@ -105,6 +107,6 @@ Now configure a model and start in your project directory using [First conversat
 6. Create a fresh temporary symlink beside `~/.local/bin/lattice`, pointing to the new executable, then rename it over the existing **symlink**. Keeping both links on the same filesystem permits an atomic pointer change; retain the old version directory and your recorded old target. Do not edit or truncate a running binary.
 7. Recheck PATH and version. Start with dedicated test data before opening valuable existing history.
 
-**Rollback has two different parts.** Switching the command link back restores the old program. It does not undo data written by the new program. If formats changed, restore the pre-upgrade data backup with all sessions stopped and leave the newer data aside for inspection. No arbitrary cross-version downgrade guarantee is made. Pre-1.0 version policy and the stable bridge protocol are not blanket storage-compatibility promises.
+**Handle the program and data separately during rollback.** Switching the command link back restores the old program; data written by the newer version remains. Check release notes to see whether the old program can read that data. If an older format is needed, stop all sessions, set aside the newer data, then restore the complete pre-upgrade backup.
 
 Uninstalling the command link and an explicitly selected program directory is separate from deleting user data. Do not remove `~/.lattice` as an installation cleanup step. Keep backups and version directories until you have deliberately decided they are no longer needed.

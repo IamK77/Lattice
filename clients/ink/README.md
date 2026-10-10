@@ -2,25 +2,25 @@
 
 [简体中文](README.zh-CN.md) · [Documentation](../../docs/README.md) · [Developer reference (Chinese)](development.zh-CN.md)
 
-An alternative terminal interface for Lattice, with multiple conversation tabs. It connects to an already running Lattice daemon; it does not start the daemon or configure your model account for you.
+Ink is an alternative terminal interface for Lattice, with tabs for viewing multiple conversations. Configure a model and start the Lattice background service first, then open the client to connect to it.
 
 <a id="run"></a>
 
 ## Start the daemon, then the client
 
-You need Node.js and npm (the package declares Node.js 18 or newer). The source-run command below also needs the [Rust build prerequisites](../../docs/installation.md#source-build-available-now).
+Prepare Node.js 18 or newer and npm. Running the background service from source also needs the [Rust build prerequisites](../../docs/installation.md#source-build-available-now).
 
-**1. Prepare the model configuration.** Use [model configuration](../../docs/model-configuration.md). The configuration and credentials must be available to the terminal that starts the **daemon**. Setting a key in the client terminal does not change a daemon already running. The daemon checks local configuration, not provider authentication, and does not open the terminal setup wizard.
+**1. Prepare model configuration.** Follow [Model configuration](../../docs/model-configuration.md). Make configuration and keys available in the terminal that starts the **background service**, which reads them at startup. Prepare the initial configuration through the ordinary terminal setup guide or by editing the configuration file before starting the service.
 
-**2. Start the daemon** from the repository root:
+**2. Start the service** from the repository root:
 
 ```bash
 cargo run --bin lattice -- serve
 ```
 
-This uses the repository as its working directory. To work in another project, start your verified built executable with `serve` from that project directory instead. A working directory is not a filesystem sandbox.
+This uses the repository as the working directory. To work in another project, run your built `lattice serve` from that project directory. Tools can also access files outside the working directory.
 
-**3. Start the client** in a second terminal, from the repository root:
+**3. Start the client** in another terminal, from the repository root:
 
 ```bash
 cd clients/ink
@@ -28,53 +28,62 @@ npm install
 npm start
 ```
 
-The default socket is `~/.lattice/daemon.sock`. If you set `LATTICE_SOCKET`, use the same path for both processes. `LATTICE_STREAM` selects the client's conversation name; it defaults to `main`. Two clients attached to the same name share the same conversation, not private copies.
+The default connection path is `~/.lattice/daemon.sock`. When changing it with `LATTICE_SOCKET`, use the same value on both ends. `LATTICE_STREAM` selects the conversation name, defaulting to `main`. Two clients using the same name operate on the same conversation.
 
-If connection fails, check that the daemon started successfully and that the socket paths match, then restart the client. The client does not automatically reconnect. Do not delete an existing socket as a routine fix: another daemon may be using it. For account or startup errors, use [troubleshooting](../../docs/troubleshooting.md).
+If connection fails, check that the service is running and the paths match, then reopen the client to connect. Keep existing socket files; another service may be using them. See [Troubleshooting](../../docs/troubleshooting.md) for account or startup errors.
 
 ## Everyday controls
 
 | Control | What it does |
 | --- | --- |
-| `Enter` | Send the draft. |
+| `Enter` | Send the input draft. |
 | `Tab` | Switch tabs. |
-| `Esc` | Request interruption of the current busy conversation. This affects the shared conversation and is not rollback. |
-| `/new [name]` | Open or attach a conversation in a tab. Omit the name for a generated name; reusing an existing name may return to old work, not reset it. |
-| `/btw [question]` | Open a separate side conversation that can inspect the parent's history read-only without interrupting it. Its own tools are not thereby restricted to read-only access. |
-| `/tab <n>` | Switch to a numbered tab. |
-| `/close` | Close this client's current tab/subscription, unless it is the last tab. The daemon conversation remains. |
-| `/exit` or `Ctrl-C` | Exit the client, not the daemon. This does not by itself interrupt work running in the daemon. |
-| `/clear` | Clear the current tab's live display records only. It does not reset model context, delete history, cancel work or revoke permissions; an older page already displayed remains. |
+| `Esc` | Request interruption of the current busy conversation; other clients sharing it also see the change. |
+| `/new [name]` | Open a tab for the named conversation. Omitting the name generates a new one; an existing name attaches to that conversation. |
+| `/btw [question]` | Open a side conversation that can read the current conversation's history to discuss something else. The current conversation keeps running; tools in the side conversation can also perform actions. |
+| `/tab <n>` | Switch to tab n. |
+| `/close` | Close the current tab while keeping the background conversation; the last tab stays open. |
+| `/exit` or `Ctrl-C` | Exit the client. The background service and its tasks continue. |
+| `/clear` | Clear the current tab's live display. Model context, saved history, running tasks, permissions and the older page being viewed remain in place. |
 
-Only the supported local commands are intercepted. Other slash-prefixed text is sent as conversation text; do not assume `/reset` is an implemented reset control.
+Other slash-prefixed text, such as `/reset`, is sent to the model as a message. Use the listed commands for client operations.
 
 <a id="历史分页"></a>
 
 ## Read earlier history
 
-Use `/older` to read one earlier page at a time and `/latest` to attach again at the latest position. `/latest` is not a network reconnect command and it ends the old binding's temporary permission.
+Use `/older` to move back one page and `/latest` to return to the latest position. `/latest` reattaches this tab to the conversation and ends its previous temporary permission; reopen the client to reconnect after a lost network connection.
 
-The display retains at most 500 live records plus the current older page, rather than downloading the entire history. This is a display limit, not a model-context limit or deletion policy. Looking at an old page does not restore old busy/permission state; live updates still arrive. If reading a page fails, the position is retained so it can be retried.
+The interface displays up to 500 recent live records plus the older page you are viewing. The complete history stays in the service, and model context is managed separately. New messages continue to arrive while viewing older pages; permission and work state reflect the current service state. A failed page read preserves your position so you can try again.
 
 <a id="操作授权"></a>
 
 ## Understand authorization before approving
 
-With a compatible daemon and the relevant services, authorization cards offer shortcuts **only while the draft is empty**:
+The service sends a card when approval is needed. With an empty input draft, use these shortcuts:
 
 - `y`: approve this request once; `n`: refuse.
-- `f`: save the flow-scoped permission actually offered by this card, when available.
-- `p`: explicitly grant permanent trust for an introduced addition, when offered. This is different from a flow permission.
+- `f`: save the conversation-scoped permission shown on the card, when offered.
+- `p`: permanently trust the request shown on the card, when offered.
 
-Read the displayed scope. A command-prefix grant may permit appended arguments; it does not bind the working directory, remote mapping or executable contents, and is not a filesystem sandbox. A grant for `git push origin` does not mean an independently checked destination for every future push.
+Command-prefix grants allow added arguments. For example, after approving `git push origin`, it uses the working directory and `origin` configuration at execution time. The grant may still apply after the directory, remote address or executable contents change. Choose one-time approval when you want to confirm each action separately.
 
-`/permission [on|off]` inspects or changes this interface's temporary permission. `Shift+Tab` toggles it without sending or clearing the draft. `/grants` lists flow grants; `/revoke <id>` requests revocation of a listed flow grant, not permanent trust or already completed actions. The interface waits for server confirmation rather than declaring success immediately. Turning permission on does not automatically answer the pending card.
+| Command or key | What it does |
+| --- | --- |
+| `/permission [on\|off]` | Inspect or change temporary action permission for this tab's attachment to the conversation. |
+| `Shift+Tab` | Toggle temporary action permission while keeping the input draft. |
+| `/grants` | View conversation-scoped grants. |
+| `/revoke <id>` | Request revocation of a listed grant and wait for service confirmation. |
 
-Closing a binding, disconnecting, reattaching with `/latest`, or reopening the runtime ends temporary permission. Flow grants persist separately; permanent trust is another mechanism. On an older daemon or without the required services, new controls are unavailable. A legacy `y` retains its old service meaning and may grant permanent trust; do not read it as “once.”
+An already displayed approval card still needs its own answer after temporary permission is enabled. Closing the tab, disconnecting, reattaching the current conversation with `/latest` or restarting the service ends that temporary permission. Conversation grants are saved separately, and permanent trust is managed separately again. Completed actions remain in effect after revocation.
+
+These shortcuts require a matching background service. Older services may lack some controls, and a legacy `y` can grant permanent trust. Check the scope displayed on the card before approving.
 
 ## Data and help
 
-Conversations and tool output can contain secrets and are sent to the configured model provider. Cancellation, closing tabs and exiting the client do not undo actions. Review the [data and permission boundaries](../../docs/getting-started.md#data-and-permissions) before sensitive work. For help, report the feature or step and a short inspected diagnostic, not a complete history or environment dump: [Support](../../SUPPORT.md).
+Conversations and tool output are saved and sent to the configured model service; they can contain file contents and keys. Completed actions remain in effect after cancelling work, closing tabs or exiting the client. See [Data and permissions](../../docs/getting-started.md#data-and-permissions) for more information.
+
+For help, describe the feature or step and include an error excerpt with keys and private content removed; see [Support](../../SUPPORT.md).
 
 <a id="the-protocol-in-one-screen"></a>
 <a id="layout"></a>
@@ -82,4 +91,4 @@ Conversations and tool output can contain secrets and are sent to the configured
 
 ## Developer reference
 
-Protocol messages, backend boundaries, source layout and test commands belong to the [developer reference (Chinese)](development.zh-CN.md); they are not prerequisites for using this client.
+See the [developer reference (Chinese)](development.zh-CN.md) for the protocol, source layout and tests.

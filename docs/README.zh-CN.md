@@ -17,7 +17,7 @@
 
 ## 配置与定制
 
-这里是产品支持的设置和可选集成，不是修改内核的前置教程。
+选择你要调整的内容：连接模型、添加项目约定，或配置浏览器、桌面等可选工具。
 
 - [模型配置](model-configuration.zh-CN.md)：连接服务、手写模型文件、能力、容量、语言与凭证。
 - [项目约定](getting-started.zh-CN.md#5-加入项目约定)：用项目规则指导 agent。
@@ -25,7 +25,7 @@
 - [桌面配置](desktop.zh-CN.md)：可选的 macOS 驱动和权限。
 - [JavaScript/Ink 客户端](../clients/ink/README.zh-CN.md)：另一种客户端的启动和操作。
 
-使用现成集成和编写新部件是不同任务；后者请走下面的开发入口。费用、数据外发和破坏性操作的提示仍放在相关操作处，不能让技术参考代替这些提示。
+想编写自己的工具或改变 Lattice 的运行方式，请看下面的“开发与维护”。
 
 ## 开发与维护
 
@@ -50,6 +50,6 @@
 cargo run --locked --example heartbeat
 ```
 
-这里使用脚本回复演示事件流，不是真实模型对话，也不证明提供方兼容性。脚本终端检查及其限制见[引导开发说明（英文）](setup-development.md#developer-checks-without-a-provider)。
+这个示例用预设回复展示部件间的事件传递。连接真实模型请看[第一次对话](getting-started.zh-CN.md)，开发检查见[引导开发说明（英文）](setup-development.md#developer-checks-without-a-provider)。
 
-深层设计文档可以继续使用中文，英文入口会标明语言。文件名使用英文，中文文档以 `.zh-CN.md` 区分；[路径迁移表](path-migrations.json)记录旧名称。请从这些当前入口阅读，不要默认原型或旧验收记录就是现行产品说明。
+当前使用说明从本页进入，历史原型和验收记录收在[开发参考](development.zh-CN.md)中。深层设计文档主要使用中文，英文入口标明了语言。文件名使用英文，中文文档以 `.zh-CN.md` 区分；[路径迁移表](path-migrations.json)记录旧名称。
