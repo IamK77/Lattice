@@ -25,7 +25,7 @@ body:
     id: reproduce
     attributes:
       label: Steps to reproduce
-      description: Provide a minimal synthetic example. Name relevant optional components.
+      description: Provide a minimal synthetic example and the feature or step that failed. Name an optional integration if known; internal component knowledge is not required.
     validations:
       required: true
   - type: textarea

@@ -23,7 +23,7 @@
 - [项目约定](getting-started.zh-CN.md#5-加入项目约定)：用项目规则指导 agent。
 - [可选工具](getting-started.zh-CN.md#可选工具)：浏览器和代码导航的使用前提。
 - [桌面配置](desktop.zh-CN.md)：可选的 macOS 驱动和权限。
-- [JavaScript/Ink 客户端（中英文混合）](../clients/ink/README.md)：另一种客户端的启动和操作。
+- [JavaScript/Ink 客户端](../clients/ink/README.zh-CN.md)：另一种客户端的启动和操作。
 
 使用现成集成和编写新部件是不同任务；后者请走下面的开发入口。费用、数据外发和破坏性操作的提示仍放在相关操作处，不能让技术参考代替这些提示。
 
@@ -36,6 +36,7 @@
 | 组装运行时或迁移自定义装配 | [装配配置](assembly-configuration.zh-CN.md) · [能力迁移（英文）](capability-split-migration.md) |
 | 实现部件接口 | [契约](contracts/) · [JSON Schema](../schemas/) |
 | 修改首次配置前端 | [引导实现与验证（英文）](setup-development.md) |
+| 实现或测试可选集成 | [Ink 协议与测试](../clients/ink/development.zh-CN.md) · [桌面后端与测试](desktop-development.zh-CN.md) |
 | 贡献一项小范围改动 | [参与贡献（英文）](../CONTRIBUTING.md) · [分支与 PR 流程](workflow.zh-CN.md) |
 | 维护依赖、准备或执行发布 | [维护者说明（英文）](../MAINTAINERS.md) · [维护者手册](maintainer-handbook.zh-CN.md) |
 

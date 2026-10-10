@@ -1,10 +1,21 @@
 # 安装、升级与回退
 
-[English](installation.md) · [第一次对话](getting-started.zh-CN.md) · [故障排查](troubleshooting.zh-CN.md)
+[文档导航](README.zh-CN.md) · [English](installation.md) · [第一次对话](getting-started.zh-CN.md) · [故障排查](troubleshooting.zh-CN.md)
 
 ## 发布状态与平台范围
 
 **首个正式版本尚未发布。** 现在可以从源码构建，或使用维护者明确指定的签名预演产物。下面的 GitHub Release 命令，要等具名正式版本存在后才能使用。预演即使显示 `vX.Y.Z`，也不是稳定发布。
+
+按实际来源选择一条路线，不必先读完另外两条：
+
+| 你拿到的是什么 | 下一步 |
+| --- | --- |
+| 源码仓库 | [构建程序](#现在可用的源码构建)，再按[第一次对话](getting-started.zh-CN.md)继续；不用执行正式包下载命令。 |
+| 维护者明确指定的签名预演运行 | 按[预演验证](#验证签名预演)继续，不套用正式标签的假设。 |
+| 已经发布的具名正式版本 | 先[验证正式版本](#正式版本先验证后执行)，再[安装程序包](#安装到自己的用户目录)。 |
+| 需要替换的既有安装 | 先读[升级与回退注意事项](#升级时保留旧程序)。 |
+
+### 平台范围
 
 | 产物目标 | 已实测的构建、启动环境 | 不能由此推出 |
 |---|---|---|
@@ -38,9 +49,10 @@ version='X.Y.Z'  # 换成实际存在的、已审阅版本。
 work="$(mktemp -d)"
 cd "$work"
 repo=IamK77/Lattice
-[[ "$(gh api "repos/$repo/releases/tags/v$version" --jq '.immutable == true and .draft == false and .prerelease == false')" == true ]]
-commit="$(gh api "repos/$repo/git/ref/tags/v$version" --jq '.object | select(.type == "commit") | .sha')"
-[[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+release_ok="$(gh api "repos/$repo/releases/tags/v$version" --jq '.immutable == true and .draft == false and .prerelease == false')" || exit 1
+[[ "$release_ok" == true ]] || exit 1
+commit="$(gh api "repos/$repo/git/ref/tags/v$version" --jq '.object | select(.type == "commit") | .sha')" || exit 1
+[[ "$commit" =~ ^[0-9a-f]{40}$ ]] || exit 1
 gh release download "v$version" --repo "$repo" --dir "$work" \
   --pattern 'lattice-*.tar.gz' --pattern SHA256SUMS \
   --pattern release-manifest.json --pattern provenance.json
@@ -54,21 +66,28 @@ done
 
 当前流水线创建轻量标签；遇到不同标签类型应检查，不要猜提交。Linux 再运行 `sha256sum --check SHA256SUMS`，macOS 运行 `shasum -a 256 --check SHA256SUMS`，两个归档都应通过。签名运行环境约束只证明签名任务的位置，之前的构建任务另由工作流固定。
 
-预演应从维护者指定运行的 `release-preview` Actions 产物取得全部五个文件，以准确候选提交和候选分支验证，而不是套用 `refs/heads/main`。预演没有正式标签或不可变 GitHub Release 可查，不能把这种验证说成正式版本验收。
+## 验证签名预演
+
+只使用维护者明确指定的预演，拿到运行编号、候选提交、候选分支和版本。从该次运行的 `release-preview` Actions 产物取得两个归档、`SHA256SUMS`、`release-manifest.json` 和 `provenance.json`。身份信息或验证步骤不全时先停下来询问，不要自行挑一次成功的工作流运行。
+
+仍需验证签名证明和摘要，但使用准确候选提交与候选分支，而不是 `refs/heads/main`。预演没有正式标签或不可变 GitHub Release 可查，不能把这种验证说成正式版本验收。[签名预演验收记录](signed-preview-acceptance.zh-CN.md)是维护者针对某一次运行留下的证据，不证明其他运行与它等价。
 
 ## 安装到自己的用户目录
 
-按实际机器选择表中的目标。保留完整解包目录，包括署名文件。验证后执行：
+这一步用于已经验证的程序包，不用于源码仓库。留在下载目录中，把 `version` 设为刚验证过的版本；预演必须先通过它自己的验证。按实际机器选择表中的目标，并保留完整解包目录，包括署名文件。
 
 ```bash
+set -euo pipefail
+: "${version:?Use the version verified in the previous step}"
 target='aarch64-apple-darwin'  # 已测 Linux x86-64 改为 x86_64-unknown-linux-gnu。
 root="$HOME/.local/share/lattice/versions"
 destination="$root/v$version-$target"
 mkdir -p "$root" "$HOME/.local/bin"
-[[ ! -e "$destination" && ! -L "$destination" ]]
+[[ ! -e "$destination" && ! -L "$destination" ]] || exit 1
 mkdir "$destination"
 tar -xzf "lattice-v$version-$target.tar.gz" --strip-components=1 -C "$destination"
-[[ "$("$destination/lattice" --version)" == "v$version" ]]
+installed_version="$("$destination/lattice" --version)" || exit 1
+[[ "$installed_version" == "v$version" ]] || exit 1
 "$destination/lattice" --help
 ```
 

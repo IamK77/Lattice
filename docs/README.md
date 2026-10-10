@@ -22,8 +22,8 @@ These are supported product settings and optional integrations, not instructions
 - [Model configuration](model-configuration.md): service connections, manual model files, capabilities, capacity, language and credentials.
 - [Project conventions](getting-started.md#5-add-your-project-conventions): guide the agent with your project's rules.
 - [Optional tools](getting-started.md#optional-tools): browser and code-navigation prerequisites.
-- [Desktop setup (Chinese)](desktop.zh-CN.md): optional macOS driver and permissions.
-- [JavaScript/Ink client (mixed English/Chinese)](../clients/ink/README.md): alternative client startup and controls.
+- [Desktop setup](desktop.md): optional macOS driver and permissions.
+- [JavaScript/Ink client](../clients/ink/README.md): alternative client startup and controls.
 
 Using an existing integration and writing a new component are different tasks. For the latter, use the development route below. Costs, data exposure and destructive-action warnings remain with the relevant operation; a technical reference is not a substitute for those warnings.
 
@@ -36,6 +36,7 @@ Using an existing integration and writing a new component are different tasks. F
 | Assemble a runtime or migrate a custom assembly | [Assembly configuration (Chinese)](assembly-configuration.zh-CN.md) · [Capability migration](capability-split-migration.md) |
 | Implement the component interfaces | [Contracts (Chinese)](contracts/) · [JSON schemas](../schemas/) |
 | Work on the first-run frontend | [Setup implementation and verification](setup-development.md) |
+| Implement or test an optional integration | [Ink protocol and tests (Chinese)](../clients/ink/development.zh-CN.md) · [Desktop backend and tests (Chinese)](desktop-development.zh-CN.md) |
 | Contribute a focused change | [Contributing](../CONTRIBUTING.md) · [Branch and PR workflow](workflow.md) |
 | Maintain dependencies, prepare or publish a release | [Maintainers](../MAINTAINERS.md) · [Maintainer handbook](maintainer-handbook.md) |
 

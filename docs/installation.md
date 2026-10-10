@@ -1,10 +1,21 @@
 # Installation, upgrades, and rollback
 
-[中文](installation.zh-CN.md) · [First conversation](getting-started.md) · [Troubleshooting](troubleshooting.md)
+[Documentation](README.md) · [中文](installation.zh-CN.md) · [First conversation](getting-started.md) · [Troubleshooting](troubleshooting.md)
 
 ## Availability and platform scope
 
 **The first official release has not shipped yet.** Use a source build today, or a specifically identified signing-preview run supplied by a maintainer. Commands for named GitHub Releases below become applicable only after one exists. A preview is not a stable release, even when it prints `vX.Y.Z`.
+
+Choose one route; the other routes are not prerequisites:
+
+| What you have | Next step |
+| --- | --- |
+| A source checkout | [Build it](#source-build-available-now), then follow [First conversation](getting-started.md). You do not need release-download commands. |
+| An explicitly supplied signing-preview run | Follow [preview verification](#verify-a-signing-preview); do not apply official-tag assumptions. |
+| An existing named official release | [Verify that release](#verify-a-named-official-release-before-running-it) before [installing the package](#user-level-installation). |
+| An existing installation to replace | Read [upgrade and rollback precautions](#upgrade-without-losing-the-previous-program) first. |
+
+### Platform scope
 
 | Package target | Build/startup checks exercised | Not established by those checks |
 |---|---|---|
@@ -38,9 +49,10 @@ version='X.Y.Z'  # Replace with an existing reviewed release.
 work="$(mktemp -d)"
 cd "$work"
 repo=IamK77/Lattice
-[[ "$(gh api "repos/$repo/releases/tags/v$version" --jq '.immutable == true and .draft == false and .prerelease == false')" == true ]]
-commit="$(gh api "repos/$repo/git/ref/tags/v$version" --jq '.object | select(.type == "commit") | .sha')"
-[[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+release_ok="$(gh api "repos/$repo/releases/tags/v$version" --jq '.immutable == true and .draft == false and .prerelease == false')" || exit 1
+[[ "$release_ok" == true ]] || exit 1
+commit="$(gh api "repos/$repo/git/ref/tags/v$version" --jq '.object | select(.type == "commit") | .sha')" || exit 1
+[[ "$commit" =~ ^[0-9a-f]{40}$ ]] || exit 1
 gh release download "v$version" --repo "$repo" --dir "$work" \
   --pattern 'lattice-*.tar.gz' --pattern SHA256SUMS \
   --pattern release-manifest.json --pattern provenance.json
@@ -54,21 +66,28 @@ done
 
 The current pipeline creates lightweight tags; an unexpected tag type is a reason to inspect, not guess. On Linux run `sha256sum --check SHA256SUMS`; on macOS run `shasum -a 256 --check SHA256SUMS`. Both archive checks must pass. The signing-runner constraint does not independently prove every earlier build host; the workflow policy fixes those hosts separately.
 
-For a preview, obtain all five files from the explicitly supplied `release-preview` Actions artifact. Verify against that run's exact candidate commit and candidate ref, not `refs/heads/main`. There is no release tag or immutable GitHub Release to query. Never relabel this as official-release verification.
+## Verify a signing preview
+
+Use only a preview explicitly identified by a maintainer, with its run, candidate commit, candidate ref and version. Obtain both archives, `SHA256SUMS`, `release-manifest.json` and `provenance.json` from that run's `release-preview` Actions artifact. Stop if those identities or verification instructions are missing; ask for them rather than choosing an arbitrary successful workflow run.
+
+The attestation and checksum checks still matter, but use the exact candidate commit and candidate ref, not `refs/heads/main`. There is no release tag or immutable GitHub Release to query. Never relabel this as official-release verification. The [signed-preview acceptance record](signed-preview-acceptance.md) is maintainer evidence for a particular run, not a promise that another run is equivalent.
 
 ## User-level installation
 
-Choose the target from the table for your actual machine. Keep the complete extracted directory, including its attribution. After verification:
+This step is for a verified package, not a source checkout. Stay in its download directory and set `version` to the version you verified; a preview must have passed its own verification first. Choose the target from the table for your actual machine. Keep the complete extracted directory, including its attribution.
 
 ```bash
+set -euo pipefail
+: "${version:?Use the version verified in the previous step}"
 target='aarch64-apple-darwin'  # Or x86_64-unknown-linux-gnu on the tested Linux target.
 root="$HOME/.local/share/lattice/versions"
 destination="$root/v$version-$target"
 mkdir -p "$root" "$HOME/.local/bin"
-[[ ! -e "$destination" && ! -L "$destination" ]]
+[[ ! -e "$destination" && ! -L "$destination" ]] || exit 1
 mkdir "$destination"
 tar -xzf "lattice-v$version-$target.tar.gz" --strip-components=1 -C "$destination"
-[[ "$("$destination/lattice" --version)" == "v$version" ]]
+installed_version="$("$destination/lattice" --version)" || exit 1
+[[ "$installed_version" == "v$version" ]] || exit 1
 "$destination/lattice" --help
 ```
 

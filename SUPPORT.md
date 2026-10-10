@@ -13,8 +13,10 @@
 - **Contributing code or documentation:** read [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Search existing reports first. Include the output of `lattice --version`, your
-operating system and architecture, the relevant component, and the smallest
-reproduction you can share. Say which steps you tried and what you expected.
+operating system and architecture, the feature or step that failed, and the
+smallest reproduction you can share. You do not need to identify an internal
+component; name an optional integration if you know it. Say which steps you
+tried and what you expected.
 Use synthetic data. Do not upload an entire ledger, dump your environment, or
 paste credentials. Review screenshots and configuration excerpts for secrets.
 

@@ -86,7 +86,7 @@ Do not add dependencies without discussing the trade-off.
 - **浏览器：** 需要 Chrome/Chromium；`LATTICE_BROWSER` 可以选择其他可执行文件。
 - **代码导航：** 需要对应语言的本机语言服务；缺少时明确报错，不自动安装。
 - **桌面：** 需要 macOS、外部驱动和系统权限，见[桌面配置](desktop.zh-CN.md)。
-- **其他客户端：** [JavaScript/Ink](../clients/ink/README.md)（中英文混合）有自己的启动与操作说明。
+- **其他客户端：** [JavaScript/Ink](../clients/ink/README.zh-CN.md)有自己的启动与操作说明。
 
 ## 数据与权限
 

@@ -1,114 +1,85 @@
-# @lattice/ink
+# Lattice Ink client
 
-A React/[Ink](https://github.com/vadimdemedes/ink) frontend for the Lattice daemon.
+[简体中文](README.zh-CN.md) · [Documentation](../../docs/README.md) · [Developer reference (Chinese)](development.zh-CN.md)
 
-It connects to the daemon over its Unix socket and speaks **only the wire
-protocol** (NDJSON — one JSON object per line). It contains no Rust and knows
-nothing about the core's internals; the core does not know it is written in
-JavaScript. This is Lattice's "language-agnostic frontend" made real: the
-frontend is just another driver on the pure-data boundary.
+An alternative terminal interface for Lattice, with multiple conversation tabs. It connects to an already running Lattice daemon; it does not start the daemon or configure your model account for you.
 
-## Run
+<a id="run"></a>
 
-先按根目录 README 配置模型目录与密钥环境变量，再从仓库根目录启动 Rust daemon：
+## Start the daemon, then the client
 
-```
+You need Node.js and npm (the package declares Node.js 18 or newer). The source-run command below also needs the [Rust build prerequisites](../../docs/installation.md#source-build-available-now).
+
+**1. Prepare the model configuration.** Use [model configuration](../../docs/model-configuration.md). The configuration and credentials must be available to the terminal that starts the **daemon**. Setting a key in the client terminal does not change a daemon already running. The daemon checks local configuration, not provider authentication, and does not open the terminal setup wizard.
+
+**2. Start the daemon** from the repository root:
+
+```bash
 cargo run --bin lattice -- serve
 ```
 
-Then, here:
+This uses the repository as its working directory. To work in another project, start your verified built executable with `serve` from that project directory instead. A working directory is not a filesystem sandbox.
 
-```
+**3. Start the client** in a second terminal, from the repository root:
+
+```bash
+cd clients/ink
 npm install
 npm start
 ```
 
-- `Enter` sends · `Esc` interrupts a running turn · `Ctrl-C` quits
-- `Tab` cycles tabs; `Shift+Tab` toggles this interface's temporary permission without submitting or clearing the draft
-- Slashes are parsed in the driver (the core knows none of them):
-  - `/new [name]` — open a new conversation in a new tab
-  - `/btw [question]` — open a **sidechannel** derived from the current tab: a
-    new conversation that observes the parent read-only (marked `⌥`), without
-    disturbing it
-  - `/tab <n>` — switch to tab n · `/close` — close the current tab
-  - `/exit` quits · `/clear` clears the current tab
+The default socket is `~/.lattice/daemon.sock`. If you set `LATTICE_SOCKET`, use the same path for both processes. `LATTICE_STREAM` selects the client's conversation name; it defaults to `main`. Two clients attached to the same name share the same conversation, not private copies.
 
-Environment:
+If connection fails, check that the daemon started successfully and that the socket paths match, then restart the client. The client does not automatically reconnect. Do not delete an existing socket as a routine fix: another daemon may be using it. For account or startup errors, use [troubleshooting](../../docs/troubleshooting.md).
 
-- `LATTICE_SOCKET` — socket path (default `~/.lattice/daemon.sock`)
-- `LATTICE_STREAM` — which conversation to attach to (default `main`); two
-  clients attaching to the same stream watch the same conversation
+## Everyday controls
 
-## 历史分页
+| Control | What it does |
+| --- | --- |
+| `Enter` | Send the draft. |
+| `Tab` | Switch tabs. |
+| `Esc` | Request interruption of the current busy conversation. This affects the shared conversation and is not rollback. |
+| `/new [name]` | Open or attach a conversation in a tab. Omit the name for a generated name; reusing an existing name may return to old work, not reset it. |
+| `/btw [question]` | Open a separate side conversation that can inspect the parent's history read-only without interrupting it. Its own tools are not thereby restricted to read-only access. |
+| `/tab <n>` | Switch to a numbered tab. |
+| `/close` | Close this client's current tab/subscription, unless it is the last tab. The daemon conversation remains. |
+| `/exit` or `Ctrl-C` | Exit the client, not the daemon. This does not by itself interrupt work running in the daemon. |
+| `/clear` | Clear the current tab's live display records only. It does not reset model context, delete history, cancel work or revoke permissions; an older page already displayed remains. |
 
-客户端在握手时声明 `history-pages`。首次只接收最近一页，同时接收截至该页边界的忙碌、等待、未答授权和技能菜单状态；这些状态不会因为查看旧页而倒退。`/older` 每次向前读取一页，`/latest` 重新附着回到最新位置。界面只保留最近 500 条显示记录和当前旧页，不自动下载整本账。
+Only the supported local commands are intercepted. Other slash-prefixed text is sent as conversation text; do not assume `/reset` is an implemented reset control.
 
-服务端每页最多 128 条事件，原始记录字节预算为 128 KiB；单条超大的事件单独发送，预算不是网络编码后的严格字节上限。游标绑定流、附着代次和历史边界，只能顺序消费；新事件仍实时到达，旧页不混入边界之后的事件。读取失败返回携带原游标的 `history_error`，不推进位置。未声明分页能力的旧客户端只能附着到一页以内的历史，超出后明确要求升级，不静默截断。
+<a id="历史分页"></a>
 
-## 操作授权
+## Read earlier history
 
-支持 `operation-permissions-v1` 的 daemon 为每个标签的每次绑定分配独立令牌。输入框为空时，授权卡用 `y` 仅批准本次、`f` 保存服务端展示的本流范围、`n` 拒绝；`p` 只用于明确授予引入项的永久信任。卡片展示具体命令前缀，不能把 `git push origin` 的授权理解为任意推送或文件系统沙箱。
+Use `/older` to read one earlier page at a time and `/latest` to attach again at the latest position. `/latest` is not a network reconnect command and it ends the old binding's temporary permission.
 
-`/permission [on|off]` 查看或切换当前界面的临时权限，`/grants` 查看流内授权，`/revoke <编号>` 请求撤销。所有命令在本地处理；错误参数不会发送给模型。发送后等待权威状态，不乐观显示成功。临时权限在关闭标签、断线或运行时重开后结束；流内授权保留，永久信任另算。打开开关不会自动回答当前卡。
+The display retains at most 500 live records plus the current older page, rather than downloading the entire history. This is a display limit, not a model-context limit or deletion policy. Looking at an old page does not restore old busy/permission state; live updates still arrive. If reading a page fails, the position is retained so it can be retried.
 
-`/latest` 会重新绑定，因此旧界面权限失效。旧页只供阅读，不会恢复旧权限或改变当前授权队列。收到旧版 `attached` 时，新控件明确不可用；旧 `y` 保留原服务语义，对 trust 而言可能写永久信任，界面不会把它标成“仅本次”。完整职责和前缀边界见 `../../docs/design-action-authorization.zh-CN.md`。
+<a id="操作授权"></a>
 
-协商后服务端返回独立的 `attached_v2`，不往旧严格历史结构硬塞字段。其 `authorization` 包含 `attachment`、`interface`、两个服务实例名、`through`、持久 `grants` 和完整前缀中尚未回答的 `pending_authorizations`（问题信封）；卡在末页之外也保留类型与范围。没有服务时相应字段为 null，不据此虚构权限。后续命令为：
+## Understand authorization before approving
 
-```json
-{"set_permission":{"stream":"main","attachment":"<server-token>","enabled":true}}
-{"authorize_operation":{"stream":"main","attachment":"<server-token>","request":"<question-event-id>","approve":true,"scope":"once"}}
-{"revoke_grant":{"stream":"main","attachment":"<server-token>","grant":"<grant-id>"}}
-```
+With a compatible daemon and the relevant services, authorization cards offer shortcuts **only while the draft is empty**:
 
-范围还可选 `flow`。`request` 是问题事件编号，不是挂起调用编号；未知范围、过期令牌、未协商或未绑定的控制都不能降级为旧批准。永久信任仍用显式旧 `authorize` 路径，而不是由前端写文件。
+- `y`: approve this request once; `n`: refuse.
+- `f`: save the flow-scoped permission actually offered by this card, when available.
+- `p`: explicitly grant permanent trust for an introduced addition, when offered. This is different from a flow permission.
 
-## The protocol, in one screen
+Read the displayed scope. A command-prefix grant may permit appended arguments; it does not bind the working directory, remote mapping or executable contents, and is not a filesystem sandbox. A grant for `git push origin` does not mean an independently checked destination for every future push.
 
-Client → daemon (externally tagged, snake_case):
+`/permission [on|off]` inspects or changes this interface's temporary permission. `Shift+Tab` toggles it without sending or clearing the draft. `/grants` lists flow grants; `/revoke <id>` requests revocation of a listed flow grant, not permanent trust or already completed actions. The interface waits for server confirmation rather than declaring success immediately. Turning permission on does not automatically answer the pending card.
 
-```json
-{"attach": {"stream": "main", "template": null}}
-{"send_text": {"stream": "main", "text": "hello"}}
-{"interrupt": {"stream": "main"}}
-```
+Closing a binding, disconnecting, reattaching with `/latest`, or reopening the runtime ends temporary permission. Flow grants persist separately; permanent trust is another mechanism. On an older daemon or without the required services, new controls are unavailable. A legacy `y` retains its old service meaning and may grant permanent trust; do not read it as “once.”
 
-Daemon → client:
+## Data and help
 
-```json
-{"attached": {"stream": "main", "replay": [<event>, ...]}}
-{"appended": {"stream": "main", "event": <event>}}
-{"notice": {"stream": "main", "source": "model", "payload": {"chunk": "he"}}}
-{"quiescent": {"stream": "main"}}
-{"error": {"message": "..."}}
-```
+Conversations and tool output can contain secrets and are sent to the configured model provider. Cancellation, closing tabs and exiting the client do not undo actions. Review the [data and permission boundaries](../../docs/getting-started.md#data-and-permissions) before sensitive work. For help, report the feature or step and a short inspected diagnostic, not a complete history or environment dump: [Support](../../SUPPORT.md).
 
-An `<event>` is a Lattice envelope: `{ v, id, seq, stream, time, type, source,
-causes, origin?, reason?, payload }`. Render it with `renderLine` in
-`src/protocol.js`; scoped controls separately consume the current authority snapshots.
+<a id="the-protocol-in-one-screen"></a>
+<a id="layout"></a>
+<a id="tests"></a>
 
-## Layout
+## Developer reference
 
-- `src/connection.js` — the socket, NDJSON framing, encode/decode
-- `src/protocol.js` — `encode`, `decode`, `renderLine` (the whole protocol)
-- `src/state.js` — the multi-tab state as a pure, testable reducer
-- `src/app.js` — the Ink UI (React via [htm](https://github.com/developit/htm),
-  no build step): tab bar, header, colored role markers, wrapped multi-line
-  messages, a hand-rolled spinner while the agent works, a rounded input box
-- `src/theme.js` — the palette and speaker markers
-- `bin/lattice.js` — entry point
-
-## Tests
-
-```
-npm test
-```
-
-- `test/client.test.js` — protocol + a full turn round-tripped against a mock
-  daemon (`scripts/mock-daemon.js`)
-- `test/state.test.js` — the multi-tab reducer (open/switch/close, per-tab isolation)
-- `test/render.test.js` — the real Ink app mounted headlessly, incl. /new + /btw tabs
-
-`scripts/xlang-smoke.js` is a cross-language check against a real Rust daemon
-(not in `npm test`). `node scripts/preview.js` prints a sample frame so you can
-eyeball the layout without a live terminal.
+Protocol messages, backend boundaries, source layout and test commands belong to the [developer reference (Chinese)](development.zh-CN.md); they are not prerequisites for using this client.

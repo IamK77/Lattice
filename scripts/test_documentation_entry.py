@@ -17,8 +17,15 @@ PAIRS = [
     ("docs/README.md", "docs/README.zh-CN.md"),
     ("docs/getting-started.md", "docs/getting-started.zh-CN.md"),
     ("docs/model-configuration.md", "docs/model-configuration.zh-CN.md"),
+    ("docs/desktop.md", "docs/desktop.zh-CN.md"),
+    ("clients/ink/README.md", "clients/ink/README.zh-CN.md"),
 ]
-DOCUMENTS = [name for pair in PAIRS for name in pair] + ["docs/setup-development.md"]
+DOCUMENTS = [name for pair in PAIRS for name in pair] + [
+    "docs/setup-development.md", "docs/desktop-development.zh-CN.md",
+    "clients/ink/development.zh-CN.md", "docs/installation.md",
+    "docs/installation.zh-CN.md", "docs/troubleshooting.md",
+    "docs/troubleshooting.zh-CN.md", "SUPPORT.md",
+]
 FENCES = re.compile(r"(?ms)^```([\w-]*)\n(.*?)^```[ \t]*$")
 
 
@@ -85,10 +92,12 @@ class DocumentationEntryTests(unittest.TestCase):
                     checked += 1
         self.assertGreater(checked, 0)
 
-    def test_first_use_bookmarks_survive_extraction(self):
+    def test_user_bookmarks_survive_extraction(self):
         for name, expected in [
             ("docs/getting-started.md", {"3-start-in-your-project", "manual-configuration-optional", "data-and-permissions"}),
             ("docs/getting-started.zh-CN.md", {"3-在自己的项目里启动", "手动配置可选", "数据与权限"}),
+            ("clients/ink/README.md", {"run", "历史分页", "操作授权", "the-protocol-in-one-screen", "layout", "tests"}),
+            ("docs/desktop.zh-CN.md", {"安装与系统许可", "使用方式", "保护与边界", "验证"}),
         ]:
             with self.subTest(document=name):
                 self.assertTrue(expected <= anchors((ROOT / name).read_text(encoding="utf-8")))

@@ -482,6 +482,12 @@ fn public_entry_documents_have_resolvable_local_links() {
         "docs/model-configuration.md",
         "docs/model-configuration.zh-CN.md",
         "docs/setup-development.md",
+        "docs/desktop.md",
+        "docs/desktop.zh-CN.md",
+        "docs/desktop-development.zh-CN.md",
+        "clients/ink/README.md",
+        "clients/ink/README.zh-CN.md",
+        "clients/ink/development.zh-CN.md",
     ] {
         let path = root.join(name);
         let text = std::fs::read_to_string(&path).expect("public entry document");
