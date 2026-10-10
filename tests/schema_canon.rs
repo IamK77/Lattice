@@ -426,11 +426,11 @@ fn what_the_preferences_writer_produces_satisfies_its_canon() {
 }
 
 #[test]
-fn getting_started_catalog_examples_match_the_canon_and_each_other() {
+fn model_configuration_catalog_examples_match_the_canon_and_each_other() {
     let canon = validator(include_str!("../schemas/model_catalog.json"));
     let guides = [
-        include_str!("../docs/getting-started.md"),
-        include_str!("../docs/getting-started.zh-CN.md"),
+        include_str!("../docs/model-configuration.md"),
+        include_str!("../docs/model-configuration.zh-CN.md"),
     ];
     let examples: Vec<Value> = guides
         .iter()
@@ -438,7 +438,7 @@ fn getting_started_catalog_examples_match_the_canon_and_each_other() {
             let (_, block) = guide.split_once("```json\n").expect("catalog example");
             let (body, _) = block.split_once("\n```").expect("closed JSON fence");
             let example: Value = serde_json::from_str(body).expect("valid example JSON");
-            assert_valid(&canon, &example, "getting-started catalog example");
+            assert_valid(&canon, &example, "model-configuration catalog example");
             example
         })
         .collect();
@@ -477,6 +477,11 @@ fn public_entry_documents_have_resolvable_local_links() {
         "docs/workflow.zh-CN.md",
         "docs/getting-started.md",
         "docs/getting-started.zh-CN.md",
+        "docs/README.md",
+        "docs/README.zh-CN.md",
+        "docs/model-configuration.md",
+        "docs/model-configuration.zh-CN.md",
+        "docs/setup-development.md",
     ] {
         let path = root.join(name);
         let text = std::fs::read_to_string(&path).expect("public entry document");

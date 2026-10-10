@@ -10,7 +10,7 @@
 
 [English](README.md) · **简体中文**
 
-[开始使用](docs/getting-started.zh-CN.md) · [按你的方式定制](#按你的方式定制) · [参与贡献](CONTRIBUTING.md)
+[开始使用](docs/getting-started.zh-CN.md) · [按你的方式定制](#按你的方式定制) · [文档导航](docs/README.zh-CN.md) · [参与贡献](CONTRIBUTING.md)
 
 ## 为什么选择 Lattice
 
@@ -61,10 +61,18 @@ cargo build --locked --release --bin lattice
 
 ## 按你的方式定制
 
-先使用随附的配置，再一次调整一件事：
+先使用随附的配置，再一次调整一件事。
 
-- **你的模型：** 接入 Chat Completions、Responses 或 Anthropic Messages 端点，用 `/model` 切换已配置的模型，见[模型配置](docs/getting-started.zh-CN.md#2-连接模型)。
+### 配置现有功能
+
+- **你的模型：** 接入 Chat Completions、Responses 或 Anthropic Messages 端点，用 `/model` 切换已配置的模型，见[模型配置](docs/model-configuration.zh-CN.md)。
 - **你的项目：** 在项目的 `AGENTS.md` 或 `CLAUDE.md` 中写下约定与测试要求。Lattice 在启动时读取项目规则；修改后需要启动新会话，见[项目定制](docs/getting-started.zh-CN.md#5-加入项目约定)。
+- **可选集成：** 使用前查看[工具和客户端指南](docs/README.zh-CN.md#配置与定制)中的依赖与权限。
+
+### 开发部件与装配
+
+这些是开发任务，不是使用 agent 的前提。
+
 - **你的工具：** 通过增加部件扩展能力，不必为此修改整个应用。外部部件不限于 Rust，见[示例](examples/)与[自造工具演示](docs/tool-building-walkthrough.zh-CN.md)。
 
 - **你的运行时：** 用 `lattice assembly` 导出装配，通过 `LATTICE_ASSEMBLY` 选择自己的装配。替换决定 Agent 行为的部件和接线，见[装配配置](docs/assembly-configuration.zh-CN.md)。
@@ -79,12 +87,11 @@ cargo build --locked --release --bin lattice
 
 ## 进一步了解
 
-- [快速开始](docs/getting-started.zh-CN.md)：从构建到第一次对话。
-- [参与贡献（英文）](CONTRIBUTING.md)与[贡献规则](CLAUDE.md)：如何修改、检查和报告问题。
-- [JavaScript 终端客户端](clients/ink/README.md)：另一种客户端与后台服务连接方式。
-- [架构总览](docs/architecture-overview.zh-CN.md)与[架构决策](docs/architecture-decisions.zh-CN.md)：供扩展运行时的开发者阅读。
-- [契约](docs/contracts/)与 [JSON Schema](schemas/)：部件和事件接口。
-- [桌面配置](docs/desktop.zh-CN.md)：可选的 macOS 桌面集成。
+[文档导航](docs/README.zh-CN.md)按任务提供三个入口：
+
+- [使用 Lattice](docs/README.zh-CN.md#使用-lattice)：安装、开始、继续工作、了解权限和求助。
+- [配置与定制](docs/README.zh-CN.md#配置与定制)：模型设置、项目规则和现成集成。
+- [开发与维护](docs/README.zh-CN.md#开发与维护)：部件、装配、架构、契约、贡献与发布。
 
 英文首页和入门路径已经提供；更深入的架构与集成文档目前主要使用中文。
 
