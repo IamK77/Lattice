@@ -17,9 +17,10 @@ pub(crate) fn run_tui(resume: Resume, mut startup: StartupTrace) -> std::io::Res
     startup::report_catalog(&cfg);
     startup::ensure_workspace(cfg.workspace.as_ref())?;
     startup.checkpoint("config");
-    let (ledger_path, reopened) = selected.finish(&home())?;
+    let selected = selected.finish(&home())?;
+    let reopened = selected.reopened();
     startup.selected(reopened);
-    let ledger_at = ledger_path.clone();
+    let ledger_at = selected.path().to_owned();
     // The brand's meta line: model · where the tools are working. Confined,
     // that is the workspace; open, the directory lattice was started in.
     let workspace = cfg.workspace.clone().unwrap_or_else(|| {
@@ -49,7 +50,6 @@ pub(crate) fn run_tui(resume: Resume, mut startup: StartupTrace) -> std::io::Res
 
     // Where a subagent runs. One template per expert, built on the session's
     // thread from the frontend's final model selection.
-    let main_stream = lattice::EventLog::stream_of(&ledger_path).unwrap_or_default();
     let expert_cfg = cfg.clone();
     let experts: Box<dyn FnOnce() -> lattice::StreamHost + Send> = Box::new(move || {
         // Keep the model explicitly selected in setup, including launch-only overrides.
@@ -68,10 +68,12 @@ pub(crate) fn run_tui(resume: Resume, mut startup: StartupTrace) -> std::io::Res
     let session = Session::spawn_with_subagents(
         "ui",
         Some(lattice::workshop::Workshop::standard()),
-        Some((main_stream.clone(), experts)),
-        move |render_tx| session_build::build(render_tx, &cfg, ledger_path.clone()),
+        // Session takes the actual stream from its kernel, not this legacy hint.
+        Some((String::new(), experts)),
+        move |render_tx| session_build::build_selected(render_tx, &cfg, selected),
     )
     .map_err(std::io::Error::other)?;
+    let main_stream = session.log_reader().stream().to_owned();
     startup.checkpoint("session_start");
 
     // The ledger now exists. Capture before entering raw/full-screen mode,

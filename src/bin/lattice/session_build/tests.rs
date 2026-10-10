@@ -2,6 +2,9 @@ use super::*;
 use lattice::components::{scripted_model, silent_ui};
 use lattice::EventDraft;
 
+#[path = "fresh.rs"]
+mod fresh;
+
 fn config(root: &std::path::Path) -> PresetConfig {
     PresetConfig {
         adapter: "scripted".into(),

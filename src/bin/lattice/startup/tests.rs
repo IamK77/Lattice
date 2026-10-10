@@ -9,7 +9,9 @@ fn wizard_keeps_the_original_latest_target_and_rejects_its_disappearance() {
     std::fs::write(&original, "{\"seq\":1}\n").unwrap();
     let selected = ConversationSelection::capture(home.path(), Resume::Latest).unwrap();
     std::fs::write(dir.join("20260102-000000.jsonl"), "{\"seq\":1}\n").unwrap();
-    assert_eq!(selected.finish(home.path()).unwrap().0, original);
+    let selected = selected.finish(home.path()).unwrap();
+    assert!(selected.reopened());
+    assert_eq!(selected.path(), original);
     let selected =
         ConversationSelection::capture(home.path(), Resume::Named("20260101-000000".into()))
             .unwrap();

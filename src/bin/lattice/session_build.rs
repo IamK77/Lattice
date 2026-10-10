@@ -74,11 +74,35 @@ pub(super) fn build(
     observing(render_tx, cfg, ledger_path, Default::default())
 }
 
+pub(super) fn build_selected(
+    render_tx: Sender<RenderEvent>,
+    cfg: &PresetConfig,
+    selected: super::startup::LedgerSelection,
+) -> Result<Kernel, KernelError> {
+    observing_storage(
+        render_tx,
+        cfg,
+        selected.path().to_owned(),
+        Default::default(),
+        !selected.reopened(),
+    )
+}
+
 pub(super) fn observing(
     render_tx: Sender<RenderEvent>,
     cfg: &PresetConfig,
     ledger_path: PathBuf,
     foreign: lattice::kernel::host::ForeignReaders,
+) -> Result<Kernel, KernelError> {
+    observing_storage(render_tx, cfg, ledger_path, foreign, false)
+}
+
+fn observing_storage(
+    render_tx: Sender<RenderEvent>,
+    cfg: &PresetConfig,
+    ledger_path: PathBuf,
+    foreign: lattice::kernel::host::ForeignReaders,
+    create_new: bool,
 ) -> Result<Kernel, KernelError> {
     let (registry, mut factories, assembly) = preset::standard(cfg).map_err(|problem| {
         KernelError::Inspection(vec![lattice::InspectionIssue {
@@ -87,8 +111,12 @@ pub(super) fn observing(
         }])
     })?;
     let options = KernelOptions {
-        // Reopening must retain the stream identifier carried by that ledger.
-        stream: lattice::EventLog::stream_of(&ledger_path),
+        // Fresh must never inspect an occupied candidate to inherit its identity.
+        stream: if create_new {
+            None
+        } else {
+            lattice::EventLog::stream_of(&ledger_path)
+        },
         log_file: Some(ledger_path),
         stream_note: Some(json!({
             "host": "tui",
@@ -106,8 +134,11 @@ pub(super) fn observing(
         redact: lattice::models::key_values(&cfg.key_env),
         ..KernelOptions::default()
     };
-    let mut kernel =
-        Kernel::start_with_foreign(&assembly, &registry, &mut factories, options, foreign)?;
+    let mut kernel = if create_new {
+        Kernel::create_new_with_foreign(&assembly, &registry, &mut factories, options, foreign)
+    } else {
+        Kernel::start_with_foreign(&assembly, &registry, &mut factories, options, foreign)
+    }?;
     // This host owns the factories, allowing later model replacement in place.
     kernel.adopt_factories(factories);
     let for_log = render_tx.clone();
