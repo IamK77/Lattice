@@ -1,6 +1,6 @@
 # Dependency and CI maintenance
 
-[中文](依赖与持续集成.md)
+[中文](supply-chain.zh-CN.md)
 
 ## What is checked
 

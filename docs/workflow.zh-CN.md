@@ -15,7 +15,7 @@
 
 不得直接向 `main` 或 `develop` 推送改动，不得强推或删除这两条长期分支。分支名只约束合并方向，不能证明代码从哪里来；审查时仍须检查差异与祖先关系。
 
-Dependabot 有一个有限例外：同仓库、由 `dependabot[bot]` 创建的 PR 可以使用 `dependabot/` 分支进入 `develop`，不得进入 `main`。检查和人工审阅不减免。详见[依赖与持续集成](依赖与持续集成.md)。
+Dependabot 有一个有限例外：同仓库、由 `dependabot[bot]` 创建的 PR 可以使用 `dependabot/` 分支进入 `develop`，不得进入 `main`。检查和人工审阅不减免。详见[依赖与持续集成](supply-chain.zh-CN.md)。
 
 普通改动的路径：
 
@@ -32,7 +32,7 @@ git push -u origin feature/short-description
 gh pr create --base develop
 ```
 
-提交标题和正文使用英文，标题遵循 Conventional Commits：`type: description` 或 `type(scope): description`，例如 `feat: add model switching`、`fix(cli): handle missing credentials`。类型取 feat、fix、perf、refactor、docs、test、style、chore、ci、build、revert 之一。不再要求自定义 `Type:` 尾注。按改动本身分类，不按分支名字分类；不兼容变更用 `!` 或 `BREAKING CHANGE:` 标记并说明迁移。详见[版本与变更记录](版本与变更记录.md)。
+提交标题和正文使用英文，标题遵循 Conventional Commits：`type: description` 或 `type(scope): description`，例如 `feat: add model switching`、`fix(cli): handle missing credentials`。类型取 feat、fix、perf、refactor、docs、test、style、chore、ci、build、revert 之一。不再要求自定义 `Type:` 尾注。按改动本身分类，不按分支名字分类；不兼容变更用 `!` 或 `BREAKING CHANGE:` 标记并说明迁移。详见[版本与变更记录](versioning.zh-CN.md)。
 
 ## 合并保留改动身份
 

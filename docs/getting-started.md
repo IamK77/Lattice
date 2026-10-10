@@ -1,6 +1,6 @@
 # Your first conversation with Lattice
 
-[Home](../README.md) · [简体中文](快速开始.md)
+[Home](../README.md) · [简体中文](getting-started.zh-CN.md)
 
 This guide takes you from source code to a real conversation in your own project. You supply a model account and API key; model usage may be billed by your provider. No account or usable model configuration ships with the binary.
 
@@ -143,13 +143,13 @@ Do not add dependencies without discussing the trade-off.
 
 Lattice searches from the working directory upward for the nearest directory containing recognized rules files. Rules are loaded at startup, not continuously refreshed. Start a new session after editing them. They guide behavior; they do not sandbox tools or guarantee compliance.
 
-To go further, browse the [component examples](../examples/). External components can be written in languages other than Rust. The [tool-building walkthrough](演示-agent自造工具.md) and [assembly guide](装配配置.md) are currently in Chinese. A complete assembly configuration and an installation overlay are different files; do not substitute one for the other.
+To go further, browse the [component examples](../examples/). External components can be written in languages other than Rust. The [tool-building walkthrough](tool-building-walkthrough.zh-CN.md) and [assembly guide](assembly-configuration.zh-CN.md) are currently in Chinese. A complete assembly configuration and an installation overlay are different files; do not substitute one for the other.
 
 ## Optional tools
 
 - **Browser:** requires Chrome/Chromium. `LATTICE_BROWSER` can select the executable.
 - **Code navigation:** requires a local language server for the language being inspected. Missing servers are reported, not automatically installed.
-- **Desktop:** the bundled adapter targets macOS and requires an external driver and system permissions. See [desktop setup (Chinese)](桌面操作.md).
+- **Desktop:** the bundled adapter targets macOS and requires an external driver and system permissions. See [desktop setup (Chinese)](desktop.zh-CN.md).
 - **Alternative frontend:** the [JavaScript/Ink client (Chinese)](../clients/ink/README.md) connects to the Unix socket daemon started with `"$LATTICE_BIN" serve`.
 
 ## Data and permissions
@@ -161,7 +161,7 @@ To go further, browse the [component examples](../examples/). External component
 - **Review side effects.** External sending, credentials, and system permissions need your attention. Cancellation does not undo changes or guarantee that every descendant process has stopped.
 - **Check before sharing.** History, model catalogs, installation overlays, and trust records normally live under `~/.lattice/`. Review these files before sharing or backing them up to another service.
 
-See [design decisions (Chinese)](架构决策.md) for the detailed boundaries.
+See [design decisions (Chinese)](architecture-decisions.zh-CN.md) for the detailed boundaries.
 
 ## If setup does not work
 

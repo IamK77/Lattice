@@ -1,6 +1,6 @@
 # Installation, upgrades, and rollback
 
-[中文](安装与升级.md) · [First conversation](getting-started.md) · [Troubleshooting](troubleshooting.md)
+[中文](installation.zh-CN.md) · [First conversation](getting-started.md) · [Troubleshooting](troubleshooting.md)
 
 ## Availability and platform scope
 

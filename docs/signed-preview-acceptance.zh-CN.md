@@ -1,6 +1,6 @@
 # 签名预览验收
 
-[English](signed-preview-acceptance.md) · [维护者清单](维护者手册.md)
+[English](signed-preview-acceptance.md) · [维护者清单](maintainer-handbook.zh-CN.md)
 
 这是针对下述源码快照的一次验收，不是正式发布许可，也不证明后来提交已签名。记录与验收测试在实测构建之后加入，不为把记录放进它自己的源码身份而反复重建。
 

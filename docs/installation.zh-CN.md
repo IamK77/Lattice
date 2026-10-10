@@ -1,6 +1,6 @@
 # 安装、升级与回退
 
-[English](installation.md) · [第一次对话](快速开始.md) · [故障排查](故障排查.md)
+[English](installation.md) · [第一次对话](getting-started.zh-CN.md) · [故障排查](troubleshooting.zh-CN.md)
 
 ## 发布状态与平台范围
 
@@ -11,7 +11,7 @@
 | `x86_64-unknown-linux-gnu` | Ubuntu 24.04、x86-64 | 更旧发行版、musl、ARM Linux 可用 |
 | `aarch64-apple-darwin` | macOS 15、Apple Silicon | 更旧 macOS 或 Intel Mac 可用 |
 
-不提供受支持的 Windows 原生包。归档包含程序、署名、许可证正文、构建记录和依赖报告，见[产物说明](发布产物.md)。解包不会顺便安装浏览器、桌面驱动、语言服务、模型凭证或可选的 Ink 客户端。没有声称提供 Apple Developer ID 签名或公证。
+不提供受支持的 Windows 原生包。归档包含程序、署名、许可证正文、构建记录和依赖报告，见[产物说明](release-artifacts.zh-CN.md)。解包不会顺便安装浏览器、桌面驱动、语言服务、模型凭证或可选的 Ink 客户端。没有声称提供 Apple Developer ID 签名或公证。
 
 ## 现在可用的源码构建
 
@@ -25,7 +25,7 @@ cargo build --locked --release --bin lattice
 ./target/release/lattice --version
 ```
 
-优化构建仍然显示开发身份。不要为了让本机构建看起来像官方版本而设置 `LATTICE_RELEASE_VERSION`。保留源码中的许可证和署名文件。把二进制绝对路径赋给 `LATTICE_BIN`，便可继续[配置指南](快速开始.md)；这个名字只是示例中的 shell 变量，不是产品配置项。
+优化构建仍然显示开发身份。不要为了让本机构建看起来像官方版本而设置 `LATTICE_RELEASE_VERSION`。保留源码中的许可证和署名文件。把二进制绝对路径赋给 `LATTICE_BIN`，便可继续[配置指南](getting-started.zh-CN.md)；这个名字只是示例中的 shell 变量，不是产品配置项。
 
 ## 正式版本先验证、后执行
 
@@ -74,7 +74,7 @@ tar -xzf "lattice-v$version-$target.tar.gz" --strip-components=1 -C "$destinatio
 
 **仅首次安装**时，用 `ln -s` 创建 `~/.local/bin/lattice`，指向 `"$destination/lattice"`。已有文件或链接不要直接覆盖。把 `~/.local/bin` 加到自己的 shell PATH 后，检查 `command -v lattice`、`ls -l "$HOME/.local/bin/lattice"` 和 `lattice --version`，避免 PATH 前面另一份安装仍被优先使用。
 
-接着按[第一次对话](快速开始.md)配置模型，在自己的项目目录启动。版本和帮助检查成功，并不表示付费模型或可选集成已经可用。
+接着按[第一次对话](getting-started.zh-CN.md)配置模型，在自己的项目目录启动。版本和帮助检查成功，并不表示付费模型或可选集成已经可用。
 
 ## 升级时保留旧程序
 

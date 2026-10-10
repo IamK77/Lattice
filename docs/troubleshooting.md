@@ -1,6 +1,6 @@
 # Troubleshooting
 
-[中文](故障排查.md) · [Installation](installation.md) · [Support](../SUPPORT.md)
+[中文](troubleshooting.zh-CN.md) · [Installation](installation.md) · [Support](../SUPPORT.md)
 
 Start with the smallest observation. Do not reset by deleting `~/.lattice`, overwrite an existing model catalog, dump the environment, or upload a complete ledger.
 

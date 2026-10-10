@@ -41,11 +41,11 @@ Components communicate through serializable data. Rust is the implementation lan
 
 Each call has one outcome. An interruption is an unknown-effect ending, not proof of failure or permission to retry. Reuse the common settlement rules rather than adding a consumer-specific definition. Do not describe self-declared tool permissions or process isolation as a sandbox, and do not hide read errors by treating them as missing data.
 
-Detailed architecture constraints and rationale are currently in Chinese: [contribution rules](CLAUDE.md), [overview](docs/架构总览.md), [design decisions](docs/架构决策.md), and [contracts](docs/contracts/). Machine-readable interfaces are in [schemas](schemas/).
+Detailed architecture constraints and rationale are currently in Chinese: [contribution rules](CLAUDE.md), [overview](docs/architecture-overview.zh-CN.md), [design decisions](docs/architecture-decisions.zh-CN.md), and [contracts](docs/contracts/). Machine-readable interfaces are in [schemas](schemas/).
 
 ## Branches and pull requests
 
-Follow the [Git Flow workflow](docs/workflow.md) ([中文](docs/协作流程.md)): ordinary work starts on `feature/<name>` from `develop` and returns through a pull request. Only release and hotfix branches enter `main`; synchronize published work back into `develop`. Do not push directly to either long-lived branch.
+Follow the [Git Flow workflow](docs/workflow.md) ([中文](docs/workflow.zh-CN.md)): ordinary work starts on `feature/<name>` from `develop` and returns through a pull request. Only release and hotfix branches enter `main`; synchronize published work back into `develop`. Do not push directly to either long-lived branch.
 
 Use merge commits, not squash or rebase merges. A pull request's English Conventional Commit title and body become its default merge message. Classify the actual change; merge commits are excluded from release change classification. Both protected branches require the `workflow`, `check`, and `frontend` checks. See the workflow for release authorization and the single-maintainer review limitation.
 
@@ -59,7 +59,7 @@ python3.12 -m unittest discover -s scripts -p 'test_*.py' -v
 
 Code comments, assertions, and diagnostics are in English. The public README and getting-started path have English and Simplified Chinese versions; keep paired instructions and examples aligned. Deeper documentation may remain in Chinese, with language labels on English entry links.
 
-Write commit subjects and bodies in English. Follow Conventional Commits: `type: description` or `type(scope): description`, for example `feat: add model switching` or `fix(cli): handle missing credentials`. Allowed types are `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `style`, `chore`, `ci`, `build`, and `revert`. Mark incompatible changes with `!` or a `BREAKING CHANGE:` footer and document migration. No custom `Type:` trailer is required. `Cargo.toml` owns the formal version; Git only identifies development builds. See [versioning](docs/versioning.md) ([中文](docs/版本与变更记录.md)) and [CHANGELOG.md](CHANGELOG.md).
+Write commit subjects and bodies in English. Follow Conventional Commits: `type: description` or `type(scope): description`, for example `feat: add model switching` or `fix(cli): handle missing credentials`. Allowed types are `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `style`, `chore`, `ci`, `build`, and `revert`. Mark incompatible changes with `!` or a `BREAKING CHANGE:` footer and document migration. No custom `Type:` trailer is required. `Cargo.toml` owns the formal version; Git only identifies development builds. See [versioning](docs/versioning.md) ([中文](docs/versioning.zh-CN.md)) and [CHANGELOG.md](CHANGELOG.md).
 
 Repository instructions do not authorize a push, release, program installation, service restart, or destructive action on a maintainer's behalf.
 

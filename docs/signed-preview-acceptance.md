@@ -1,6 +1,6 @@
 # Signed preview acceptance
 
-[中文](签名预览验收.md) · [Maintainer checklist](maintainer-handbook.md)
+[中文](signed-preview-acceptance.zh-CN.md) · [Maintainer checklist](maintainer-handbook.md)
 
 This is a point-in-time result for the source below, not approval to publish or
 proof that later commits have been signed. The record and acceptance test are

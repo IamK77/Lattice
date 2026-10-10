@@ -1,6 +1,6 @@
 # Maintainer handbook
 
-[中文](维护者手册.md) · [Maintainers](../MAINTAINERS.md)
+[中文](maintainer-handbook.zh-CN.md) · [Maintainers](../MAINTAINERS.md)
 
 This is the operational checklist, not another copy of the release implementation. The project currently has one maintainer; branch protection is not a claim of independent human review. Never bypass it to make a release pass.
 

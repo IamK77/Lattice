@@ -430,7 +430,7 @@ fn getting_started_catalog_examples_match_the_canon_and_each_other() {
     let canon = validator(include_str!("../schemas/model_catalog.json"));
     let guides = [
         include_str!("../docs/getting-started.md"),
-        include_str!("../docs/快速开始.md"),
+        include_str!("../docs/getting-started.zh-CN.md"),
     ];
     let examples: Vec<Value> = guides
         .iter()
@@ -458,25 +458,25 @@ fn public_entry_documents_have_resolvable_local_links() {
         "MAINTAINERS.md",
         "CHANGELOG.md",
         "docs/versioning.md",
-        "docs/版本与变更记录.md",
+        "docs/versioning.zh-CN.md",
         "docs/release-preparation.md",
-        "docs/发布准备.md",
+        "docs/release-preparation.zh-CN.md",
         "docs/release-artifacts.md",
-        "docs/发布产物.md",
+        "docs/release-artifacts.zh-CN.md",
         "docs/release-publication.md",
-        "docs/发布执行.md",
+        "docs/release-publication.zh-CN.md",
         "docs/installation.md",
-        "docs/安装与升级.md",
+        "docs/installation.zh-CN.md",
         "docs/troubleshooting.md",
-        "docs/故障排查.md",
+        "docs/troubleshooting.zh-CN.md",
         "docs/maintainer-handbook.md",
-        "docs/维护者手册.md",
+        "docs/maintainer-handbook.zh-CN.md",
         "docs/supply-chain.md",
-        "docs/依赖与持续集成.md",
+        "docs/supply-chain.zh-CN.md",
         "docs/workflow.md",
-        "docs/协作流程.md",
+        "docs/workflow.zh-CN.md",
         "docs/getting-started.md",
-        "docs/快速开始.md",
+        "docs/getting-started.zh-CN.md",
     ] {
         let path = root.join(name);
         let text = std::fs::read_to_string(&path).expect("public entry document");
