@@ -1,6 +1,6 @@
 # 契约一：事件信封
 
-[契约导航](README.zh-CN.md) · [开发参考](../development.zh-CN.md)
+[契约导航](README.zh-CN.md) · [开发参考](../development/README.zh-CN.md)
 
 一切发生的事都是事件。事件 = 信封（本契约规定的外层结构，所有事件相同）+ 信纸（payload，各事件类型自定义，核心不解读）。
 

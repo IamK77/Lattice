@@ -8,9 +8,9 @@ Ink is an alternative terminal interface for Lattice, with tabs for viewing mult
 
 ## Start the daemon, then the client
 
-Prepare Node.js 18 or newer and npm. Running the background service from source also needs the [Rust build prerequisites](../../docs/installation.md#source-build-available-now).
+Prepare Node.js 18 or newer and npm. Running the background service from source also needs the [Rust build prerequisites](../../docs/guides/installation.md#source-build-available-now).
 
-**1. Prepare model configuration.** Follow [Model configuration](../../docs/model-configuration.md). Make configuration and keys available in the terminal that starts the **background service**, which reads them at startup. Prepare the initial configuration through the ordinary terminal setup guide or by editing the configuration file before starting the service.
+**1. Prepare model configuration.** Follow [Model configuration](../../docs/guides/model-configuration.md). Make configuration and keys available in the terminal that starts the **background service**, which reads them at startup. Prepare the initial configuration through the ordinary terminal setup guide or by editing the configuration file before starting the service.
 
 **2. Start the service** from the repository root:
 
@@ -30,7 +30,7 @@ npm start
 
 The default connection path is `~/.lattice/daemon.sock`. When changing it with `LATTICE_SOCKET`, use the same value on both ends. `LATTICE_STREAM` selects the conversation name, defaulting to `main`. Two clients using the same name operate on the same conversation.
 
-If connection fails, check that the service is running and the paths match, then reopen the client to connect. Keep existing socket files; another service may be using them. See [Troubleshooting](../../docs/troubleshooting.md) for account or startup errors.
+If connection fails, check that the service is running and the paths match, then reopen the client to connect. Keep existing socket files; another service may be using them. See [Troubleshooting](../../docs/guides/troubleshooting.md) for account or startup errors.
 
 ## Everyday controls
 
@@ -81,7 +81,7 @@ These shortcuts require a matching background service. Older services may lack s
 
 ## Data and help
 
-Conversations and tool output are saved and sent to the configured model service; they can contain file contents and keys. Completed actions remain in effect after cancelling work, closing tabs or exiting the client. See [Data and permissions](../../docs/getting-started.md#data-and-permissions) for more information.
+Conversations and tool output are saved and sent to the configured model service; they can contain file contents and keys. Completed actions remain in effect after cancelling work, closing tabs or exiting the client. See [Data and permissions](../../docs/guides/getting-started.md#data-and-permissions) for more information.
 
 For help, describe the feature or step and include an error excerpt with keys and private content removed; see [Support](../../SUPPORT.md).
 

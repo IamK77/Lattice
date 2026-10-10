@@ -1,6 +1,6 @@
 # 契约五：标准口型（Port Profile）
 
-[契约导航](README.zh-CN.md) · [开发参考](../development.zh-CN.md)
+[契约导航](README.zh-CN.md) · [开发参考](../development/README.zh-CN.md)
 
 给一类可替换部件定死"插座形状"：口的名字、方向、事件类型集合。同口型的部件互相可换——换部件只改说明书里的部件名，接线一根不动。权威定义在 `src/contracts/profile.rs`。
 

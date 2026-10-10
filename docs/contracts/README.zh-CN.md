@@ -1,6 +1,6 @@
 # 契约参考
 
-[English](README.md) · [开发参考](../development.zh-CN.md) · [用户文档](../README.zh-CN.md)
+[English](README.md) · [开发参考](../development/README.zh-CN.md) · [用户文档](../README.zh-CN.md)
 
 这里规定部件之间交换的数据，不是普通模型账号的配置教程。六份详细契约目前使用中文；外部部件可以用任意语言实现。
 
@@ -28,6 +28,6 @@
 
 ## 产品配置是另一层
 
-聊天产品先准备基线、填入运行时位置并合并安装增补，再把普通装配交给内核。[产品装配配置](../assembly-configuration.zh-CN.md)、[product_assembly.json](../../schemas/product_assembly.json)和 [assembly_overlay.json](../../schemas/assembly_overlay.json)描述这一层，不向六份契约增加内核业务名词。
+聊天产品先准备基线、填入运行时位置并合并安装增补，再把普通装配交给内核。[产品装配配置](../development/assembly-configuration.zh-CN.md)、[product_assembly.json](../../schemas/product_assembly.json)和 [assembly_overlay.json](../../schemas/assembly_overlay.json)描述这一层，不向六份契约增加内核业务名词。
 
 模型账号和项目约定请走[配置入口](../README.zh-CN.md#配置与定制)，不需要把本页当成使用前提。

@@ -22,8 +22,8 @@ def without_comments(block):
 
 class OperatorDocumentationTests(unittest.TestCase):
     def test_all_operator_bash_examples_parse_without_execution(self):
-        for name in ["installation.md", "installation.zh-CN.md", "troubleshooting.md", "troubleshooting.zh-CN.md",
-                     "signed-preview-acceptance.md", "signed-preview-acceptance.zh-CN.md"]:
+        for name in ["guides/installation.md", "guides/installation.zh-CN.md", "guides/troubleshooting.md", "guides/troubleshooting.zh-CN.md",
+                     "records/signed-preview-acceptance.md", "records/signed-preview-acceptance.zh-CN.md"]:
             snippets = blocks(name)
             self.assertTrue(snippets, name)
             for index, snippet in enumerate(snippets):
@@ -37,7 +37,7 @@ class OperatorDocumentationTests(unittest.TestCase):
         return candidates[0]
 
     def test_release_identity_checks_abort_explicitly_before_download(self):
-        for name in ["installation.md", "installation.zh-CN.md"]:
+        for name in ["guides/installation.md", "guides/installation.zh-CN.md"]:
             candidates = [block for block in blocks(name) if "gh release download" in block]
             self.assertEqual(len(candidates), 1, "exercise exactly one release-verification example")
             # Bash 3.2 does not abort failed [[ ]] via errexit. Disable implicit
@@ -78,7 +78,7 @@ class OperatorDocumentationTests(unittest.TestCase):
                         self.assertIn("release\n", probe.read_text(encoding="utf-8"))
 
     def test_package_installation_stops_without_a_verified_version(self):
-        for name in ["installation.md", "installation.zh-CN.md"]:
+        for name in ["guides/installation.md", "guides/installation.zh-CN.md"]:
             with self.subTest(document=name), tempfile.TemporaryDirectory() as directory:
                 home = Path(directory)
                 # No credentials, archives, programs or commands are available.
@@ -90,7 +90,7 @@ class OperatorDocumentationTests(unittest.TestCase):
                 self.assertFalse((home / ".local").exists())
 
     def test_package_installation_stops_before_touching_an_existing_version(self):
-        for name in ["installation.md", "installation.zh-CN.md"]:
+        for name in ["guides/installation.md", "guides/installation.zh-CN.md"]:
             with self.subTest(document=name), tempfile.TemporaryDirectory() as directory:
                 home = Path(directory)
                 destination = home / ".local/share/lattice/versions/v1.2.3-aarch64-apple-darwin"
@@ -111,7 +111,7 @@ class OperatorDocumentationTests(unittest.TestCase):
                 self.assertEqual(previous.read_text(encoding="utf-8"), "previous program")
 
     def test_installed_version_requires_success_and_expected_output(self):
-        for name in ["installation.md", "installation.zh-CN.md"]:
+        for name in ["guides/installation.md", "guides/installation.zh-CN.md"]:
             lines = self.package_installation_script(name).splitlines()
             starts = [index for index, line in enumerate(lines) if "--version" in line]
             self.assertEqual(len(starts), 1)
@@ -141,7 +141,7 @@ class OperatorDocumentationTests(unittest.TestCase):
                     self.assertEqual(result.stdout, "help-called\n" if accepted else "")
 
     def test_standalone_installation_conditionals_explicitly_abort(self):
-        for name in ["installation.md", "installation.zh-CN.md"]:
+        for name in ["guides/installation.md", "guides/installation.zh-CN.md"]:
             checks = [line.strip() for block in blocks(name) for line in block.splitlines()
                       if line.strip().startswith("[[")]
             self.assertTrue(checks, "exercise the installation identity and destination checks")
@@ -150,8 +150,8 @@ class OperatorDocumentationTests(unittest.TestCase):
                     self.assertTrue(line.endswith("|| exit 1"), "do not rely on implicit errexit for [[ ]]")
 
     def test_bilingual_installation_and_verification_commands_do_not_drift(self):
-        for english_name, chinese_name in [("installation.md", "installation.zh-CN.md"),
-                                           ("signed-preview-acceptance.md", "signed-preview-acceptance.zh-CN.md")]:
+        for english_name, chinese_name in [("guides/installation.md", "guides/installation.zh-CN.md"),
+                                           ("records/signed-preview-acceptance.md", "records/signed-preview-acceptance.zh-CN.md")]:
             with self.subTest(document=english_name):
                 english = [without_comments(block) for block in blocks(english_name)]
                 chinese = [without_comments(block) for block in blocks(chinese_name)]

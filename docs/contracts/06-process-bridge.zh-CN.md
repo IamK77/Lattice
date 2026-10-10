@@ -1,6 +1,6 @@
 # 契约六：跨进程桥（v1）
 
-[契约导航](README.zh-CN.md) · [开发参考](../development.zh-CN.md)
+[契约导航](README.zh-CN.md) · [开发参考](../development/README.zh-CN.md)
 
 独立进程部件与核心的通信约定。**这份契约面向外语部件作者**——任何语言，只要会按行读写标准输入输出、会解析 JSON，就能实现一个部件。参考实现：`examples/components/hash_tool.py`（约 40 行、零依赖 Python）。
 

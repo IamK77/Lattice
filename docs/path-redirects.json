@@ -1,0 +1,30 @@
+{
+  "docs/getting-started.md": [
+    "1-build-lattice",
+    "2-connect-a-model",
+    "3-ask-your-first-question",
+    "3-start-in-your-project",
+    "4-return-to-a-conversation",
+    "5-add-your-project-conventions",
+    "data-and-permissions",
+    "guided-setup",
+    "if-setup-does-not-work",
+    "manual-configuration-optional",
+    "optional-tools",
+    "your-first-conversation-with-lattice"
+  ],
+  "docs/getting-started.zh-CN.md": [
+    "1-构建-lattice",
+    "2-连接模型",
+    "3-在自己的项目里启动",
+    "3-提出第一个问题",
+    "4-继续之前的对话",
+    "5-加入项目约定",
+    "分步引导",
+    "可选工具",
+    "开始与-lattice-的第一次对话",
+    "手动配置可选",
+    "数据与权限",
+    "遇到问题时"
+  ]
+}

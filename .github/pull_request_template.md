@@ -12,7 +12,7 @@
 
 ## Workflow
 
-- [ ] The source and target follow docs/workflow.md.
+- [ ] The source and target follow docs/maintenance/workflow.md.
 - [ ] Commit and PR subjects use English Conventional Commits.
 - [ ] User-facing changes and migration requirements are documented where applicable.
 - [ ] No credentials, personal records, or unrelated changes are included.

@@ -1,6 +1,6 @@
 # Contract reference
 
-[简体中文](README.zh-CN.md) · [Development references](../development.md) · [User documentation](../README.md)
+[简体中文](README.zh-CN.md) · [Development references](../development/README.md) · [User documentation](../README.md)
 
 These contracts describe the data exchanged between components, not how to configure an ordinary model account. The six detailed notes are currently in Chinese. External components may use any implementation language.
 
@@ -28,6 +28,6 @@ The component note labels bundled tool-visibility and installation behavior sepa
 
 ## Product configuration is a separate layer
 
-The chat product prepares a baseline, fills runtime positions and applies installation additions before passing an ordinary assembly to the kernel. [Product assembly configuration (Chinese)](../assembly-configuration.zh-CN.md), [product_assembly.json](../../schemas/product_assembly.json) and [assembly_overlay.json](../../schemas/assembly_overlay.json) describe that layer; they do not add kernel business concepts to the six contracts.
+The chat product prepares a baseline, fills runtime positions and applies installation additions before passing an ordinary assembly to the kernel. [Product assembly configuration (Chinese)](../development/assembly-configuration.zh-CN.md), [product_assembly.json](../../schemas/product_assembly.json) and [assembly_overlay.json](../../schemas/assembly_overlay.json) describe that layer; they do not add kernel business concepts to the six contracts.
 
 Model accounts and project instructions belong to the [configuration route](../README.md#configure-and-customize), not this reading prerequisite.
