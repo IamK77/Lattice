@@ -85,8 +85,8 @@ These are not prerequisites for your first conversation:
 
 - **Browser:** requires Chrome/Chromium; `LATTICE_BROWSER` selects another executable.
 - **Code navigation:** requires a local language server for that language; missing servers are reported, not automatically installed.
-- **Desktop:** requires macOS, an external driver and system permissions. See [desktop setup (Chinese)](desktop.zh-CN.md).
-- **Alternative client:** see [JavaScript/Ink](../clients/ink/README.md) (mixed English/Chinese) for its own startup and controls.
+- **Desktop:** requires macOS, an external driver and system permissions. See [desktop setup](desktop.md).
+- **Alternative client:** see [JavaScript/Ink](../clients/ink/README.md) for its own startup and controls.
 
 ## Data and permissions
 
