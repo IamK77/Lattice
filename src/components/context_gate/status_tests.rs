@@ -181,6 +181,108 @@ fn compaction_forwarding_cannot_move_an_old_request_into_a_new_model_epoch() {
 }
 
 #[test]
+fn successful_completion_keeps_the_pause_until_the_adoption_prefix_is_observed() {
+    let mut declarations = ce::core_event_decls();
+    declarations.extend(super::super::manifest().events);
+    let mut log = EventLog::in_memory(declarations, "fixture");
+    let failure = failed(&mut log, "previous failure");
+    let request = append(
+        &mut log,
+        ce::MODEL_CALL_STARTED,
+        &[],
+        json!({
+            "model":"fixture", "input":{"parts":[],"fingerprint":"sha256:fixture"},
+            "purpose":super::super::CONDENSE_PURPOSE,
+        }),
+    );
+    let completed = append(
+        &mut log,
+        ce::MODEL_CALL_COMPLETED,
+        &[&request.id],
+        json!({"status":"ok"}),
+    );
+    let adopted = append(
+        &mut log,
+        super::super::SUMMARY,
+        &[&completed.id],
+        json!({"covers":[],"text":"adopted fixture summary"}),
+    );
+    let reader = log.reader();
+    let mut observer = CompactionObserver::default();
+    // The entire ledger already exists. A view must still respect the prefix
+    // delivered to that frontend, rather than anticipating later adoption.
+    let running = observer.status_at(&reader, request.seq).unwrap().unwrap();
+    assert!(running.in_flight);
+    assert_eq!(running.failure.as_ref().unwrap().event, failure.id);
+    let finished = observer.status_at(&reader, completed.seq).unwrap().unwrap();
+    assert!(!finished.in_flight);
+    assert_eq!(
+        finished.failure, running.failure,
+        "transport success is not adoption"
+    );
+    let cold = CompactionObserver::default()
+        .status_at(&reader, completed.seq)
+        .unwrap()
+        .unwrap();
+    assert_eq!(cold, finished);
+    let recovered = observer.status_at(&reader, adopted.seq).unwrap().unwrap();
+    assert!(!recovered.in_flight);
+    assert!(recovered.failure.is_none());
+    assert_eq!(
+        CompactionObserver::default()
+            .status_at(&reader, adopted.seq)
+            .unwrap(),
+        Some(recovered)
+    );
+}
+
+#[test]
+fn unreadable_failure_is_an_error_not_an_empty_or_healthy_status() {
+    use std::io::{Seek, SeekFrom, Write};
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("status.jsonl");
+    let mut log = EventLog::open(ce::core_event_decls(), "fixture", Some(path.clone())).unwrap();
+    let failure = failed(&mut log, "required failure evidence");
+    drop(log);
+    let original = std::fs::read(&path).unwrap();
+    let offset = original.iter().position(|byte| *byte == b'\n').unwrap() as u64 + 1;
+    assert_eq!(original[offset as usize], b'{');
+    // Index intact records first, then damage the required body before its first
+    // read. No cached body can mask the corruption.
+    let mut log = EventLog::open(ce::core_event_decls(), "fixture", Some(path.clone())).unwrap();
+    let mut disk = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+    disk.seek(SeekFrom::Start(offset)).unwrap();
+    disk.write_all(b"!").unwrap();
+    let reader = log.reader();
+    let mut observer = CompactionObserver::default();
+    let damaged = std::fs::read(&path).unwrap();
+    let first = observer.status_at(&reader, failure.seq).unwrap_err();
+    assert!(first.to_string().contains(&failure.id), "{first}");
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        damaged,
+        "status queries must not repair evidence"
+    );
+    let changed = append(
+        &mut log,
+        ce::EXTERNAL_INPUT,
+        &[],
+        json!({"channel":super::super::MODEL_CHANNEL}),
+    );
+    let damaged_with_tail = std::fs::read(&path).unwrap();
+    assert!(
+        observer.status_at(&reader, changed.seq).is_err(),
+        "a later model reset must not hide unreadable evidence"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), damaged_with_tail);
+    disk.seek(SeekFrom::Start(offset)).unwrap();
+    disk.write_all(b"{").unwrap();
+    let restored = observer.status_at(&reader, failure.seq).unwrap().unwrap();
+    assert_eq!(restored.failure.unwrap().event, failure.id);
+    assert!(observer.status_at(&reader, changed.seq).unwrap().is_none());
+}
+
+#[test]
 fn compaction_failure_details_are_bounded_and_do_not_leak_between_readers() {
     let mut first = EventLog::in_memory(ce::core_event_decls(), "same");
     let mut second = EventLog::in_memory(ce::core_event_decls(), "same");
