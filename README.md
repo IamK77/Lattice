@@ -10,7 +10,7 @@ Events enter an append-only causal history before they reach the next component.
 
 **English** · [简体中文](README.zh-CN.md)
 
-[Get started](docs/getting-started.md) · [Make it yours](#make-it-yours) · [Contribute](CONTRIBUTING.md)
+[Get started](docs/getting-started.md) · [Make it yours](#make-it-yours) · [Documentation](docs/README.md) · [Contribute](CONTRIBUTING.md)
 
 ## Why Lattice
 
@@ -61,10 +61,18 @@ Use `/model` to switch configured models, return to saved conversations, and ins
 
 ## Make it yours
 
-Start with the included setup. Customize one thing at a time:
+Start with the included setup. Customize one thing at a time.
 
-- **Your model:** connect Chat Completions, Responses, or Anthropic Messages endpoints and switch configured models with `/model`. See the [model setup guide](docs/getting-started.md#2-connect-a-model).
+### Configure existing capabilities
+
+- **Your model:** connect Chat Completions, Responses, or Anthropic Messages endpoints and switch configured models with `/model`. See [model configuration](docs/model-configuration.md).
 - **Your project:** add conventions and testing instructions to your project's `AGENTS.md` or `CLAUDE.md`. Lattice reads project rules at startup; start a new session after changing them. See [project customization](docs/getting-started.md#5-add-your-project-conventions).
+- **Optional integrations:** check the [tools and client guides](docs/README.md#configure-and-customize) for their prerequisites and permissions.
+
+### Develop components and assemblies
+
+These are development tasks, not prerequisites for using the agent.
+
 - **Your tools:** extend the agent with components rather than changing the entire application. External components are not restricted to Rust. Browse the [examples](examples/) and the [tool-building walkthrough (Chinese)](docs/tool-building-walkthrough.zh-CN.md).
 
 - **Your runtime:** export the assembly with `lattice assembly`, then select your own with `LATTICE_ASSEMBLY`. Replace the components and connections that shape the agent's behavior. See [assembly configuration (Chinese)](docs/assembly-configuration.zh-CN.md).
@@ -79,12 +87,11 @@ Read [data, permissions, and recovery limits](docs/getting-started.md#data-and-p
 
 ## Explore further
 
-- [Getting started](docs/getting-started.md) — from building to your first conversation.
-- [Contributing](CONTRIBUTING.md) — changes, checks, and reporting problems.
-- [JavaScript terminal client (Chinese)](clients/ink/README.md) — an alternative client and daemon connection.
-- [Architecture overview (Chinese)](docs/architecture-overview.zh-CN.md) and [design decisions (Chinese)](docs/architecture-decisions.zh-CN.md) — for developers extending the runtime.
-- [Contracts (Chinese)](docs/contracts/) and [JSON schemas](schemas/) — component and event interfaces.
-- [Desktop setup (Chinese)](docs/desktop.zh-CN.md) — the optional macOS desktop integration.
+The [documentation index](docs/README.md) has three task-based routes:
+
+- [Use Lattice](docs/README.md#use-lattice) — install, start, resume, understand access and find help.
+- [Configure and customize](docs/README.md#configure-and-customize) — model settings, project rules and existing integrations.
+- [Develop and maintain](docs/README.md#develop-and-maintain) — components, assemblies, architecture, contracts, contribution and releases.
 
 The English entry path is available here; deeper architecture and integration documentation is currently in Chinese.
 
