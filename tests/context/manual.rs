@@ -4,6 +4,8 @@ use super::*;
 mod edges;
 #[path = "manual_effective.rs"]
 mod effective;
+#[path = "health.rs"]
+mod health;
 
 fn requests(kernel: &Kernel) -> usize {
     kernel
