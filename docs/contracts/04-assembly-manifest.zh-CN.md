@@ -1,6 +1,8 @@
 # 契约四：装配说明书
 
-系统如何运转的唯一事实，纯数据文档（JSON）。可版本管理、可 diff、可由程序生成与修改——"一份数据、多支笔"：开发者用宿主语言的类型化 API 写代码生成；普通用户由界面或 agent 代笔，不直接手写。机器可读正本在 `schemas/assembly_manifest.json`；Rust 化身在 `src/contracts/assembly.rs`（`AssemblyManifest`），二者由 `tests/schema_canon.rs` 双向钉住（标准装配整卷实测过正本）。
+[契约导航](README.zh-CN.md) · [开发参考](../development.zh-CN.md)
+
+交给内核的实例与显式接线描述，是纯数据文档（JSON）。它描述有效装配，不等于某份磁盘配置文件包含全部运行状态。可版本管理、可 diff、可由程序生成与修改——"一份数据、多支笔"：开发者用宿主语言的类型化 API 生成，产品界面或 agent 也可通过受控路径生成。机器可读正本在 `schemas/assembly_manifest.json`；Rust 化身在 `src/contracts/assembly.rs`（`AssemblyManifest`），二者由 `tests/schema_canon.rs` 双向钉住（标准装配整卷实测过正本）。
 
 ## 结构
 
@@ -24,11 +26,11 @@
 ```
 
 - `instances`：实例名 → 用哪个部件、带什么私有配置（`config` 核心不解读，原样交给部件）。
-- `wires`：全部接线，端点写法 `"实例名.口名"`。一个输出口可以接多根线（事件送达每个去向）。
+- `wires`：全部接线，端点写法 `"实例名.口名"`。一个输出口可以接多根线；工具请求另按提供者声明定向投递，关卡与观察者仍按接线接收，见[部件自述](03-component-manifest.zh-CN.md#当前随货工具的收集与暴露策略)。
 
 ## 产品配置与核心契约的分界
 
-上述结构是送进内核的最终纯数据，不含文件合并或模型偏好的规则。标准聊天产品的 `LATTICE_ASSEMBLY` 文件在它外面再包一层：额外部件自述、完整 `assembly` 和显式 `runtimeSlots`。装配员先填写模型等运行时位置，再合并独立安装增补，最后把普通 `AssemblyManifest` 交给内核。完整基线读坏拒启；安装增补仍只增不覆盖。入口、格式和当前聊天宿主的角色限制见 `docs/assembly-configuration.zh-CN.md` 与 `schemas/product_assembly.json`，不扩充本契约的名词与字段。
+上述结构是送进内核的最终纯数据，不含文件合并或模型偏好的规则。标准聊天产品的 `LATTICE_ASSEMBLY` 文件在它外面再包一层：额外部件自述、完整 `assembly` 和显式 `runtimeSlots`。装配员先填写模型等运行时位置，再合并独立安装增补，最后把普通 `AssemblyManifest` 交给内核。完整基线读坏拒启；安装增补仍只增不覆盖。入口、格式和当前聊天宿主的角色限制见[产品装配配置](../assembly-configuration.zh-CN.md)与 [product_assembly.json](../../schemas/product_assembly.json)，不扩充本契约的名词与字段。
 
 ## 体检（开跑前强制，任何一条问题都阻止启动）
 
@@ -42,4 +44,4 @@
 
 ## 铁律
 
-核心**从不发明接线**。说明书上没有的线绝不存在；安装部件的"默认接线"是安装流程并入说明书的结果，核心只忠实执行并入后的文本。你随时打开说明书，看到的就是系统的全部真相。
+核心**从不发明接线**。投递依据当前有效装配中的显式接线；安装部件的“默认接线”是安装流程解析并加入的结果。检查产品基线、运行时填充和安装增补如何得到当前有效装配，才能判断实际接线，不能把打开某一份原始磁盘文件等同于看到了所有动态状态。

@@ -1,6 +1,6 @@
 # Contributing to Lattice
 
-[Home](README.md) · [Getting started](docs/getting-started.md) · [完整贡献规则（中文）](CLAUDE.md)
+[Home](README.md) · [Development references](docs/development.md) · [Contributor rules](CLAUDE.md)
 
 Contributions should make Lattice easier to use, understand, or customize. For a new capability or a change to the architecture, discuss the user problem and intended behavior before implementing a broad redesign.
 
@@ -41,7 +41,7 @@ Components communicate through serializable data. Rust is the implementation lan
 
 Each call has one outcome. An interruption is an unknown-effect ending, not proof of failure or permission to retry. Reuse the common settlement rules rather than adding a consumer-specific definition. Do not describe self-declared tool permissions or process isolation as a sandbox, and do not hide read errors by treating them as missing data.
 
-Detailed architecture constraints and rationale are currently in Chinese: [contribution rules](CLAUDE.md), [overview](docs/architecture-overview.zh-CN.md), [design decisions](docs/architecture-decisions.zh-CN.md), and [contracts](docs/contracts/). Machine-readable interfaces are in [schemas](schemas/).
+The [contributor rules](CLAUDE.md) are in English. The [overview](docs/architecture-overview.zh-CN.md), [design decisions](docs/architecture-decisions.zh-CN.md), and six detailed [contract notes](docs/contracts/) are in Chinese; machine-readable interfaces are in [schemas](schemas/). The [development reference map](docs/development.md) distinguishes normative contracts, current implementation references, historical probes and point-in-time acceptance records.
 
 ## Branches and pull requests
 

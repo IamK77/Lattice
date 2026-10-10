@@ -1,12 +1,12 @@
 # 发布执行
 
-[English](release-publication.md) · [候选准备](release-preparation.zh-CN.md) · [产物说明](release-artifacts.zh-CN.md)
+[开发参考](development.zh-CN.md) · [English](release-publication.md) · [候选准备](release-preparation.zh-CN.md) · [产物说明](release-artifacts.zh-CN.md)
 
 ## 哪一步算批准
 
 把正式候选分支 `release/next` 或 `release/hotfix-next` 的 PR 合进受保护的 `main`，就是发布批准。工作流重新检查实际合并提交、候选文件、版本历史和已有标签。部署工作流所用的引导 PR 不会触发发布；包注册表发布也不在本流程内。
 
-维护者启用仓库变量 `RELEASE_AUTOMATION_ENABLED` 前，自动发布保持关闭。本文说明已经写出的机制，不表示正式版本已经发布。两种平台的构建已经单独实测；完整签名预演和正式启用仍须完成上线清单。
+维护者启用仓库变量 `RELEASE_AUTOMATION_ENABLED` 前，自动发布保持关闭。本文说明已经写出的机制，不报告仓库变量的当前值，也不证明正式版本已经发布。[签名预演验收记录](signed-preview-acceptance.zh-CN.md)已经记下某份准确源码及产物字节的完整预演和消费端正反向检查。该记录不证明后来的候选已验证，也不授权正式启用；开启发布前仍须核对下方上线条件。
 
 工作流事件对应的提交、检出的提交和获准构建的提交必须完全相同。GitHub 签名身份记录的是事件提交，不会随着后来检出的代码改变。因此，手动预演必须选择对应的候选分支，并把该分支的准确提交传给 `expected_sha`；不能从 `main` 发起，再要求它为另一个候选提交作来源证明。预演只接受对应候选分支或 `main`，正式发布只接受 `main`。
 
@@ -35,7 +35,7 @@ gh attestation verify "$asset" --bundle provenance.json \
   --deny-self-hosted-runners
 ```
 
-`--source-digest` 填准确的获准 Git 提交，不是归档摘要。预演要把来源分支换成实际候选分支。还要核对两个归档的校验和。只有校验和，或者未签名的 `BUILD-INFO.json`，都不能证明产物来自官方发布。获取和安装步骤另由安装指南负责。
+`--source-digest` 填准确的获准 Git 提交，不是归档摘要。预演要把来源分支换成实际候选分支。还要核对两个归档的校验和。只有校验和，或者未签名的 `BUILD-INFO.json`，都不能证明产物来自官方发布。获取和安装步骤见[安装指南](installation.zh-CN.md)。
 
 ## 中断与恢复
 

@@ -488,6 +488,19 @@ fn public_entry_documents_have_resolvable_local_links() {
         "clients/ink/README.md",
         "clients/ink/README.zh-CN.md",
         "clients/ink/development.zh-CN.md",
+        "docs/development.md",
+        "docs/development.zh-CN.md",
+        "docs/contracts/README.md",
+        "docs/contracts/README.zh-CN.md",
+        "docs/contracts/01-envelope.zh-CN.md",
+        "docs/contracts/02-core-events.zh-CN.md",
+        "docs/contracts/03-component-manifest.zh-CN.md",
+        "docs/contracts/04-assembly-manifest.zh-CN.md",
+        "docs/contracts/05-standard-interfaces.zh-CN.md",
+        "docs/contracts/06-process-bridge.zh-CN.md",
+        "docs/design-expert-snapshot-prototype.zh-CN.md",
+        "docs/design-expert-execution.zh-CN.md",
+        "docs/expert-management-prototype.zh-CN.md",
     ] {
         let path = root.join(name);
         let text = std::fs::read_to_string(&path).expect("public entry document");
