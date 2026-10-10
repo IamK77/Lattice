@@ -180,12 +180,15 @@ fn mechanical_reduction_and_lower_usage_do_not_clear_a_semantic_failure() {
             "ordinary conversation must not retry semantic failure"
         );
 
-        let reopened = condensing_kernel_with(json!({"script":[]}), main, gate, false, Some(&path));
+        let mut reopened =
+            condensing_kernel_with(json!({"script":[]}), main, gate, false, Some(&path));
+        let settled = reopened.run_until_quiescent();
         let reader = reopened.log().reader();
         let restored =
             context_gate::CompactionObserver::default().status_at(&reader, reader.snapshot_end());
         let after = reader.replay(1);
         reopened.shutdown();
+        settled.unwrap();
         assert_eq!(restored.unwrap().unwrap().failure, Some(failure));
         assert_eq!(
             attempts(&after.unwrap()),
