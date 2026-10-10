@@ -7,5 +7,5 @@ contact_links:
     url: https://github.com/IamK77/Lattice/security/advisories/new
     about: Do not post vulnerability details in a public issue.
   - name: Read the getting-started guide
-    url: https://github.com/IamK77/Lattice/blob/main/docs/getting-started.md
+    url: https://github.com/IamK77/Lattice/blob/main/docs/guides/getting-started.md
     about: Installation, configuration, and data/permission boundaries.

@@ -41,7 +41,7 @@ secrets. They may be retained locally and sent to the selected model provider.
 Do not assume all secrets are redacted. Cancellation is not a rollback, and an
 interrupted operation may already have had effects.
 
-See [data and permissions](docs/getting-started.md#data-and-permissions) before
+See [data and permissions](docs/guides/getting-started.md#data-and-permissions) before
 using sensitive files or accounts. Documented limitations do not make a new
 vulnerability report unwelcome; explain how the observed behavior differs from
 the intended boundary.

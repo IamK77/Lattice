@@ -1,6 +1,6 @@
 # 契约四：装配说明书
 
-[契约导航](README.zh-CN.md) · [开发参考](../development.zh-CN.md)
+[契约导航](README.zh-CN.md) · [开发参考](../development/README.zh-CN.md)
 
 交给内核的实例与显式接线描述，是纯数据文档（JSON）。它描述有效装配，不等于某份磁盘配置文件包含全部运行状态。可版本管理、可 diff、可由程序生成与修改——"一份数据、多支笔"：开发者用宿主语言的类型化 API 生成，产品界面或 agent 也可通过受控路径生成。机器可读正本在 `schemas/assembly_manifest.json`；Rust 化身在 `src/contracts/assembly.rs`（`AssemblyManifest`），二者由 `tests/schema_canon.rs` 双向钉住（标准装配整卷实测过正本）。
 
@@ -30,7 +30,7 @@
 
 ## 产品配置与核心契约的分界
 
-上述结构是送进内核的最终纯数据，不含文件合并或模型偏好的规则。标准聊天产品的 `LATTICE_ASSEMBLY` 文件在它外面再包一层：额外部件自述、完整 `assembly` 和显式 `runtimeSlots`。装配员先填写模型等运行时位置，再合并独立安装增补，最后把普通 `AssemblyManifest` 交给内核。完整基线读坏拒启；安装增补仍只增不覆盖。入口、格式和当前聊天宿主的角色限制见[产品装配配置](../assembly-configuration.zh-CN.md)与 [product_assembly.json](../../schemas/product_assembly.json)，不扩充本契约的名词与字段。
+上述结构是送进内核的最终纯数据，不含文件合并或模型偏好的规则。标准聊天产品的 `LATTICE_ASSEMBLY` 文件在它外面再包一层：额外部件自述、完整 `assembly` 和显式 `runtimeSlots`。装配员先填写模型等运行时位置，再合并独立安装增补，最后把普通 `AssemblyManifest` 交给内核。完整基线读坏拒启；安装增补仍只增不覆盖。入口、格式和当前聊天宿主的角色限制见[产品装配配置](../development/assembly-configuration.zh-CN.md)与 [product_assembly.json](../../schemas/product_assembly.json)，不扩充本契约的名词与字段。
 
 ## 体检（开跑前强制，任何一条问题都阻止启动）
 

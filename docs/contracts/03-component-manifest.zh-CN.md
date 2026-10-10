@@ -1,6 +1,6 @@
 # 契约三：部件自述
 
-[契约导航](README.zh-CN.md) · [开发参考](../development.zh-CN.md)
+[契约导航](README.zh-CN.md) · [开发参考](../development/README.zh-CN.md)
 
 部件是自描述的分发单元。自述文件回答三个问题：我是谁、我和外界怎么交换事件、装上我之后默认怎么接线。机器可读正本在 `schemas/component_manifest.json`；Rust 化身在 `src/contracts/component.rs`（`ComponentManifest`），二者由 `tests/schema_canon.rs` 双向钉住（全部官方部件的自述实测过正本）。
 
@@ -55,4 +55,4 @@
 
 随货信任按规范化调用参数的指纹和申报作用面判断，不读取 URL 或路径内容来产生内容指纹。后来同一地址的内容改变，不自动重新授权；永久信任的撤销仍由用户手动管理。作用面是部件自述，不是沙箱。
 
-安装增补与产品基线分开，卸载只能移除增补中的实例，不能借此拆掉基础装配。详见[产品装配配置](../assembly-configuration.zh-CN.md)、[信任实现](../../src/components/trust_policy.rs)和[安装服务](../../src/workshop.rs)。
+安装增补与产品基线分开，卸载只能移除增补中的实例，不能借此拆掉基础装配。详见[产品装配配置](../development/assembly-configuration.zh-CN.md)、[信任实现](../../src/components/trust_policy.rs)和[安装服务](../../src/workshop.rs)。

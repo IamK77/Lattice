@@ -1,4 +1,4 @@
-"""Check the entry docs' inline fragments and bilingual executable examples.
+"""Check tracked Markdown links and the entry docs' bilingual shell examples.
 
 This covers the repository's ATX headings, explicit HTML ids and triple-backtick
 fences, not arbitrary Markdown extensions or the reachability of external URLs.
@@ -15,24 +15,32 @@ ROOT = Path(__file__).resolve().parent.parent
 PAIRS = [
     ("README.md", "README.zh-CN.md"),
     ("docs/README.md", "docs/README.zh-CN.md"),
-    ("docs/getting-started.md", "docs/getting-started.zh-CN.md"),
-    ("docs/model-configuration.md", "docs/model-configuration.zh-CN.md"),
-    ("docs/desktop.md", "docs/desktop.zh-CN.md"),
+    ("docs/guides/getting-started.md", "docs/guides/getting-started.zh-CN.md"),
+    ("docs/guides/model-configuration.md", "docs/guides/model-configuration.zh-CN.md"),
+    ("docs/guides/desktop.md", "docs/guides/desktop.zh-CN.md"),
     ("clients/ink/README.md", "clients/ink/README.zh-CN.md"),
-    ("docs/troubleshooting.md", "docs/troubleshooting.zh-CN.md"),
+    ("docs/guides/troubleshooting.md", "docs/guides/troubleshooting.zh-CN.md"),
 ]
-DOCUMENTS = [name for pair in PAIRS for name in pair] + [
-    "docs/setup-development.md", "docs/desktop-development.zh-CN.md",
-    "clients/ink/development.zh-CN.md", "docs/installation.md",
-    "docs/installation.zh-CN.md", "SUPPORT.md", "CONTRIBUTING.md",
-    "docs/development.md", "docs/development.zh-CN.md",
+DOCUMENTS = sorted(
+    name for name in subprocess.check_output(
+        ["git", "ls-files", "-z"], cwd=ROOT,
+    ).decode("utf-8").rstrip("\0").split("\0")
+    if name.endswith(".md")
+)
+# Link coverage is repository-wide. Shell syntax checks retain the runnable
+# entry examples; contribution procedures can contain illustrative placeholders.
+EXAMPLE_DOCUMENTS = [name for pair in PAIRS for name in pair] + [
+    "docs/development/setup-development.md", "docs/development/desktop-development.zh-CN.md",
+    "clients/ink/development.zh-CN.md", "docs/guides/installation.md",
+    "docs/guides/installation.zh-CN.md", "SUPPORT.md", "CONTRIBUTING.md",
+    "docs/development/README.md", "docs/development/README.zh-CN.md",
     "docs/contracts/README.md", "docs/contracts/README.zh-CN.md",
     "docs/contracts/01-envelope.zh-CN.md", "docs/contracts/02-core-events.zh-CN.md",
     "docs/contracts/03-component-manifest.zh-CN.md", "docs/contracts/04-assembly-manifest.zh-CN.md",
     "docs/contracts/05-standard-interfaces.zh-CN.md", "docs/contracts/06-process-bridge.zh-CN.md",
-    "docs/design-expert-snapshot-prototype.zh-CN.md", "docs/design-expert-execution.zh-CN.md",
-    "docs/expert-management-prototype.zh-CN.md", "docs/release-publication.md",
-    "docs/release-publication.zh-CN.md",
+    "docs/records/design-expert-snapshot-prototype.zh-CN.md", "docs/development/design-expert-execution.zh-CN.md",
+    "docs/records/expert-management-prototype.zh-CN.md", "docs/maintenance/release-publication.md",
+    "docs/maintenance/release-publication.zh-CN.md",
 ]
 FENCES = re.compile(r"(?ms)^```([\w-]*)\n(.*?)^```[ \t]*$")
 
@@ -51,21 +59,21 @@ def anchors(text):
     return found | generated
 
 
-def broken_fragments(root, name):
+def broken_links(root, name):
     path = root / name
     prose = FENCES.sub("", path.read_text(encoding="utf-8"))
     errors = []
     for link in re.findall(r"\]\(([^)\n]+)\)", prose):
         parsed = urlsplit(link)
-        if parsed.scheme or parsed.netloc or not parsed.fragment:
+        if parsed.scheme or parsed.netloc:
             continue
         target = (path.parent / unquote(parsed.path)).resolve() if parsed.path else path.resolve()
         if not target.is_relative_to(root.resolve()):
             errors.append(f"{name}: target leaves repository: {link}")
-        elif target.suffix == ".md":
-            if not target.is_file():
-                errors.append(f"{name}: missing file: {link}")
-            elif unquote(parsed.fragment) not in anchors(target.read_text(encoding="utf-8")):
+        elif not target.exists():
+            errors.append(f"{name}: missing file: {link}")
+        elif target.suffix == ".md" and parsed.fragment:
+            if unquote(parsed.fragment) not in anchors(target.read_text(encoding="utf-8")):
                 errors.append(f"{name}: missing anchor: {link}")
     return errors
 
@@ -76,10 +84,10 @@ def shell_blocks(text):
 
 
 class DocumentationEntryTests(unittest.TestCase):
-    def test_entry_document_fragments_resolve(self):
+    def test_tracked_document_links_resolve(self):
         for name in DOCUMENTS:
             with self.subTest(document=name):
-                self.assertEqual(broken_fragments(ROOT, name), [])
+                self.assertEqual(broken_links(ROOT, name), [])
 
     def test_bilingual_shell_examples_match(self):
         for english, chinese in PAIRS:
@@ -91,7 +99,7 @@ class DocumentationEntryTests(unittest.TestCase):
 
     def test_entry_shell_examples_parse_without_execution(self):
         checked = 0
-        for name in DOCUMENTS:
+        for name in EXAMPLE_DOCUMENTS:
             for index, (_, body) in enumerate(shell_blocks((ROOT / name).read_text(encoding="utf-8"))):
                 with self.subTest(document=name, block=index):
                     result = subprocess.run(["bash", "-n"], input=body, text=True,
@@ -104,12 +112,12 @@ class DocumentationEntryTests(unittest.TestCase):
         for name, expected in [
             ("README.md", {"know-what-you-are-giving-it-access-to"}),
             ("README.zh-CN.md", {"先了解你授予了什么权限"}),
-            ("docs/model-configuration.md", {"credential-and-terminal-limitations"}),
-            ("docs/model-configuration.zh-CN.md", {"凭证与终端限制"}),
-            ("docs/getting-started.md", {"3-start-in-your-project", "manual-configuration-optional", "data-and-permissions"}),
-            ("docs/getting-started.zh-CN.md", {"3-在自己的项目里启动", "手动配置可选", "数据与权限"}),
+            ("docs/guides/model-configuration.md", {"credential-and-terminal-limitations"}),
+            ("docs/guides/model-configuration.zh-CN.md", {"凭证与终端限制"}),
+            ("docs/guides/getting-started.md", {"3-start-in-your-project", "manual-configuration-optional", "data-and-permissions"}),
+            ("docs/guides/getting-started.zh-CN.md", {"3-在自己的项目里启动", "手动配置可选", "数据与权限"}),
             ("clients/ink/README.md", {"run", "历史分页", "操作授权", "the-protocol-in-one-screen", "layout", "tests"}),
-            ("docs/desktop.zh-CN.md", {"安装与系统许可", "使用方式", "保护与边界", "验证"}),
+            ("docs/guides/desktop.zh-CN.md", {"安装与系统许可", "使用方式", "保护与边界", "验证"}),
         ]:
             with self.subTest(document=name):
                 self.assertTrue(expected <= anchors((ROOT / name).read_text(encoding="utf-8")))
@@ -125,14 +133,18 @@ class DocumentationEntryTests(unittest.TestCase):
             (root / "index.md").write_text(
                 "[good](guide.md#%E4%B8%AD%E6%96%87)\n"
                 "[bad](guide.md#absent)\n[missing](missing.md#part)\n"
+                "[no fragment](missing.md)\n[missing asset](missing.json)\n"
+                "[directory](./)\n[no fragment good](guide.md)\n"
                 "[outside](../private.md#secret)\n"
                 "[external](https://example.invalid/guide.md#absent)\n"
                 "```text\n[fenced](missing.md#ignored)\n```\n", encoding="utf-8",
             )
-            errors = broken_fragments(root, "index.md")
+            errors = broken_links(root, "index.md")
             self.assertEqual(errors, [
                 "index.md: missing anchor: guide.md#absent",
                 "index.md: missing file: missing.md#part",
+                "index.md: missing file: missing.md",
+                "index.md: missing file: missing.json",
                 "index.md: target leaves repository: ../private.md#secret",
             ])
 

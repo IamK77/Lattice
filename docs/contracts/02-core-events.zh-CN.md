@@ -1,6 +1,6 @@
 # 契约二：核心事件类型
 
-[契约导航](README.zh-CN.md) · [开发参考](../development.zh-CN.md)
+[契约导航](README.zh-CN.md) · [开发参考](../development/README.zh-CN.md)
 
 核心自带的信纸分输入、模型、工具、控制四个家族，另有对外输出类。下表列主要事件与 payload 要点，机器可读的字段约束在 [schemas/payloads](../../schemas/payloads/)，当前 Rust 类型见 [core_events.rs](../../src/contracts/core_events.rs)。
 
