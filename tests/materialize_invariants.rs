@@ -22,6 +22,9 @@ use lattice::core_events as ce;
 use lattice::core_events::core_event_decls;
 use lattice::{EventDraft, EventLog};
 
+#[path = "materialize_invariants/interruptions.rs"]
+mod interruptions;
+
 // ── The generator ──────────────────────────────────────────────────────────
 
 /// xorshift64*, so a failing case names a seed and that seed reproduces it.
