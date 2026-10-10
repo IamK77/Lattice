@@ -21,18 +21,92 @@ pub(super) struct Ready {
 
 impl Drop for Ready {
     fn drop(&mut self) {
-        if let Some(session) = self.session.take() {
-            session.shutdown();
+        if let Some(problem) = self.collect() {
+            report(&problem);
         }
     }
 }
 
 impl Ready {
+    /// Own the returned runtime before any fallible UI recovery. The initializer
+    /// can borrow the runtime, but cannot take it away from this unpublished owner.
+    fn initialize(
+        session: Session,
+        ui: Ui,
+        parent: usize,
+        initialize: impl FnOnce(&Session, &mut Ui) -> Result<(), String>,
+    ) -> Result<Self, String> {
+        let mut ready = Self {
+            session: Some(session),
+            ui,
+            parent,
+        };
+        if let Err(primary) = initialize(
+            ready.session.as_ref().expect("owned startup"),
+            &mut ready.ui,
+        ) {
+            return Err(with_cleanup(primary, ready.collect()));
+        }
+        Ok(ready)
+    }
+
+    fn collect(&mut self) -> Option<String> {
+        let session = self.session.take()?;
+        session.request_shutdown();
+        let result = session.finish_shutdown();
+        #[cfg(test)]
+        cleanup_tests::observe_collection(&result);
+        cleanup_problem(result.map(|closed| closed.kernel.lingering))
+    }
+
     pub fn seat<'a>(mut self) -> Seat<'a> {
         Seat {
             session: SeatSession::Owned(self.session.take().map(Box::new)),
             ui: Some(std::mem::replace(&mut self.ui, Ui::replayed(&[]))),
             parent: Some(self.parent),
+        }
+    }
+}
+
+fn cleanup_problem(result: Result<Vec<String>, String>) -> Option<String> {
+    match result {
+        Err(error) => Some(format!(
+            "Side startup cleanup could not join its session: {error}"
+        )),
+        Ok(lingering) if !lingering.is_empty() => Some(format!(
+            "Side startup session joined, but components are still running: {}",
+            lingering.join(", ")
+        )),
+        Ok(_) => None,
+    }
+}
+
+fn with_cleanup(primary: String, cleanup: Option<String>) -> String {
+    match cleanup {
+        Some(problem) => format!("{primary}\n{problem}"),
+        None => primary,
+    }
+}
+
+fn report_to(writer: &mut dyn std::io::Write, message: &str) {
+    // Diagnostics are best effort, including during unwinding. A failed write
+    // must not replace a primary error or turn a cleanup warning into a panic.
+    let _ = writeln!(writer, "{message}");
+}
+
+fn report(message: &str) {
+    #[cfg(test)]
+    if cleanup_tests::report_if_configured(message) {
+        return;
+    }
+    report_to(&mut std::io::stderr().lock(), message);
+}
+
+fn deliver(sender: std::sync::mpsc::Sender<Result<Ready, String>>, result: Result<Ready, String>) {
+    if let Err(rejected) = sender.send(result) {
+        match rejected.0 {
+            Err(error) => report(&format!("Side startup result receiver closed: {error}")),
+            Ok(ready) => drop(ready),
         }
     }
 }
@@ -79,6 +153,12 @@ impl Prepared {
                 .as_ref()
                 .map(|v| v.as_str().unwrap_or("off").to_string()),
         };
+        let mut ui = Ui::replayed(&[]);
+        ui.domain.title = format!("{} · {}", running.model, workspace);
+        ui.workspace = workspace;
+        ui.bar = bar;
+        ui.documents = Some(lattice::contracts::document::documents_dir(&path));
+        ui.domain.expert_dir = Some(directory.join("experts"));
         let foreign = std::sync::Arc::new([(reader.stream().to_string(), reader)].into());
         let expert_cfg = cfg.clone();
         let expert_path = directory.join("experts");
@@ -102,33 +182,27 @@ impl Prepared {
         } else {
             Session::spawn("ui", build)
         }?;
-        let mut ui = Ui::replayed(&[]);
-        ui.domain.title = format!("{} · {}", running.model, workspace);
-        ui.workspace = workspace;
-        ui.bar = bar;
-        ui.parts = session.initial_parts().to_vec();
-        ui.documents = Some(lattice::contracts::document::documents_dir(
-            &directory.join(&record.file),
-        ));
-        ui.domain.expert_dir = Some(directory.join("experts"));
-        let reader = session.log_reader();
-        ui.domain.stream_id = reader.stream().to_string();
-        let through = reader.snapshot_end();
-        ui.replay_prefix(&reader, through)
-            .map_err(|e| e.to_string())?;
-        let has_user_message = ui.has_user_card();
-        // Only the configuration used to start the actual session owns the
-        // current controls, not historical UI changes encountered in replay.
-        ui.domain.model =
-            crate::terminal_host::ModelState::new(models, running, effort, Some(effective_window));
-        ui.flash = settings_note;
-        if !has_user_message {
-            ui.initial_origin = Some(record.origin.clone());
-        }
-        Ok(Ready {
-            session: Some(session),
-            ui,
-            parent: record.parent,
+        Ready::initialize(session, ui, record.parent, |session, ui| {
+            ui.parts = session.initial_parts().to_vec();
+            let reader = session.log_reader();
+            ui.domain.stream_id = reader.stream().to_string();
+            let through = reader.snapshot_end();
+            ui.replay_prefix(&reader, through)
+                .map_err(|e| e.to_string())?;
+            let has_user_message = ui.has_user_card();
+            // Only the configuration used to start the actual session owns the
+            // current controls, not historical UI changes encountered in replay.
+            ui.domain.model = crate::terminal_host::ModelState::new(
+                models,
+                running,
+                effort,
+                Some(effective_window),
+            );
+            ui.flash = settings_note;
+            if !has_user_message {
+                ui.initial_origin = Some(record.origin.clone());
+            }
+            Ok(())
         })
     }
 }
@@ -136,6 +210,10 @@ impl Prepared {
 #[cfg(test)]
 #[path = "launch/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "launch/cleanup_tests.rs"]
+mod cleanup_tests;
 
 pub(super) struct Pending {
     pub record: Record,
@@ -171,8 +249,9 @@ impl<'a> Tabs<'a> {
         let worker = std::thread::Builder::new()
             .name("side-startup".into())
             .spawn(move || {
-                // If the terminal has closed, Ready closes its session here.
-                let _ = sender.send(build());
+                // A rejected Ready still owns its runtime. A rejected error is
+                // reported locally rather than silently losing the diagnosis.
+                deliver(sender, build());
             })
             .map_err(|error| error.to_string())?;
         self.workers.push(worker);
