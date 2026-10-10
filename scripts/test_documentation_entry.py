@@ -24,7 +24,15 @@ DOCUMENTS = [name for pair in PAIRS for name in pair] + [
     "docs/setup-development.md", "docs/desktop-development.zh-CN.md",
     "clients/ink/development.zh-CN.md", "docs/installation.md",
     "docs/installation.zh-CN.md", "docs/troubleshooting.md",
-    "docs/troubleshooting.zh-CN.md", "SUPPORT.md",
+    "docs/troubleshooting.zh-CN.md", "SUPPORT.md", "CONTRIBUTING.md",
+    "docs/development.md", "docs/development.zh-CN.md",
+    "docs/contracts/README.md", "docs/contracts/README.zh-CN.md",
+    "docs/contracts/01-envelope.zh-CN.md", "docs/contracts/02-core-events.zh-CN.md",
+    "docs/contracts/03-component-manifest.zh-CN.md", "docs/contracts/04-assembly-manifest.zh-CN.md",
+    "docs/contracts/05-standard-interfaces.zh-CN.md", "docs/contracts/06-process-bridge.zh-CN.md",
+    "docs/design-expert-snapshot-prototype.zh-CN.md", "docs/design-expert-execution.zh-CN.md",
+    "docs/expert-management-prototype.zh-CN.md", "docs/release-publication.md",
+    "docs/release-publication.zh-CN.md",
 ]
 FENCES = re.compile(r"(?ms)^```([\w-]*)\n(.*?)^```[ \t]*$")
 

@@ -29,12 +29,14 @@
 
 ## 开发与维护
 
+[开发参考导航](development.zh-CN.md)说明文档各自的职责，并区分当前实现、历史原型与验收记录。
+
 | 任务 | 参考 |
 | --- | --- |
 | 理解运行时及其设计边界 | [架构总览](architecture-overview.zh-CN.md) · [架构决策](architecture-decisions.zh-CN.md) |
 | 用自己熟悉的语言编写部件 | [示例](../examples/) · [自造工具演示](tool-building-walkthrough.zh-CN.md) |
 | 组装运行时或迁移自定义装配 | [装配配置](assembly-configuration.zh-CN.md) · [能力迁移（英文）](capability-split-migration.md) |
-| 实现部件接口 | [契约](contracts/) · [JSON Schema](../schemas/) |
+| 实现部件接口 | [契约导航](contracts/README.zh-CN.md) · [JSON Schema](../schemas/) |
 | 修改首次配置前端 | [引导实现与验证（英文）](setup-development.md) |
 | 实现或测试可选集成 | [Ink 协议与测试](../clients/ink/development.zh-CN.md) · [桌面后端与测试](desktop-development.zh-CN.md) |
 | 贡献一项小范围改动 | [参与贡献（英文）](../CONTRIBUTING.md) · [分支与 PR 流程](workflow.zh-CN.md) |

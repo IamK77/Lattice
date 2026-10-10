@@ -1,6 +1,8 @@
 # 契约二：核心事件类型
 
-核心自带的信纸，四个家族。payload 字段的权威定义在 `src/contracts/core_events.rs`。
+[契约导航](README.zh-CN.md) · [开发参考](../development.zh-CN.md)
+
+核心自带的信纸分输入、模型、工具、控制四个家族，另有对外输出类。下表列主要事件与 payload 要点，机器可读的字段约束在 [schemas/payloads](../../schemas/payloads/)，当前 Rust 类型见 [core_events.rs](../../src/contracts/core_events.rs)。
 
 ## 输入类
 
@@ -36,7 +38,7 @@
    **跨方言兼容性有边界**：可读正文可以迁移，目标方言没有对应位置的签名不迁移，也不伪造新签名。DeepSeek 的 Anthropic 格式端点与 Anthropic 官方端点不能视为同一实现；官方端点对无签名块的接受行为尚无完整验证，封存的 `redacted_thinking` 也不是所有兼容端点都支持。跨端点切换可能因此被拒，不能保证已有推理历史总能无损续接。
 3. **推理与它那一轮的工具调用同生共死**。这条不需要额外执法：上下文关卡做取舍的单位是"指向某条事件的指针"，只能整条留下或整条换成摘要件，没有能力伸进事件里单独摘掉推理。
 
-考卷只判形状不判内容：产不产推理不影响合格，但**可读零件必须真带文字、封存零件必须真带得回去的东西**。这两条 schema 说不了——该必填的是 `text` 还是 `opaque`，取决于 kind。
+考卷只判形状不判内容：产不产推理不影响合格，但**可读零件必须真带文字、封存零件必须真带得回去的东西**。当前[信纸 Schema](../../schemas/payloads/model_call_completed.json)没有按 `kind` 分别声明 `text` 或 `opaque` 必填；不能只凭通过该 Schema 就认定这两条满足。
 
 ## 工具类
 
@@ -47,7 +49,7 @@
 
 工具声明（`ToolDecl`）：`name`、`description`、`parameters`（JSON Schema）、`effects`（**作用面**：reads/writes/network/executes/reversible——policy 只依据它判断，从不硬编码工具名；未申报一律按最危险处理）。工具真正干活的代码不属于契约——执行体可以在任何地方，只要这三份数据能送到。
 
-工具结果可显式提供 `result.latticeImages`：PNG 文档引用数组，每项为 `{file, mediaType: "image/png", bytes?}`，文件在流水旁、按内容命名。这是**选择加入的附件约定**，不是把任意业务字段 `images` 猜成图片。当前 Responses 适配件将其回填到原来的函数结果中，连同文字一起发给模型；其他方言未因这个可选字段自动获得工具图片支持。读取时核验文件身份、字节数及 PNG 内容，不跟随图片文件的符号链接。普通工具结果仍可以是任意 JSON。
+工具结果可显式提供 `result.latticeImages`：PNG 文档引用数组，每项为 `{file, mediaType: "image/png", bytes?}`，文件在流水旁、按内容命名。这是**选择加入的附件约定**，不是把任意业务字段 `images` 猜成图片。当前三条模型接口路径都读取这个字段，但载体不同：Responses 放进原 `function_call_output.output` 的内容数组；Anthropic 放进原 `tool_result.content` 的图片块；Chat Completions 保留文字工具回复，并在连续工具回复组之后追加用户图片消息。共同读取入口见 [media_document.rs](../../src/components/media_document.rs)，三种发送形式分别见 [responses_media.rs](../../src/components/responses_media.rs)、[anthropic_model.rs](../../src/components/anthropic_model.rs) 和 [openai_model.rs](../../src/components/openai_model.rs)。读取时核验文件身份、字节数及 PNG 内容，不跟随图片文件的符号链接。普通工具结果仍可以是任意 JSON。
 
 工具还可在完成事件的 **payload 顶层**提供 `modelText`（非空字符串，最多 8192 个字符），作为给模型的简短回执。它不是业务结果里的同名字段。完整 `result` 仍照常入账、供界面和回查使用；只有 `status=ok` 才使用简短回执，错误和取消仍呈现原始结果。适配件明确标记“省略了详情”，并附上原事件编号，原文通过流水文件读取。未提供时完全沿用原渲染；图片附件仍从完整结果读取。提供者负责保留下一步判断所需的事实，不能把截断、部分完成或失败包装成完整成功。
 

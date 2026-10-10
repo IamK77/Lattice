@@ -1,5 +1,7 @@
 # 契约一：事件信封
 
+[契约导航](README.zh-CN.md) · [开发参考](../development.zh-CN.md)
+
 一切发生的事都是事件。事件 = 信封（本契约规定的外层结构，所有事件相同）+ 信纸（payload，各事件类型自定义，核心不解读）。
 
 机器可读正本：信封在 `schemas/envelope.json`，信纸在 `schemas/payloads/`；Rust 化身在 `src/contracts/event.rs`。`tests/schema_canon.rs` 把正本与实现双向钉住，并反向校验 Ink golden 文件里嵌的信封——JS 前端、Rust 类型、schema 三方单方漂移即红。

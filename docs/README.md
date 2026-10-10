@@ -29,12 +29,14 @@ Using an existing integration and writing a new component are different tasks. F
 
 ## Develop and maintain
 
+The [development reference map](development.md) explains document ownership and distinguishes current implementation, historical probes and acceptance records.
+
 | Task | Reference |
 | --- | --- |
 | Understand the runtime and its design boundaries | [Overview (Chinese)](architecture-overview.zh-CN.md) · [Decisions (Chinese)](architecture-decisions.zh-CN.md) |
 | Write a component in your language | [Examples](../examples/) · [Tool-building walkthrough (Chinese)](tool-building-walkthrough.zh-CN.md) |
 | Assemble a runtime or migrate a custom assembly | [Assembly configuration (Chinese)](assembly-configuration.zh-CN.md) · [Capability migration](capability-split-migration.md) |
-| Implement the component interfaces | [Contracts (Chinese)](contracts/) · [JSON schemas](../schemas/) |
+| Implement the component interfaces | [Contract reference](contracts/README.md) · [JSON schemas](../schemas/) |
 | Work on the first-run frontend | [Setup implementation and verification](setup-development.md) |
 | Implement or test an optional integration | [Ink protocol and tests (Chinese)](../clients/ink/development.zh-CN.md) · [Desktop backend and tests (Chinese)](desktop-development.zh-CN.md) |
 | Contribute a focused change | [Contributing](../CONTRIBUTING.md) · [Branch and PR workflow](workflow.md) |

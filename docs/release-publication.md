@@ -1,12 +1,12 @@
 # Release publication
 
-[中文](release-publication.zh-CN.md) · [Candidate preparation](release-preparation.md) · [Artifact contents](release-artifacts.md)
+[Development references](development.md) · [中文](release-publication.zh-CN.md) · [Candidate preparation](release-preparation.md) · [Artifact contents](release-artifacts.md)
 
 ## Approval and authority
 
 Merging the canonical `release/next` or `release/hotfix-next` PR into protected `main` authorizes publication. The `Release` workflow verifies the approved merge SHA, candidate contents, version history, and any existing tag again. A workflow-bootstrap PR does not publish. Registry publication remains out of scope.
 
-Publication stays disabled until maintainers enable the `RELEASE_AUTOMATION_ENABLED` repository variable. This document describes the implemented workflow, not evidence that a release has already shipped. Native packaging has been exercised separately; the first end-to-end signing preview and production activation still require the rollout checklist.
+Publication stays disabled until maintainers enable the `RELEASE_AUTOMATION_ENABLED` repository variable. This document describes the implemented workflow, not the current repository setting or evidence that a release has shipped. A completed signing preview and its positive/negative consumer checks are recorded in [signed-preview acceptance](signed-preview-acceptance.md), for that exact source and those exact bytes. That record does not verify a later candidate or authorize activation; check the rollout prerequisites below before enabling publication.
 
 The workflow event SHA, checked-out SHA, and approved build SHA must agree. GitHub's signing identity describes the event commit, not any arbitrary commit subsequently checked out. Manual previews must therefore be dispatched **on the candidate branch**, with its exact current SHA as `expected_sha`. Selecting `main` and supplying a different candidate SHA is rejected. Allowed preview refs are the corresponding canonical candidate branch and `main`; only `main` can authorize official publication.
 
@@ -35,7 +35,7 @@ gh attestation verify "$asset" --bundle provenance.json \
   --deny-self-hosted-runners
 ```
 
-Use the exact reviewed commit, not an archive hash, for `--source-digest`. For a preview, use its actual candidate ref instead of `refs/heads/main`. Check both archive checksums too. The installation guide will describe acquiring and installing a verified artifact; neither a checksum alone nor an unsigned `BUILD-INFO.json` authenticates a release.
+Use the exact reviewed commit, not an archive hash, for `--source-digest`. For a preview, use its actual candidate ref instead of `refs/heads/main`. Check both archive checksums too. The [installation guide](installation.md) describes acquiring and installing a verified artifact; neither a checksum alone nor an unsigned `BUILD-INFO.json` authenticates a release.
 
 ## Failure and retry rules
 
