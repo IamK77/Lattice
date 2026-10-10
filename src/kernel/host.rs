@@ -645,6 +645,47 @@ impl Kernel {
         options: KernelOptions,
         foreign: ForeignReaders,
     ) -> Result<Self, KernelError> {
+        Self::start_storage(assembly, registry, factories, options, foreign, false)
+    }
+
+    /// Start only after exclusively creating a new segmented `.ledger` path.
+    /// Existing paths are never opened. The writer lease remains owned by the
+    /// returned kernel, including its final shutdown log. Other start APIs
+    /// retain their open-or-create semantics.
+    pub fn create_new(
+        assembly: &AssemblyManifest,
+        registry: &HashMap<String, ComponentManifest>,
+        factories: &mut HashMap<String, Factory>,
+        options: KernelOptions,
+    ) -> Result<Self, KernelError> {
+        Self::create_new_with_foreign(
+            assembly,
+            registry,
+            factories,
+            options,
+            ForeignReaders::default(),
+        )
+    }
+
+    /// Exclusive creation with the same read-only foreign handles as `start_with_foreign`.
+    pub fn create_new_with_foreign(
+        assembly: &AssemblyManifest,
+        registry: &HashMap<String, ComponentManifest>,
+        factories: &mut HashMap<String, Factory>,
+        options: KernelOptions,
+        foreign: ForeignReaders,
+    ) -> Result<Self, KernelError> {
+        Self::start_storage(assembly, registry, factories, options, foreign, true)
+    }
+
+    fn start_storage(
+        assembly: &AssemblyManifest,
+        registry: &HashMap<String, ComponentManifest>,
+        factories: &mut HashMap<String, Factory>,
+        options: KernelOptions,
+        foreign: ForeignReaders,
+        create_new: bool,
+    ) -> Result<Self, KernelError> {
         let mut startup = crate::startup::PhaseTimer::start();
         let issues = inspect_assembly(assembly, registry);
         if !issues.is_empty() {
@@ -669,8 +710,18 @@ impl Kernel {
             format!("st_{nanos:x}")
         });
         startup.checkpoint("prepare");
-        let mut log =
-            EventLog::open(types, stream.clone(), options.log_file).map_err(KernelError::Io)?;
+        let mut log = if create_new {
+            let path = options.log_file.ok_or_else(|| {
+                KernelError::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "exclusive creation requires a nonempty .ledger path, not in-memory storage",
+                ))
+            })?;
+            EventLog::create_new(types, stream.clone(), path)
+        } else {
+            EventLog::open(types, stream.clone(), options.log_file)
+        }
+        .map_err(KernelError::Io)?;
         startup.checkpoint("log_open");
         // Set before the first append, including the settling below: the
         // ledger can keep a secret out, but cannot take one back.

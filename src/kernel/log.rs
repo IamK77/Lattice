@@ -373,7 +373,43 @@ impl EventLog {
             stream.into(),
             file,
             segmented.then_some(64 * 1024 * 1024),
+            false,
         )
+    }
+
+    /// Exclusively create a segmented ledger and retain its writer lease.
+    /// Only a nonempty `.ledger` path is supported; occupied paths are never
+    /// opened, repaired, or adopted. Later failures may leave creation evidence.
+    pub fn create_new(
+        types: Vec<EventTypeDecl>,
+        stream: impl Into<String>,
+        path: PathBuf,
+    ) -> std::io::Result<Self> {
+        if path.as_os_str().is_empty() || path.extension().is_none_or(|ext| ext != "ledger") {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!(
+                    "exclusive creation requires a nonempty .ledger path: {}",
+                    path.display()
+                ),
+            ));
+        }
+        Self::open_storage(
+            types,
+            stream.into(),
+            Some(path.clone()),
+            Some(64 * 1024 * 1024),
+            true,
+        )
+        .map_err(|error| {
+            std::io::Error::new(
+                error.kind(),
+                format!(
+                    "could not create new ledger {}: {error}; partial initialization may remain",
+                    path.display()
+                ),
+            )
+        })
     }
 
     /// Reserve a fresh, empty logical ledger. An existing path is never
@@ -389,7 +425,7 @@ impl EventLog {
         path: PathBuf,
         segment_bytes: u64,
     ) -> std::io::Result<Self> {
-        Self::open_storage(types, stream.into(), Some(path), Some(segment_bytes))
+        Self::open_storage(types, stream.into(), Some(path), Some(segment_bytes), false)
     }
 
     fn open_storage(
@@ -397,6 +433,7 @@ impl EventLog {
         stream: String,
         file: Option<PathBuf>,
         segment_bytes: Option<u64>,
+        create_new: bool,
     ) -> std::io::Result<Self> {
         let mut validators = HashMap::new();
         for decl in &types {
@@ -412,7 +449,9 @@ impl EventLog {
         }
         let segmented = match (file.as_ref(), segment_bytes) {
             (Some(path), Some(limit)) => {
-                let ledger = if path.exists() {
+                let ledger = if create_new {
+                    super::segmented::Ledger::create(path, &stream, limit)?
+                } else if path.exists() {
                     super::segmented::Ledger::open_for(path, limit, Some(&stream))?
                 } else {
                     super::segmented::Ledger::create(path, &stream, limit)?

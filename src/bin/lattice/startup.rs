@@ -163,6 +163,25 @@ pub(super) fn ledger_for(home: &Path, resume: Resume) -> std::io::Result<(PathBu
     }
 }
 
+/// Product intent must survive selection until the actual storage open.
+#[derive(Clone, Debug)]
+pub(super) enum LedgerSelection {
+    Fresh(PathBuf),
+    Resume(PathBuf),
+}
+
+impl LedgerSelection {
+    pub(super) fn path(&self) -> &Path {
+        match self {
+            Self::Fresh(path) | Self::Resume(path) => path,
+        }
+    }
+
+    pub(super) fn reopened(&self) -> bool {
+        matches!(self, Self::Resume(_))
+    }
+}
+
 /// Capture existing history without creating a fresh ledger parent for a wizard.
 pub(super) struct ConversationSelection(Option<PathBuf>);
 
@@ -174,13 +193,13 @@ impl ConversationSelection {
         }
     }
 
-    pub(super) fn finish(self, home: &Path) -> std::io::Result<(PathBuf, bool)> {
+    pub(super) fn finish(self, home: &Path) -> std::io::Result<LedgerSelection> {
         match self.0 {
             Some(path) => {
                 std::fs::metadata(&path)?;
-                Ok((path, true))
+                Ok(LedgerSelection::Resume(path))
             }
-            None => ledger_for(home, Resume::Fresh),
+            None => ledger_for(home, Resume::Fresh).map(|(path, _)| LedgerSelection::Fresh(path)),
         }
     }
 }
