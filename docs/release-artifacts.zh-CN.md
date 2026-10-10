@@ -1,6 +1,6 @@
 # 原生发布产物
 
-本文说明产物格式与编译方法，不表示已经发布了某个版本。[English](release-artifacts.md) · [发布准备](发布准备.md)
+本文说明产物格式与编译方法，不表示已经发布了某个版本。[English](release-artifacts.md) · [发布准备](release-preparation.zh-CN.md)
 
 ## 内容与身份
 

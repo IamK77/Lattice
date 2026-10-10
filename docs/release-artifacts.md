@@ -1,7 +1,7 @@
 # Native release artifacts
 
 This describes the artifact format and build recipe, not an announcement that a
-release has been published. [简体中文](发布产物.md) · [Release preparation](release-preparation.md)
+release has been published. [简体中文](release-artifacts.zh-CN.md) · [Release preparation](release-preparation.md)
 
 ## Contents and identity
 

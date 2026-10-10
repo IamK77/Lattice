@@ -10,12 +10,12 @@ separate security or moderation team is implied.
 
 The maintainer approves public releases through the release pull request.
 Operational rollout, verification, and recovery live in the [maintainer handbook](docs/maintainer-handbook.md)
-([中文](docs/维护者手册.md)).
+([中文](docs/maintainer-handbook.zh-CN.md)).
 Contributors should discuss substantial product or architecture changes before
 implementing them. Technical review should preserve the project's serializable
 component contracts, auditability, and explicit permission boundaries.
 
 For contribution details, see [CONTRIBUTING.md](CONTRIBUTING.md). For dependency
 and check maintenance, see [supply-chain maintenance](docs/supply-chain.md)
-([中文](docs/依赖与持续集成.md)). For questions,
+([中文](docs/supply-chain.zh-CN.md)). For questions,
 see [SUPPORT.md](SUPPORT.md); for vulnerabilities, see [SECURITY.md](SECURITY.md).

@@ -1,6 +1,6 @@
 # 发布执行
 
-[English](release-publication.md) · [候选准备](发布准备.md) · [产物说明](发布产物.md)
+[English](release-publication.md) · [候选准备](release-preparation.zh-CN.md) · [产物说明](release-artifacts.zh-CN.md)
 
 ## 哪一步算批准
 

@@ -1,6 +1,6 @@
 # Git Flow contribution workflow
 
-[中文](协作流程.md) · [Contributing](../CONTRIBUTING.md)
+[中文](workflow.zh-CN.md) · [Contributing](../CONTRIBUTING.md)
 
 `main` is the stable public line; `develop` integrates upcoming work. Existing public commits remain unchanged. This workflow applies to new changes, not retroactive reconstruction of earlier history.
 

@@ -6,7 +6,7 @@
 
 ## 1. 构建 Lattice
 
-发布状态、实测平台、产物验证、安装和回退，先看[安装与升级](安装与升级.md)。首个正式版本发布前，下面的源码路径仍然可用。
+发布状态、实测平台、产物验证、安装和回退，先看[安装与升级](installation.zh-CN.md)。首个正式版本发布前，下面的源码路径仍然可用。
 
 使用 macOS 或 Linux，准备 Rust/Cargo 和 C 编译工具链。Linux 还需要 OpenSSL 开发库与 `pkg-config`；Debian/Ubuntu 对应的软件包是 `libssl-dev` 和 `pkg-config`。这份指南不提供 Windows 上的完整使用路径。
 
@@ -143,13 +143,13 @@ Do not add dependencies without discussing the trade-off.
 
 也可以用中文写同样的要求。Lattice 从工作目录向上查找最近一个含有认可规则文件的目录，在启动时读取，而不是持续刷新。修改规则后启动新会话。规则用于指导行为，不提供沙箱，也不保证模型总能遵守。
 
-继续扩展时可以查看[部件示例](../examples/)。外部部件不限于 Rust。[自造工具演示](演示-agent自造工具.md)和[装配指南](装配配置.md)目前使用中文。完整装配配置与安装增补是不同文件，不能相互替代。
+继续扩展时可以查看[部件示例](../examples/)。外部部件不限于 Rust。[自造工具演示](tool-building-walkthrough.zh-CN.md)和[装配指南](assembly-configuration.zh-CN.md)目前使用中文。完整装配配置与安装增补是不同文件，不能相互替代。
 
 ## 可选工具
 
 - **浏览器：** 需要 Chrome/Chromium，可以通过 `LATTICE_BROWSER` 指定程序。
 - **代码导航：** 需要对应语言的本机语言服务。缺少服务时明确报错，不自动安装。
-- **桌面：** 随附适配件面向 macOS，需要外部驱动和系统权限，见[桌面配置](桌面操作.md)。
+- **桌面：** 随附适配件面向 macOS，需要外部驱动和系统权限，见[桌面配置](desktop.zh-CN.md)。
 - **其他前端：** [JavaScript/Ink 客户端](../clients/ink/README.md)通过 Unix socket 连接后台服务；服务启动命令为 `"$LATTICE_BIN" serve`。
 
 ## 数据与权限
@@ -161,7 +161,7 @@ Do not add dependencies without discussing the trade-off.
 - **检查副作用。** 外部发送、凭证输入和系统权限需要你留意。取消不会撤销修改，也不保证所有后代进程已经停止。
 - **分享前检查。** 流水、模型目录、安装增补与信任记录通常位于 `~/.lattice/`。分享或备份到其他服务前应检查敏感信息。
 
-详细边界见[架构决策](架构决策.md)。
+详细边界见[架构决策](architecture-decisions.zh-CN.md)。
 
 ## 遇到问题时
 

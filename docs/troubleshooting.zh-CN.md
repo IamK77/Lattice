@@ -1,14 +1,14 @@
 # 故障排查
 
-[English](troubleshooting.md) · [安装与升级](安装与升级.md) · [支持渠道](../SUPPORT.md)
+[English](troubleshooting.md) · [安装与升级](installation.zh-CN.md) · [支持渠道](../SUPPORT.md)
 
 从最小的观察开始。不要删掉 `~/.lattice` 来重置，不要覆盖已有模型目录，不要导出全部环境变量，也不要上传整本流水。
 
 ## 执行了旧程序，或平台不匹配
 
-比较 `command -v lattice`、命令链接和 `lattice --version`。优化过的开发构建仍不是正式发布。包无法启动时，记录系统和架构，对照[实测平台表](安装与升级.md)。旧系统缺少动态库或符号，不能靠给归档改名或跳过验证解决。查看 `SYSTEM-DEPENDENCIES.txt`；没有承诺旧系统兼容，应换用受支持环境，或审阅后从源码构建。
+比较 `command -v lattice`、命令链接和 `lattice --version`。优化过的开发构建仍不是正式发布。包无法启动时，记录系统和架构，对照[实测平台表](installation.zh-CN.md)。旧系统缺少动态库或符号，不能靠给归档改名或跳过验证解决。查看 `SYSTEM-DEPENDENCIES.txt`；没有承诺旧系统兼容，应换用受支持环境，或审阅后从源码构建。
 
-Linux 源码构建需要 OpenSSL 开发头文件和 `pkg-config`，只有运行库不够。浏览器、桌面驱动、语言服务和 Ink 客户端另有前提，见[第一次对话](快速开始.md)。下载的程序无法执行时，先验证来源、检查准确诊断，不要直接关闭操作系统安全检查。
+Linux 源码构建需要 OpenSSL 开发头文件和 `pkg-config`，只有运行库不够。浏览器、桌面驱动、语言服务和 Ink 客户端另有前提，见[第一次对话](getting-started.zh-CN.md)。下载的程序无法执行时，先验证来源、检查准确诊断，不要直接关闭操作系统安全检查。
 
 ## 没有可用模型，或连到了意外的提供方
 
@@ -36,7 +36,7 @@ LATTICE_THINKING= "$LATTICE_BIN"
 
 只想观察一小段原文且不加载凭证、不写入时，使用 `lattice --recover PATH --offset BYTES --bytes COUNT`。分卷流水可用 `lattice --verify-ledger DIRECTORY` 做完整只读校验。它们的输出也可能含敏感内容，应在本地检查后再分享。正常恢复对话不是只读诊断，会修复未完成尾部并结清悬挂调用。
 
-不要把 `compact`、`tidy`、`--migrate-ledger` 当成普通检查；它们可能写入、移动或删除数据。迁移要求源文件离线，并保留原文件；树外附件引用还需单独照顾。改变数据格式前先读[安装与回退](安装与升级.md)。
+不要把 `compact`、`tidy`、`--migrate-ledger` 当成普通检查；它们可能写入、移动或删除数据。迁移要求源文件离线，并保留原文件；树外附件引用还需单独照顾。改变数据格式前先读[安装与回退](installation.zh-CN.md)。
 
 ## 工具或扩展表现异常
 

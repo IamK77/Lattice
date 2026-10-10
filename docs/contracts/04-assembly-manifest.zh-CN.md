@@ -28,7 +28,7 @@
 
 ## 产品配置与核心契约的分界
 
-上述结构是送进内核的最终纯数据，不含文件合并或模型偏好的规则。标准聊天产品的 `LATTICE_ASSEMBLY` 文件在它外面再包一层：额外部件自述、完整 `assembly` 和显式 `runtimeSlots`。装配员先填写模型等运行时位置，再合并独立安装增补，最后把普通 `AssemblyManifest` 交给内核。完整基线读坏拒启；安装增补仍只增不覆盖。入口、格式和当前聊天宿主的角色限制见 `docs/装配配置.md` 与 `schemas/product_assembly.json`，不扩充本契约的名词与字段。
+上述结构是送进内核的最终纯数据，不含文件合并或模型偏好的规则。标准聊天产品的 `LATTICE_ASSEMBLY` 文件在它外面再包一层：额外部件自述、完整 `assembly` 和显式 `runtimeSlots`。装配员先填写模型等运行时位置，再合并独立安装增补，最后把普通 `AssemblyManifest` 交给内核。完整基线读坏拒启；安装增补仍只增不覆盖。入口、格式和当前聊天宿主的角色限制见 `docs/assembly-configuration.zh-CN.md` 与 `schemas/product_assembly.json`，不扩充本契约的名词与字段。
 
 ## 体检（开跑前强制，任何一条问题都阻止启动）
 

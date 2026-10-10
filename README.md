@@ -31,7 +31,7 @@ Component A ──→ Record event ──→ Deliver ──→ Component B
 
 **The ledger is on the delivery path, not an afterthought.** The kernel records events and routes them along the assembly's connections. The model, loop, context manager, policies, tools, and interface live in replaceable components around it.
 
-Explore the [architecture (Chinese)](docs/架构总览.md), inspect the [JSON contracts](schemas/), or start with the agent below.
+Explore the [architecture (Chinese)](docs/architecture-overview.zh-CN.md), inspect the [JSON contracts](schemas/), or start with the agent below.
 
 ## Get started
 
@@ -65,9 +65,9 @@ Start with the included setup. Customize one thing at a time:
 
 - **Your model:** connect Chat Completions, Responses, or Anthropic Messages endpoints and switch configured models with `/model`. See the [model setup guide](docs/getting-started.md#2-connect-a-model).
 - **Your project:** add conventions and testing instructions to your project's `AGENTS.md` or `CLAUDE.md`. Lattice reads project rules at startup; start a new session after changing them. See [project customization](docs/getting-started.md#5-add-your-project-conventions).
-- **Your tools:** extend the agent with components rather than changing the entire application. External components are not restricted to Rust. Browse the [examples](examples/) and the [tool-building walkthrough (Chinese)](docs/演示-agent自造工具.md).
+- **Your tools:** extend the agent with components rather than changing the entire application. External components are not restricted to Rust. Browse the [examples](examples/) and the [tool-building walkthrough (Chinese)](docs/tool-building-walkthrough.zh-CN.md).
 
-- **Your runtime:** export the assembly with `lattice assembly`, then select your own with `LATTICE_ASSEMBLY`. Replace the components and connections that shape the agent's behavior. See [assembly configuration (Chinese)](docs/装配配置.md).
+- **Your runtime:** export the assembly with `lattice assembly`, then select your own with `LATTICE_ASSEMBLY`. Replace the components and connections that shape the agent's behavior. See [assembly configuration (Chinese)](docs/assembly-configuration.zh-CN.md).
 
 ## Know what you are giving it access to
 
@@ -82,9 +82,9 @@ Read [data, permissions, and recovery limits](docs/getting-started.md#data-and-p
 - [Getting started](docs/getting-started.md) — from building to your first conversation.
 - [Contributing](CONTRIBUTING.md) — changes, checks, and reporting problems.
 - [JavaScript terminal client (Chinese)](clients/ink/README.md) — an alternative client and daemon connection.
-- [Architecture overview (Chinese)](docs/架构总览.md) and [design decisions (Chinese)](docs/架构决策.md) — for developers extending the runtime.
+- [Architecture overview (Chinese)](docs/architecture-overview.zh-CN.md) and [design decisions (Chinese)](docs/architecture-decisions.zh-CN.md) — for developers extending the runtime.
 - [Contracts (Chinese)](docs/contracts/) and [JSON schemas](schemas/) — component and event interfaces.
-- [Desktop setup (Chinese)](docs/桌面操作.md) — the optional macOS desktop integration.
+- [Desktop setup (Chinese)](docs/desktop.zh-CN.md) — the optional macOS desktop integration.
 
 The English entry path is available here; deeper architecture and integration documentation is currently in Chinese.
 

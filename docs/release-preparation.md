@@ -1,6 +1,6 @@
 # Preparing a release
 
-[简体中文](发布准备.md) · [Version policy](versioning.md)
+[简体中文](release-preparation.zh-CN.md) · [Version policy](versioning.md)
 
 Preparation proposes a release; it does not create a tag, publish a GitHub
 Release, or upload to a package registry. The automation is off by default.

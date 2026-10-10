@@ -1,6 +1,6 @@
 # Lattice Contributor Rules
 
-Lattice is a composable, auditable agent runtime. Read the [system overview](docs/架构总览.md) and [architecture decisions](docs/架构决策.md) (both in Chinese), and the formal contracts in `schemas/` and `docs/contracts/`, before changing the relevant subsystem.
+Lattice is a composable, auditable agent runtime. Read the [system overview](docs/architecture-overview.zh-CN.md) and [architecture decisions](docs/architecture-decisions.zh-CN.md) (both in Chinese), and the formal contracts in `schemas/` and `docs/contracts/`, before changing the relevant subsystem.
 
 The public entry point presents Lattice as **an event-sourced, composable AI agent runtime for the terminal**, with **Record first. Deliver second.** as its signature. Product appeal comes first: make the distinctive value visible immediately, then connect it to use, customization, and a clear starting path. Lead with positive capabilities and concrete evidence, not repeated disclaimers or defensive qualifications. State setup requirements directly and keep detailed safety boundaries in their own section. Do not substitute internal module inventories for a product explanation or present plans and scripted tests as an implemented user experience.
 
@@ -38,7 +38,7 @@ The public entry point presents Lattice as **an event-sourced, composable AI age
 
 ## Coding and Verification
 
-- **Use English in code**, including comments, assertions, and diagnostics. Keep this file in English. Public landing pages and getting-started guides have English and Simplified Chinese versions, with English as the default entry point; keep their steps and examples aligned. Deep design documents may remain Chinese, with their language identified in English entry points.
+- **Use English in code**, including comments, assertions, and diagnostics. Keep this file in English. Public landing pages and getting-started guides have English and Simplified Chinese versions, with English as the default entry point; keep their steps and examples aligned. Deep design documents may remain Chinese, with their language identified in English entry points. Filenames use English basenames; Chinese documents use the `.zh-CN.md` suffix, not Chinese filenames. Update references when renaming; `docs/path-migrations.json` records the original documentation moves.
 - Read current files before editing and preserve unrelated changes. Use exact editing operations for structural changes, not unchecked bulk string replacement.
 - Add regression tests for new logic. For critical counterexamples, observe the test fail against the incorrect implementation before verifying the fix. Restore intentional faults with precise edits, never whole-file resets that discard other changes.
 - Run affected, focused tests by default; explain why broader coverage is needed before running a full suite. Do not run multiple Cargo builds concurrently in the same workspace.
@@ -53,7 +53,7 @@ Follow the [Git Flow workflow](docs/workflow.md): ordinary changes branch from `
 
 Commit titles and bodies are English. Titles follow Conventional Commits: `type: description` or `type(scope): description`, such as `feat: add model switching` or `fix(cli): handle missing credentials`. Types are `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `style`, `chore`, `ci`, `build`, or `revert`. Do not add a custom `Type:` trailer; historical trailers do not affect versioning. Use `feat` for new capabilities, `fix` for corrections, `perf` for equivalent behavior using fewer resources, and `refactor` for structural changes without behavior changes. Mark incompatible changes with `!` or `BREAKING CHANGE:` and explain migration.
 
-`Cargo.toml` is the sole source of release versions; Git identifies development builds only. Release builds must explicitly declare the matching version, and ordinary builds must carry a development identifier. Do not derive versions from commit counts or invent historical releases. Merging a release PR into `main` constitutes the maintainer's release confirmation; preparing a candidate is not publishing. See [versioning and changelog rules](docs/版本与变更记录.md) (Chinese).
+`Cargo.toml` is the sole source of release versions; Git identifies development builds only. Release builds must explicitly declare the matching version, and ordinary builds must carry a development identifier. Do not derive versions from commit counts or invent historical releases. Merging a release PR into `main` constitutes the maintainer's release confirmation; preparing a candidate is not publishing. See [versioning and changelog rules](docs/versioning.zh-CN.md) (Chinese).
 
 This file grants no permission to push to any account, change visibility, install programs, restart services, or perform destructive actions. Releases and external side effects require maintainer authorization.
 

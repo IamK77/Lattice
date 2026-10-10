@@ -1,6 +1,6 @@
 # Release publication
 
-[中文](发布执行.md) · [Candidate preparation](release-preparation.md) · [Artifact contents](release-artifacts.md)
+[中文](release-publication.zh-CN.md) · [Candidate preparation](release-preparation.md) · [Artifact contents](release-artifacts.md)
 
 ## Approval and authority
 

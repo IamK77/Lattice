@@ -1,11 +1,11 @@
 # Getting help
 
 - **Setup and use:** start with the [getting-started guide](docs/getting-started.md)
-  ([简体中文](docs/快速开始.md)). Ask general questions in
+  ([简体中文](docs/getting-started.zh-CN.md)). Ask general questions in
   [Discussions](https://github.com/IamK77/Lattice/discussions).
 - **Installation, upgrade, or startup trouble:** follow [installation](docs/installation.md)
-  ([中文](docs/安装与升级.md)) and [troubleshooting](docs/troubleshooting.md)
-  ([中文](docs/故障排查.md)) before collecting a report.
+  ([中文](docs/installation.zh-CN.md)) and [troubleshooting](docs/troubleshooting.md)
+  ([中文](docs/troubleshooting.zh-CN.md)) before collecting a report.
 - **A reproducible defect:** use the [bug report form](https://github.com/IamK77/Lattice/issues/new?template=bug_report.yml).
 - **A capability or workflow improvement:** use the
   [feature request form](https://github.com/IamK77/Lattice/issues/new?template=feature_request.yml).
