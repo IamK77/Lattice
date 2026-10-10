@@ -328,7 +328,9 @@ pub fn is_chosen_answer(
     log: &LogReader,
 ) -> Result<bool, String> {
     let Some(call) = answered_call(&parts[at], log)? else {
-        return Ok(true); // not an answer to anything: nothing to collide with
+        // A stream/model interruption settles no tool call. It cannot be a
+        // selected tool answer, even when there is no duplicate to suppress.
+        return Ok(false);
     };
     Ok(answers.get(&call) == Some(&at))
 }
