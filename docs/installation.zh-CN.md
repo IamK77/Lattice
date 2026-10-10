@@ -17,16 +17,18 @@
 
 ### 平台范围
 
-| 产物目标 | 已实测的构建、启动环境 | 不能由此推出 |
-|---|---|---|
-| `x86_64-unknown-linux-gnu` | Ubuntu 24.04、x86-64 | 更旧发行版、musl、ARM Linux 可用 |
-| `aarch64-apple-darwin` | macOS 15、Apple Silicon | 更旧 macOS 或 Intel Mac 可用 |
+| 程序包目标 | 已测试的构建、启动环境 |
+|---|---|
+| `x86_64-unknown-linux-gnu` | Ubuntu 24.04、x86-64 |
+| `aarch64-apple-darwin` | macOS 15、Apple Silicon |
 
-不提供受支持的 Windows 原生包。归档包含程序、署名、许可证正文、构建记录和依赖报告，见[产物说明](release-artifacts.zh-CN.md)。解包不会顺便安装浏览器、桌面驱动、语言服务、模型凭证或可选的 Ink 客户端。没有声称提供 Apple Developer ID 签名或公证。
+其他系统版本和架构尚未测试，目前没有 Windows 原生包。程序包包含程序、署名、许可证、构建记录和依赖报告，见[产物说明](release-artifacts.zh-CN.md)。macOS 程序包尚未提供 Apple Developer ID 签名或公证。
+
+浏览器、桌面驱动、语言服务和 Ink 客户端按需另行安装；模型账号在首次启动时配置。
 
 ## 现在可用的源码构建
 
-需要 Rust/Cargo 和 C 工具链；Linux 还需要 OpenSSL 开发头文件与 `pkg-config`。声明的最低 Rust 为 1.89，CI 在 1.89.0 上检查编译，并不等于在该版本跑过全部测试。
+需要 Rust 1.89 或更新版本、Cargo 和 C 工具链。Linux 还需要 OpenSSL 开发头文件与 `pkg-config`。
 
 ```bash
 git clone https://github.com/IamK77/Lattice.git
@@ -36,7 +38,7 @@ cargo build --locked --release --bin lattice
 ./target/release/lattice --version
 ```
 
-优化构建仍然显示开发身份。不要为了让本机构建看起来像官方版本而设置 `LATTICE_RELEASE_VERSION`。保留源码中的许可证和署名文件。把二进制绝对路径赋给 `LATTICE_BIN`，便可继续[配置指南](getting-started.zh-CN.md)；这个名字只是示例中的 shell 变量，不是产品配置项。
+构建完成后，版本信息会标明这是开发构建。保留源码中的许可证和署名文件，接着按[第一次对话](getting-started.zh-CN.md)设置程序路径并连接模型。
 
 ## 正式版本先验证、后执行
 
@@ -64,13 +66,13 @@ for asset in lattice-v"$version"-*.tar.gz SHA256SUMS release-manifest.json; do
 done
 ```
 
-当前流水线创建轻量标签；遇到不同标签类型应检查，不要猜提交。Linux 再运行 `sha256sum --check SHA256SUMS`，macOS 运行 `shasum -a 256 --check SHA256SUMS`，两个归档都应通过。签名运行环境约束只证明签名任务的位置，之前的构建任务另由工作流固定。
+当前发布流程使用轻量标签。脚本遇到其他标签类型会停止，此时向维护者确认对应提交。Linux 接着运行 `sha256sum --check SHA256SUMS`，macOS 运行 `shasum -a 256 --check SHA256SUMS`，确认两个归档都通过。构建环境与签名任务的记录详见[产物说明](release-artifacts.zh-CN.md)。
 
 ## 验证签名预演
 
-只使用维护者明确指定的预演，拿到运行编号、候选提交、候选分支和版本。从该次运行的 `release-preview` Actions 产物取得两个归档、`SHA256SUMS`、`release-manifest.json` 和 `provenance.json`。身份信息或验证步骤不全时先停下来询问，不要自行挑一次成功的工作流运行。
+向维护者取得预演的运行编号、候选提交、候选分支、版本和验证步骤。从该次运行的 `release-preview` Actions 产物下载两个归档、`SHA256SUMS`、`release-manifest.json` 和 `provenance.json`。信息缺失时，先请维护者补全再继续。
 
-仍需验证签名证明和摘要，但使用准确候选提交与候选分支，而不是 `refs/heads/main`。预演没有正式标签或不可变 GitHub Release 可查，不能把这种验证说成正式版本验收。[签名预演验收记录](signed-preview-acceptance.zh-CN.md)是维护者针对某一次运行留下的证据，不证明其他运行与它等价。
+按这次预演的候选提交和候选分支验证签名证明与摘要。预演使用候选分支身份，正式版本使用 `refs/heads/main` 和正式标签；两条路线分别验证。[签名预演验收记录](signed-preview-acceptance.zh-CN.md)记录了一次完整实例，每次新的预演也要核对它自己的文件与身份。
 
 ## 安装到自己的用户目录
 
@@ -93,7 +95,7 @@ installed_version="$("$destination/lattice" --version)" || exit 1
 
 **仅首次安装**时，用 `ln -s` 创建 `~/.local/bin/lattice`，指向 `"$destination/lattice"`。已有文件或链接不要直接覆盖。把 `~/.local/bin` 加到自己的 shell PATH 后，检查 `command -v lattice`、`ls -l "$HOME/.local/bin/lattice"` 和 `lattice --version`，避免 PATH 前面另一份安装仍被优先使用。
 
-接着按[第一次对话](getting-started.zh-CN.md)配置模型，在自己的项目目录启动。版本和帮助检查成功，并不表示付费模型或可选集成已经可用。
+接着按[第一次对话](getting-started.zh-CN.md)连接模型，在自己的项目目录启动。需要浏览器或桌面工具时，再按对应指南安装。
 
 ## 升级时保留旧程序
 
@@ -105,6 +107,6 @@ installed_version="$("$destination/lattice" --version)" || exit 1
 6. 在 `~/.local/bin/lattice` 旁创建一个新的临时符号链接，指向新程序，再重命名替换现有的**符号链接**。两者处在同一文件系统，才能以一次重命名原子切换指针；保留旧版本目录和旧目标记录。不要编辑或截断正在运行的二进制。
 7. 再检查 PATH 和版本，先用专门的测试数据启动，再打开重要历史。
 
-**回退有两件事。** 把链接改回去，只恢复旧程序，不撤销新程序写过的数据。若格式发生变化，应停掉全部会话后恢复升级前的数据备份，并把新数据另留待查。没有任意跨版本降级保证。1.0 前的版本政策、稳定的跨进程桥协议，都不是对所有存储格式的兼容承诺。
+**回退需要分别处理程序和数据。** 把命令链接改回旧版本，会恢复旧程序；新版本写过的数据仍会保留。回退前先查版本说明，确认旧程序能否读取现有数据。需要恢复旧格式时，先停止全部会话，另存升级后的数据，再恢复升级前的完整备份。
 
 卸载命令链接和明确选定的程序目录，与删除用户数据是两回事。不要把删除 `~/.lattice` 当成安装清理；是否删除备份和旧版本目录，应另行明确决定。

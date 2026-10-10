@@ -19,12 +19,12 @@ PAIRS = [
     ("docs/model-configuration.md", "docs/model-configuration.zh-CN.md"),
     ("docs/desktop.md", "docs/desktop.zh-CN.md"),
     ("clients/ink/README.md", "clients/ink/README.zh-CN.md"),
+    ("docs/troubleshooting.md", "docs/troubleshooting.zh-CN.md"),
 ]
 DOCUMENTS = [name for pair in PAIRS for name in pair] + [
     "docs/setup-development.md", "docs/desktop-development.zh-CN.md",
     "clients/ink/development.zh-CN.md", "docs/installation.md",
-    "docs/installation.zh-CN.md", "docs/troubleshooting.md",
-    "docs/troubleshooting.zh-CN.md", "SUPPORT.md", "CONTRIBUTING.md",
+    "docs/installation.zh-CN.md", "SUPPORT.md", "CONTRIBUTING.md",
     "docs/development.md", "docs/development.zh-CN.md",
     "docs/contracts/README.md", "docs/contracts/README.zh-CN.md",
     "docs/contracts/01-envelope.zh-CN.md", "docs/contracts/02-core-events.zh-CN.md",
@@ -102,6 +102,10 @@ class DocumentationEntryTests(unittest.TestCase):
 
     def test_user_bookmarks_survive_extraction(self):
         for name, expected in [
+            ("README.md", {"know-what-you-are-giving-it-access-to"}),
+            ("README.zh-CN.md", {"先了解你授予了什么权限"}),
+            ("docs/model-configuration.md", {"credential-and-terminal-limitations"}),
+            ("docs/model-configuration.zh-CN.md", {"凭证与终端限制"}),
             ("docs/getting-started.md", {"3-start-in-your-project", "manual-configuration-optional", "data-and-permissions"}),
             ("docs/getting-started.zh-CN.md", {"3-在自己的项目里启动", "手动配置可选", "数据与权限"}),
             ("clients/ink/README.md", {"run", "历史分页", "操作授权", "the-protocol-in-one-screen", "layout", "tests"}),

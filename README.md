@@ -57,7 +57,7 @@ Start a conversation with a concrete task:
 | Make a focused change | “Investigate this failing test, make a small fix, and run the affected tests. Show me the changes and results.” |
 | Build a tool for your workflow | “Help me turn this repeated task into a tool. Design it, test it, and walk me through installation.” |
 
-Use `/model` to switch configured models, return to saved conversations, and inspect the requests and results behind the work.
+Use `/model` to switch configured models. When you return, [continue your previous conversation](docs/getting-started.md#4-return-to-a-conversation).
 
 ## Make it yours
 
@@ -77,13 +77,15 @@ These are development tasks, not prerequisites for using the agent.
 
 - **Your runtime:** export the assembly with `lattice assembly`, then select your own with `LATTICE_ASSEMBLY`. Replace the components and connections that shape the agent's behavior. See [assembly configuration (Chinese)](docs/assembly-configuration.zh-CN.md).
 
-## Know what you are giving it access to
+<a id="know-what-you-are-giving-it-access-to"></a>
 
-Lattice's tools can read and change files, run programs, and access the network. **It is not a sandbox.** Use a workspace and permissions you are comfortable granting, and review changes before relying on them.
+## File operations and data storage
 
-Conversations, tool requests, results, and attachments are stored locally and may be sent to your selected model provider. Secrets read by tools are not guaranteed to be redacted. Browser and desktop screenshots may also be retained and sent to the model. Cancellation does not undo an action that has already happened.
+Lattice's tools can read and change files, run programs and access the network, including files outside the current project directory. Save existing work before working on important files and review the changes afterward. Changes already made remain in place after cancellation.
 
-Read [data, permissions, and recovery limits](docs/getting-started.md#data-and-permissions) before using sensitive files or accounts.
+Conversations, tool operations and attachments are stored locally and may be sent to your chosen model service. Keys and other secrets read by tools remain in the records and may travel with the conversation; browser and desktop screenshots are also retained and sent. Check records for sensitive content before sharing them.
+
+See [Data and permissions](docs/getting-started.md#data-and-permissions) for more details.
 
 ## Explore further
 
