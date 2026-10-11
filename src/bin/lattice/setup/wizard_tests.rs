@@ -258,36 +258,26 @@ fn capability_checkboxes_preserve_defaults_and_update_only_changed_fields() {
 
 #[test]
 fn provider_and_protocol_are_distinct_and_only_documented_combinations_are_offered() {
+    for (index, expected) in [
+        (0, vec!["responses", "openai"]),
+        (1, vec!["anthropic", "openai"]),
+        (2, vec!["openai", "anthropic", "responses"]),
+    ] {
+        assert_eq!(
+            PROVIDERS[index].services[0]
+                .routes
+                .iter()
+                .map(|r| r.adapter)
+                .collect::<Vec<_>>(),
+            expected
+        );
+    }
     assert_eq!(
-        PROVIDERS[0]
-            .protocols
-            .iter()
-            .map(|p| p.0)
-            .collect::<Vec<_>>(),
-        ["responses", "openai"]
-    );
-    assert_eq!(
-        PROVIDERS[1]
-            .protocols
-            .iter()
-            .map(|p| p.0)
-            .collect::<Vec<_>>(),
-        ["anthropic", "openai"]
-    );
-    assert_eq!(
-        PROVIDERS[2]
-            .protocols
-            .iter()
-            .map(|p| p.0)
-            .collect::<Vec<_>>(),
-        ["openai", "anthropic", "responses"]
-    );
-    assert_eq!(
-        PROVIDERS[2].base(0, "anthropic"),
+        PROVIDERS[2].services[0].routes[1].base,
         "https://api.deepseek.com/anthropic"
     );
     assert_eq!(
-        PROVIDERS[1].base(0, "openai"),
+        PROVIDERS[1].services[0].routes[1].base,
         "https://api.anthropic.com/v1"
     );
 }

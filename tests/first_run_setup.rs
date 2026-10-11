@@ -758,18 +758,21 @@ fn failed_requests_replace_the_error_and_busy_cancellation_restores_the_terminal
     terminal.send(b"SYNTHETIC_RETRY_KEY\r");
     terminal.wait_prompt("Choose a model");
     terminal.send(b"\r");
-    terminal.wait("401");
+    // The error label can wrap between H and TTP; the delimited status is stable.
+    terminal.wait("401;");
     terminal.wait_prompt("Choose a model");
     terminal.send(b"\r");
-    terminal.wait("403");
+    terminal.wait("403;");
     terminal.wait_prompt("Choose a model");
-    let latest = terminal.parser.screen().contents();
-    assert!(latest.contains("403"), "{latest}");
-    assert!(!latest.contains("401"), "{latest}");
+    let latest = terminal.parser.screen().contents().replace('\n', "");
+    // Bare digits can also occur in the local endpoint's randomly allocated port.
+    assert!(latest.contains("HTTP 403"), "{latest}");
+    assert!(!latest.contains("HTTP 401"), "{latest}");
     terminal.send(b"\r");
     terminal.wait("Fetching models");
     entered.recv_timeout(Duration::from_secs(10)).unwrap();
-    assert!(!terminal.parser.screen().contents().contains("403"));
+    let busy_screen = terminal.parser.screen().contents().replace('\n', "");
+    assert!(!busy_screen.contains("HTTP 403"), "{busy_screen}");
     let mut busy = unsafe { std::mem::zeroed::<libc::termios>() };
     assert_eq!(
         unsafe { libc::tcgetattr(terminal.master.as_raw_fd(), &mut busy) },

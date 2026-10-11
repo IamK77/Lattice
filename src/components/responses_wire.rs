@@ -145,9 +145,8 @@ pub fn completed(response: &Value) -> Result<Value, String> {
     for item in output {
         match item["type"].as_str() {
             Some("message") => {
-                for part in item["content"]
-                    .as_array()
-                    .ok_or("message content is not an array")?
+                for part in super::model_compat::response_content_parts(&item["content"])
+                    .ok_or("message content is not an object or array")?
                 {
                     match part["type"].as_str() {
                         Some("output_text") => {
@@ -200,8 +199,9 @@ pub fn completed(response: &Value) -> Result<Value, String> {
                 }
             }
             Some("reasoning") => {
-                let summary = item["summary"]
-                    .as_array()
+                let summary = ["content", "summary"]
+                    .iter()
+                    .filter_map(|field| super::model_compat::response_content_parts(&item[*field]))
                     .map(|parts| {
                         parts
                             .iter()
@@ -209,6 +209,7 @@ pub fn completed(response: &Value) -> Result<Value, String> {
                             .collect::<Vec<_>>()
                             .join("\n")
                     })
+                    .find(|text| !text.is_empty())
                     .unwrap_or_default();
                 let mut part = if summary.is_empty() {
                     json!({"kind":"hidden"})
@@ -327,6 +328,31 @@ mod tests {
         .unwrap();
         assert_eq!(encoded[0], sealed);
         assert_eq!(encoded[1]["type"], "function_call");
+    }
+
+    #[test]
+    fn plaintext_reasoning_is_readable_and_retains_the_original_item() {
+        for content in [
+            json!({"type":"reasoning_text","text":"full original thought"}),
+            json!([{"type":"reasoning_text","text":"full original thought"}]),
+        ] {
+            let item = json!({"type":"reasoning","content":content,"summary":[{"type":"summary_text","text":"short summary"}]});
+            let result = completed(&json!({"status":"completed","output":[item.clone()]})).unwrap();
+            assert_eq!(result["reasoning"][0]["text"], "full original thought");
+            assert_eq!(result["reasoning"][0]["opaque"]["responses"], item);
+        }
+    }
+
+    #[test]
+    fn glm_single_content_object_is_a_valid_message_not_an_empty_reply() {
+        let output = json!([{"type":"message","role":"assistant","content":{"type":"output_text","text":"ok"}}]);
+        let result = completed(&json!({"status":"completed","output":output})).unwrap();
+        assert_eq!(result["text"], "ok");
+        assert_eq!(result["responsesOutput"], output);
+        assert!(completed(
+            &json!({"status":"completed","output":[{"type":"message","content":123}]})
+        )
+        .is_err());
     }
 
     #[test]

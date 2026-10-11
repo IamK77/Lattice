@@ -147,32 +147,31 @@ pub(super) fn configure_thinking(
 ) -> Option<&'static str> {
     let url = reqwest::Url::parse(base).ok()?;
     let host = url.host_str()?;
-    let known = matches!(
-        host,
-        "api.openai.com"
-            | "api.anthropic.com"
-            | "generativelanguage.googleapis.com"
-            | "dashscope.aliyuncs.com"
-            | "dashscope-intl.aliyuncs.com"
-            | "dashscope-us.aliyuncs.com"
-            | "api.moonshot.cn"
-            | "api.moonshot.ai"
-            | "open.bigmodel.cn"
-            | "api.z.ai"
-            | "api.minimax.cn"
-            | "api.minimax.io"
-            | "ark.cn-beijing.volces.com"
-            | "api.siliconflow.cn"
-            | "api.siliconflow.com"
-            | "openrouter.ai"
-            | "api.x.ai"
-            | "us.api.x.ai"
-            | "api.mistral.ai"
-            | "api.eu.mistral.ai"
-            | "api.us.mistral.ai"
-            | "api.groq.com"
-            | "api.together.ai"
-    );
+    let host = host.strip_suffix('.').unwrap_or(host);
+    let known = crate::components::model_compat::qwen_host(host)
+        || matches!(
+            host,
+            "api.openai.com"
+                | "api.anthropic.com"
+                | "generativelanguage.googleapis.com"
+                | "api.moonshot.cn"
+                | "api.moonshot.ai"
+                | "open.bigmodel.cn"
+                | "api.z.ai"
+                | "api.minimax.cn"
+                | "api.minimax.io"
+                | "ark.cn-beijing.volces.com"
+                | "api.siliconflow.cn"
+                | "api.siliconflow.com"
+                | "openrouter.ai"
+                | "api.x.ai"
+                | "us.api.x.ai"
+                | "api.mistral.ai"
+                | "api.eu.mistral.ai"
+                | "api.us.mistral.ai"
+                | "api.groq.com"
+                | "api.together.ai"
+        );
     if !known {
         return None;
     }

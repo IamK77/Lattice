@@ -23,7 +23,10 @@ pub mod interface_permissions;
 pub mod media_document;
 pub mod minimal_loop;
 pub mod model_common;
+pub mod model_compat;
 mod model_http;
+#[cfg(test)]
+mod model_test_server;
 pub mod net_tools;
 pub mod openai_model;
 pub mod operation_policy;

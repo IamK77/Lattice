@@ -226,9 +226,8 @@ pub(super) fn configure(
                         Step::Service
                     } else {
                         if session.draft.spec["baseUrl"].as_str().is_none() {
-                            session
-                                .draft
-                                .connection(next.protocols[0].0, next.base(0, next.protocols[0].0));
+                            let route = next.services[0].routes[0];
+                            session.draft.connection(route.adapter, route.base);
                         }
                         Step::Connection
                     };
@@ -252,19 +251,28 @@ pub(super) fn configure(
                         // A different service is a different credential audience.
                         session.draft = Draft::new();
                         session.service = selected;
-                        session.draft.connection(
-                            provider.protocols[0].0,
-                            provider.base(selected, provider.protocols[0].0),
-                        );
+                        let route = provider.services[selected].routes[0];
+                        session.draft.connection(route.adapter, route.base);
                     }
                     session.step = Step::Connection;
                 }
                 Step::Protocol => {
-                    let protocols = session.provider.map(|p| p.protocols).unwrap_or(&[
-                        ("openai", "OpenAI Chat Completions"),
-                        ("responses", "OpenAI Responses"),
-                        ("anthropic", "Anthropic Messages"),
-                    ]);
+                    let protocols = session
+                        .provider
+                        .map(|p| {
+                            p.services[session.service]
+                                .routes
+                                .iter()
+                                .map(|r| (r.adapter, r.name()))
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_else(|| {
+                            vec![
+                                ("openai", "OpenAI Chat Completions"),
+                                ("responses", "OpenAI Responses"),
+                                ("anthropic", "Anthropic Messages"),
+                            ]
+                        });
                     let mut options: Vec<_> = protocols
                         .iter()
                         .enumerate()
@@ -291,14 +299,15 @@ pub(super) fn configure(
                     let adapter = protocols[selected].0;
                     let old_adapter = session.draft.spec["adapter"].as_str().unwrap_or("");
                     let old_base = session.draft.spec["baseUrl"].as_str().unwrap_or("");
-                    let follows_preset = session
-                        .provider
-                        .is_some_and(|p| old_base == p.base(session.service, old_adapter));
+                    let follows_preset = session.provider.is_some_and(|p| {
+                        p.services[session.service]
+                            .routes
+                            .iter()
+                            .any(|r| r.adapter == old_adapter && r.base == old_base)
+                    });
                     let base = if old_adapter != adapter && follows_preset {
-                        session
-                            .provider
-                            .unwrap()
-                            .base(session.service, adapter)
+                        session.provider.unwrap().services[session.service].routes[selected]
+                            .base
                             .to_owned()
                     } else {
                         old_base.to_owned()
@@ -534,7 +543,7 @@ fn select_model(
     draft: &mut Draft,
 ) -> Result<bool> {
     loop {
-        let manual = providers::manual_models(draft.spec["baseUrl"].as_str().unwrap_or(""));
+        let manual = providers::manual_models(&draft.spec);
         let mut options = if manual {
             ui.say(M::ManualModelsNotice, &[]);
             vec![M::ManualModel]

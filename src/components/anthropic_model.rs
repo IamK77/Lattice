@@ -159,12 +159,13 @@ impl Component for AnthropicModel {
             ctx.emit("result", done(json!({"status": "error", "error": error})));
             return;
         }
-        let messages = match materialize(
+        let messages = match materialize_for_endpoint(
             &parts,
             ctx.log(),
             ctx.ledger_path()
                 .map(crate::contracts::document::documents_dir)
                 .as_deref(),
+            &self.base_url,
         ) {
             Ok(messages) => messages,
             Err(problem) => {
@@ -207,7 +208,7 @@ impl Component for AnthropicModel {
             }
         };
         let system = carried.0.as_str().or(self.system.as_deref());
-        let body = build_request(
+        let mut body = build_request(
             &self.model,
             self.max_tokens,
             thinking.as_ref(),
@@ -216,7 +217,15 @@ impl Component for AnthropicModel {
             messages,
             carried.1.as_array(),
         );
-        let url = format!("{}/v1/messages", self.base_url);
+        if let Some(note) = super::model_compat::messages_request(
+            &self.base_url,
+            &mut body,
+            &self.rungs,
+            matches!(thinking, Some(Thinking::Raw(_))),
+        ) {
+            ctx.notify(json!({"note":note}));
+        }
+        let url = super::model_compat::messages_url(&self.base_url);
         let token = ctx.cancellation();
         let client = self.client.clone();
         // A background call (e.g. the condenser) carries a `purpose`; tag its
@@ -284,11 +293,7 @@ async fn send_with_retries(
     body: &Value,
     token: &tokio_util::sync::CancellationToken,
 ) -> Result<reqwest::Response, Value> {
-    let request = client
-        .post(url)
-        .header("x-api-key", api_key)
-        .header("anthropic-version", "2023-06-01")
-        .json(body);
+    let request = super::model_compat::messages_auth(client.post(url), url, api_key).json(body);
     super::model_http::send_chat(client, request, url, token).await
 }
 
@@ -502,6 +507,29 @@ pub fn materialize(
     log: &LogReader,
     docs: Option<&std::path::Path>,
 ) -> Result<Vec<Value>, String> {
+    materialize_inner(parts, log, docs, false)
+}
+
+pub fn materialize_for_endpoint(
+    parts: &[Value],
+    log: &LogReader,
+    docs: Option<&std::path::Path>,
+    base: &str,
+) -> Result<Vec<Value>, String> {
+    materialize_inner(
+        parts,
+        log,
+        docs,
+        super::model_compat::compatible_messages(base),
+    )
+}
+
+fn materialize_inner(
+    parts: &[Value],
+    log: &LogReader,
+    docs: Option<&std::path::Path>,
+    compatible: bool,
+) -> Result<Vec<Value>, String> {
     // Where each call's answer sits, so an assistant turn is followed
     // IMMEDIATELY by its results — this wire requires it, and the ledger's
     // order is causal, not conversational. A call with no answer at all is
@@ -571,12 +599,10 @@ pub fn materialize(
             })),
             ce::MODEL_CALL_COMPLETED => {
                 let mut content = Vec::new();
-                // Dialect law: a turn that called a tool must carry its
-                // thinking back, and the thinking blocks must LEAD the turn.
-                // The demand is unconditional — the endpoint makes it whether
-                // or not the request asked for thinking — so a turn with
-                // nothing to say still leads with an empty block rather than
-                // with its tool call.
+                // Keep the legacy DeepSeek/custom-gateway empty-thinking rule
+                // separate from other Messages endpoints. Compatibility APIs
+                // retain actual reasoning even on non-tool turns, but must not
+                // receive a thinking block invented from no provider output.
                 let calls: Vec<&Value> = event.payload["toolCalls"]
                     .as_array()
                     .map(|calls| {
@@ -590,9 +616,9 @@ pub fn materialize(
                             .collect()
                     })
                     .unwrap_or_default();
-                if !calls.is_empty() {
+                if compatible || !calls.is_empty() {
                     let mut thinking = thinking_blocks(&event.payload);
-                    if thinking.is_empty() {
+                    if thinking.is_empty() && !compatible {
                         // Nothing readable survived, or the turn never thought.
                         // Either way the block itself is what is required.
                         thinking.push(json!({"type": "thinking", "thinking": ""}));
@@ -878,6 +904,10 @@ impl Accumulator {
 }
 
 #[cfg(test)]
+#[path = "anthropic_provider_tests.rs"]
+mod provider_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::contracts::core_events::core_event_decls;
@@ -963,6 +993,61 @@ mod tests {
         assert!(
             said.contains("cancelled") && said.contains("half of it"),
             "the tool's own word, cut-short marked and partial output kept: {said}"
+        );
+    }
+
+    #[test]
+    fn compatible_messages_preserve_actual_reasoning_without_inventing_empty_blocks() {
+        let mut log = EventLog::in_memory(core_event_decls(), "main");
+        let asked = log.append(EventDraft::new(ce::MODEL_CALL_COMPLETED, &[], json!({
+            "status":"ok", "toolCalls":[{"id":"call_synthetic", "tool":"Inspect", "arguments":{}}]
+        })), "model").unwrap();
+        let answer = log
+            .append(
+                EventDraft::new(
+                    ce::TOOL_EXEC_COMPLETED,
+                    &[&asked.id],
+                    json!({
+                        "call":"call_synthetic", "status":"ok", "result":"done"
+                    }),
+                ),
+                "tool",
+            )
+            .unwrap();
+        let thought = log.append(EventDraft::new(ce::MODEL_CALL_COMPLETED, &[&answer.id], json!({
+            "status":"ok", "text":"answer", "toolCalls":[],
+            "reasoning":[{"kind":"text","text":"original thought","opaque":{"signature":"SYNTHETIC_SIGNATURE"}}]
+        })), "model").unwrap();
+        let parts = vec![
+            json!({"event":asked.id}),
+            json!({"event":answer.id}),
+            json!({"event":thought.id}),
+        ];
+        for base in [
+            "https://api.minimax.io/anthropic",
+            "https://openrouter.ai/api",
+        ] {
+            let messages = materialize_for_endpoint(&parts, &log.reader(), None, base).unwrap();
+            assert_eq!(
+                messages[0]["content"],
+                json!([{"type":"tool_use", "id":"call_synthetic", "name":"Inspect", "input":{}}])
+            );
+            assert_eq!(messages[1]["content"][0]["tool_use_id"], "call_synthetic");
+            assert_eq!(
+                messages[2]["content"][0],
+                json!({"type":"thinking","thinking":"original thought","signature":"SYNTHETIC_SIGNATURE"})
+            );
+        }
+        let legacy = materialize_for_endpoint(
+            &parts,
+            &log.reader(),
+            None,
+            "https://api.deepseek.com/anthropic",
+        )
+        .unwrap();
+        assert_eq!(
+            legacy[0]["content"][0],
+            json!({"type":"thinking", "thinking":""})
         );
     }
 

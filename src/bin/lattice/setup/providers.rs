@@ -1,13 +1,42 @@
 //! Frontend connection presets, not a model catalog or a compatibility promise.
 //! Official sources and verification boundaries live in docs/guides/model-providers.md.
 use super::i18n::Language;
+use serde_json::Value;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct Route {
+    pub adapter: &'static str,
+    pub base: &'static str,
+    // A generation dialect does not determine the catalog path or format.
+    // The bool selects the native Anthropic catalog (auth, pagination, metadata).
+    pub models: Option<(&'static str, bool)>,
+}
+impl Route {
+    pub fn name(self) -> &'static str {
+        match self.adapter {
+            "anthropic" => "Anthropic Messages",
+            "responses" => "OpenAI Responses",
+            _ => "OpenAI Chat Completions",
+        }
+    }
+}
+const fn route(adapter: &'static str, base: &'static str, models: Option<&'static str>) -> Route {
+    Route {
+        adapter,
+        base,
+        models: match models {
+            Some(url) => Some((url, false)),
+            None => None,
+        },
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Service {
     pub en: &'static str,
     pub zh: &'static str,
-    pub base: &'static str,
-    pub discovery: bool,
+    // First route is the Lattice default, not an implied official endorsement.
+    pub routes: &'static [Route],
 }
 impl Service {
     pub fn label(self, language: Language) -> &'static str {
@@ -23,23 +52,12 @@ pub(super) struct Provider {
     pub en: &'static str,
     pub zh: &'static str,
     pub services: &'static [Service],
-    pub protocols: &'static [(&'static str, &'static str)],
 }
 impl Provider {
     pub fn label(self, language: Language) -> &'static str {
         match language {
             Language::English => self.en,
             Language::Chinese => self.zh,
-        }
-    }
-    pub fn base(self, service: usize, adapter: &str) -> &'static str {
-        if self.services[service].base == "https://api.deepseek.com" && adapter == "anthropic" {
-            "https://api.deepseek.com/anthropic"
-        } else if self.services[service].base == "https://api.anthropic.com" && adapter == "openai"
-        {
-            "https://api.anthropic.com/v1"
-        } else {
-            self.services[service].base
         }
     }
 }
@@ -50,251 +68,468 @@ pub(super) const PROVIDERS: &[Provider] = &[
     Provider {
         en: "OpenAI",
         zh: "OpenAI",
-        protocols: &[
-            ("responses", "OpenAI Responses"),
-            ("openai", "OpenAI Chat Completions"),
-        ],
         services: &[Service {
             en: "Standard API",
             zh: "标准 API",
-            base: "https://api.openai.com/v1",
-            discovery: true,
+            routes: &[
+                route(
+                    "responses",
+                    "https://api.openai.com/v1",
+                    Some("https://api.openai.com/v1/models"),
+                ),
+                route(
+                    "openai",
+                    "https://api.openai.com/v1",
+                    Some("https://api.openai.com/v1/models"),
+                ),
+            ],
         }],
     },
     Provider {
         en: "Anthropic",
         zh: "Anthropic",
-        protocols: &[
-            ("anthropic", "Anthropic Messages"),
-            ("openai", "OpenAI Chat Completions"),
-        ],
         services: &[Service {
             en: "Standard API",
             zh: "标准 API",
-            base: "https://api.anthropic.com",
-            discovery: true,
+            routes: &[
+                Route {
+                    adapter: "anthropic",
+                    base: "https://api.anthropic.com",
+                    models: Some(("https://api.anthropic.com/v1/models", true)),
+                },
+                Route {
+                    adapter: "openai",
+                    base: "https://api.anthropic.com/v1",
+                    models: Some(("https://api.anthropic.com/v1/models", true)),
+                },
+            ],
         }],
     },
     Provider {
         en: "DeepSeek",
         zh: "DeepSeek",
-        protocols: &[
-            ("openai", "OpenAI Chat Completions"),
-            ("anthropic", "Anthropic Messages"),
-            ("responses", "OpenAI Responses"),
-        ],
         services: &[Service {
             en: "Standard API",
             zh: "标准 API",
-            base: "https://api.deepseek.com",
-            discovery: true,
+            routes: &[
+                route(
+                    "openai",
+                    "https://api.deepseek.com",
+                    Some("https://api.deepseek.com/models"),
+                ),
+                route(
+                    "anthropic",
+                    "https://api.deepseek.com/anthropic",
+                    Some("https://api.deepseek.com/models"),
+                ),
+                route(
+                    "responses",
+                    "https://api.deepseek.com",
+                    Some("https://api.deepseek.com/models"),
+                ),
+            ],
         }],
     },
     Provider {
         en: "Google Gemini",
         zh: "Google Gemini",
-        protocols: &[("openai", "OpenAI Chat Completions")],
         services: &[Service {
             en: "Gemini Developer API",
             zh: "Gemini 开发者 API",
-            base: "https://generativelanguage.googleapis.com/v1beta/openai",
-            discovery: true,
+            routes: &[route(
+                "openai",
+                "https://generativelanguage.googleapis.com/v1beta/openai",
+                Some("https://generativelanguage.googleapis.com/v1beta/openai/models"),
+            )],
         }],
     },
     Provider {
         en: "Alibaba Cloud Model Studio / Qwen",
         zh: "阿里云百炼 / 通义千问",
-        protocols: &[("openai", "OpenAI Chat Completions")],
         services: &[
             Service {
                 en: "China (Beijing)",
                 zh: "中国（北京）",
-                base: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-                discovery: false,
+                routes: &[
+                    route(
+                        "openai",
+                        "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                        None,
+                    ),
+                    route(
+                        "anthropic",
+                        "https://dashscope.aliyuncs.com/apps/anthropic",
+                        None,
+                    ),
+                    route(
+                        "responses",
+                        "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                        None,
+                    ),
+                ],
             },
             Service {
                 en: "International (Singapore)",
                 zh: "国际（新加坡）",
-                base: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-                discovery: false,
+                routes: &[
+                    route(
+                        "openai",
+                        "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+                        None,
+                    ),
+                    route(
+                        "anthropic",
+                        "https://dashscope-intl.aliyuncs.com/apps/anthropic",
+                        None,
+                    ),
+                    route(
+                        "responses",
+                        "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+                        None,
+                    ),
+                ],
             },
             Service {
                 en: "US (Virginia)",
                 zh: "美国（弗吉尼亚）",
-                base: "https://dashscope-us.aliyuncs.com/compatible-mode/v1",
-                discovery: false,
+                routes: &[
+                    route(
+                        "openai",
+                        "https://dashscope-us.aliyuncs.com/compatible-mode/v1",
+                        None,
+                    ),
+                    route(
+                        "anthropic",
+                        "https://dashscope-us.aliyuncs.com/apps/anthropic",
+                        None,
+                    ),
+                    route(
+                        "responses",
+                        "https://dashscope-us.aliyuncs.com/compatible-mode/v1",
+                        None,
+                    ),
+                ],
             },
         ],
     },
     Provider {
         en: "Moonshot / Kimi",
         zh: "月之暗面 / Kimi",
-        protocols: &[("openai", "OpenAI Chat Completions")],
         services: &[
             Service {
                 en: "China",
                 zh: "中国站",
-                base: "https://api.moonshot.cn/v1",
-                discovery: true,
+                routes: &[
+                    route(
+                        "openai",
+                        "https://api.moonshot.cn/v1",
+                        Some("https://api.moonshot.cn/v1/models"),
+                    ),
+                    route(
+                        "anthropic",
+                        "https://api.moonshot.cn/anthropic",
+                        Some("https://api.moonshot.cn/v1/models"),
+                    ),
+                    route(
+                        "responses",
+                        "https://api.moonshot.cn/v1",
+                        Some("https://api.moonshot.cn/v1/models"),
+                    ),
+                ],
             },
             Service {
                 en: "Global",
                 zh: "全球站",
-                base: "https://api.moonshot.ai/v1",
-                discovery: true,
+                routes: &[
+                    route(
+                        "openai",
+                        "https://api.moonshot.ai/v1",
+                        Some("https://api.moonshot.ai/v1/models"),
+                    ),
+                    route(
+                        "anthropic",
+                        "https://api.moonshot.ai/anthropic",
+                        Some("https://api.moonshot.ai/v1/models"),
+                    ),
+                    route(
+                        "responses",
+                        "https://api.moonshot.ai/v1",
+                        Some("https://api.moonshot.ai/v1/models"),
+                    ),
+                ],
             },
         ],
     },
     Provider {
         en: "Zhipu / Z.AI / GLM",
         zh: "智谱 / Z.AI / GLM",
-        protocols: &[("openai", "OpenAI Chat Completions")],
         services: &[
             Service {
                 en: "BigModel (China)",
                 zh: "智谱开放平台（中国）",
-                base: "https://open.bigmodel.cn/api/paas/v4",
-                discovery: false,
+                // Messages shares account-dependent coding-plan billing, not a standard preset.
+                routes: &[
+                    route("openai", "https://open.bigmodel.cn/api/paas/v4", None),
+                    route("responses", "https://open.bigmodel.cn/api/v1", None),
+                ],
             },
             Service {
                 en: "Z.AI (Global)",
                 zh: "Z.AI（全球）",
-                base: "https://api.z.ai/api/paas/v4",
-                discovery: false,
+                routes: &[route("openai", "https://api.z.ai/api/paas/v4", None)],
             },
         ],
     },
     Provider {
         en: "MiniMax",
         zh: "MiniMax",
-        protocols: &[("openai", "OpenAI Chat Completions")],
         services: &[
             Service {
                 en: "China",
                 zh: "中国站",
-                base: "https://api.minimax.cn/v1",
-                discovery: false,
+                routes: &[
+                    route(
+                        "anthropic",
+                        "https://api.minimax.cn/anthropic",
+                        Some("https://api.minimax.cn/v1/models"),
+                    ),
+                    route(
+                        "openai",
+                        "https://api.minimax.cn/v1",
+                        Some("https://api.minimax.cn/v1/models"),
+                    ),
+                    route(
+                        "responses",
+                        "https://api.minimax.cn/v1",
+                        Some("https://api.minimax.cn/v1/models"),
+                    ),
+                ],
             },
             Service {
                 en: "Global",
                 zh: "全球站",
-                base: "https://api.minimax.io/v1",
-                discovery: false,
+                routes: &[
+                    route(
+                        "anthropic",
+                        "https://api.minimax.io/anthropic",
+                        Some("https://api.minimax.io/v1/models"),
+                    ),
+                    route(
+                        "openai",
+                        "https://api.minimax.io/v1",
+                        Some("https://api.minimax.io/v1/models"),
+                    ),
+                    route(
+                        "responses",
+                        "https://api.minimax.io/v1",
+                        Some("https://api.minimax.io/v1/models"),
+                    ),
+                ],
             },
         ],
     },
     Provider {
         en: "Volcengine Ark",
         zh: "火山方舟",
-        protocols: &[("openai", "OpenAI Chat Completions")],
         services: &[Service {
             en: "Beijing — standard API",
             zh: "北京 — 标准 API",
-            base: "https://ark.cn-beijing.volces.com/api/v3",
-            discovery: false,
+            routes: &[
+                route(
+                    "responses",
+                    "https://ark.cn-beijing.volces.com/api/v3",
+                    None,
+                ),
+                route("openai", "https://ark.cn-beijing.volces.com/api/v3", None),
+                route(
+                    "anthropic",
+                    "https://ark.cn-beijing.volces.com/api/compatible",
+                    None,
+                ),
+            ],
         }],
     },
     Provider {
         en: "SiliconFlow",
         zh: "硅基流动 / SiliconFlow",
-        protocols: &[("openai", "OpenAI Chat Completions")],
         services: &[
             Service {
                 en: "China",
                 zh: "中国站",
-                base: "https://api.siliconflow.cn/v1",
-                discovery: true,
+                routes: &[
+                    route(
+                        "openai",
+                        "https://api.siliconflow.cn/v1",
+                        Some("https://api.siliconflow.cn/v1/models"),
+                    ),
+                    route(
+                        "anthropic",
+                        "https://api.siliconflow.cn",
+                        Some("https://api.siliconflow.cn/v1/models"),
+                    ),
+                ],
             },
             Service {
                 en: "Global",
                 zh: "全球站",
-                base: "https://api.siliconflow.com/v1",
-                discovery: true,
+                routes: &[
+                    route(
+                        "openai",
+                        "https://api.siliconflow.com/v1",
+                        Some("https://api.siliconflow.com/v1/models"),
+                    ),
+                    route(
+                        "anthropic",
+                        "https://api.siliconflow.com",
+                        Some("https://api.siliconflow.com/v1/models"),
+                    ),
+                ],
             },
         ],
     },
     Provider {
         en: "OpenRouter",
         zh: "OpenRouter",
-        protocols: &[("openai", "OpenAI Chat Completions")],
         services: &[Service {
             en: "Standard API",
             zh: "标准 API",
-            base: "https://openrouter.ai/api/v1",
-            discovery: true,
+            routes: &[
+                route(
+                    "openai",
+                    "https://openrouter.ai/api/v1",
+                    Some("https://openrouter.ai/api/v1/models"),
+                ),
+                route(
+                    "anthropic",
+                    "https://openrouter.ai/api",
+                    Some("https://openrouter.ai/api/v1/models"),
+                ),
+                route(
+                    "responses",
+                    "https://openrouter.ai/api/v1",
+                    Some("https://openrouter.ai/api/v1/models"),
+                ),
+            ],
         }],
     },
     Provider {
         en: "xAI",
         zh: "xAI",
-        protocols: &[("openai", "OpenAI Chat Completions")],
         services: &[
             Service {
                 en: "Global",
                 zh: "全球入口",
-                base: "https://api.x.ai/v1",
-                discovery: true,
+                routes: &[
+                    route(
+                        "responses",
+                        "https://api.x.ai/v1",
+                        Some("https://api.x.ai/v1/models"),
+                    ),
+                    route(
+                        "openai",
+                        "https://api.x.ai/v1",
+                        Some("https://api.x.ai/v1/models"),
+                    ),
+                ],
             },
             Service {
                 en: "US regional endpoint",
                 zh: "美国区域入口",
-                base: "https://us.api.x.ai/v1",
-                discovery: true,
+                routes: &[route(
+                    "responses",
+                    "https://us.api.x.ai/v1",
+                    Some("https://us.api.x.ai/v1/models"),
+                )],
             },
         ],
     },
     Provider {
         en: "Mistral",
         zh: "Mistral",
-        protocols: &[("openai", "OpenAI Chat Completions")],
         services: &[
             Service {
                 en: "Standard endpoint",
                 zh: "标准入口",
-                base: "https://api.mistral.ai/v1",
-                discovery: true,
+                routes: &[route(
+                    "openai",
+                    "https://api.mistral.ai/v1",
+                    Some("https://api.mistral.ai/v1/models"),
+                )],
             },
             Service {
                 en: "EU regional endpoint",
                 zh: "欧盟区域入口",
-                base: "https://api.eu.mistral.ai/v1",
-                discovery: true,
+                routes: &[route(
+                    "openai",
+                    "https://api.eu.mistral.ai/v1",
+                    Some("https://api.eu.mistral.ai/v1/models"),
+                )],
             },
             Service {
                 en: "US regional endpoint",
                 zh: "美国区域入口",
-                base: "https://api.us.mistral.ai/v1",
-                discovery: true,
+                routes: &[route(
+                    "openai",
+                    "https://api.us.mistral.ai/v1",
+                    Some("https://api.us.mistral.ai/v1/models"),
+                )],
             },
         ],
     },
     Provider {
         en: "Groq",
         zh: "Groq",
-        protocols: &[("openai", "OpenAI Chat Completions")],
         services: &[Service {
             en: "Standard API",
             zh: "标准 API",
-            base: "https://api.groq.com/openai/v1",
-            discovery: true,
+            routes: &[
+                route(
+                    "openai",
+                    "https://api.groq.com/openai/v1",
+                    Some("https://api.groq.com/openai/v1/models"),
+                ),
+                route(
+                    "responses",
+                    "https://api.groq.com/openai/v1",
+                    Some("https://api.groq.com/openai/v1/models"),
+                ),
+            ],
         }],
     },
     Provider {
         en: "Together AI",
         zh: "Together AI",
-        protocols: &[("openai", "OpenAI Chat Completions")],
         services: &[Service {
             en: "Standard API",
             zh: "标准 API",
-            base: "https://api.together.ai/v1",
-            discovery: true,
+            routes: &[route(
+                "openai",
+                "https://api.together.ai/v1",
+                Some("https://api.together.ai/v1/models"),
+            )],
         }],
     },
 ];
 
-pub(super) fn manual_models(base: &str) -> bool {
+pub(super) fn selected_route(spec: &Value) -> Option<&'static Route> {
+    // Compare URL identity, but never rewrite the user's saved address.
+    let mut url = reqwest::Url::parse(spec["baseUrl"].as_str()?).ok()?;
+    if let Some(host) = url
+        .host_str()
+        .and_then(|host| host.strip_suffix('.'))
+        .map(str::to_owned)
+    {
+        url.set_host(Some(&host)).ok()?;
+    }
+    let base = url.as_str().trim_end_matches('/');
+    let adapter = spec["adapter"].as_str()?;
     PROVIDERS
         .iter()
         .flat_map(|p| p.services)
-        .any(|s| !s.discovery && s.base == base.trim_end_matches('/'))
+        .flat_map(|s| s.routes)
+        .find(|r| r.adapter == adapter && r.base == base)
+}
+
+pub(super) fn manual_models(spec: &Value) -> bool {
+    selected_route(spec).is_some_and(|r| r.models.is_none())
 }

@@ -255,7 +255,7 @@ fn swap_model(kernel: &mut Kernel, id: &str) -> Result<Swapped, String> {
         "channel": crate::components::context_gate::MODEL_CHANNEL,
         "model": entry.model,
         "usageFields": entry.usage_fields(),
-        "nativeCompaction": entry.adapter == "responses",
+        "nativeCompaction": crate::components::model_compat::native_compaction(&entry.adapter, &entry.base_url),
         "nativeTarget": {"model": entry.model, "baseUrl": entry.base_url},
     });
     match entry.context_window() {
