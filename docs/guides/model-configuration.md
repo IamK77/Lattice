@@ -8,7 +8,7 @@ This reference explains how to connect a model service, enter capacity values an
 
 The following steps describe initial setup. With a usable model already configured, startup goes directly to the conversation. To change a saved address or capacity, find and edit the model file using [Manual configuration](#manual-configuration).
 
-Choosing OpenAI, Anthropic or DeepSeek fills in a suggested API format and service address. Choose custom configuration for another service, or repair an existing configuration. Before entering a key, confirm that the address belongs to the service you intend to use.
+Choose a service from the [provider presets](model-providers.md) to fill in its API format and address. Where offered, select the endpoint that matches your account's region. Choose custom configuration for other services or coding-plan endpoints, or repair an existing configuration. Before entering a key, confirm that the address belongs to the service you intend to use.
 
 Choose a model from the service's list or enter its name. If fetching the list fails, continue with manual entry. Previously fetched names are searchable and support Tab completion using the existing list. Long names can be selected through list search.
 

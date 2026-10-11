@@ -26,6 +26,8 @@ use lattice::{
     EventEnvelope, Factory, Kernel, KernelOptions, PortDecl, RuntimeKind, Wire,
 };
 
+#[path = "adapter_shell/chat_providers.rs"]
+mod chat_providers;
 #[path = "adapter_shell/compaction_history.rs"]
 mod compaction_history;
 
@@ -35,6 +37,8 @@ enum Canned {
     Status(u16),
     /// Respond 200 with a complete SSE body
     Sse(&'static str),
+    /// Chat round trip with exact route and bearer authentication checks.
+    ChatSse(&'static str),
     /// Native trigger must stay on the streaming Responses route.
     TriggerSse(&'static str),
     /// JSON endpoint with an exact request route and authentication contract.
@@ -71,7 +75,12 @@ fn fake_api(script: Vec<Canned>) -> (String, Arc<AtomicUsize>, Arc<Mutex<Vec<Str
                         body.len()
                     );
                 }
-                Some(Canned::Sse(body) | Canned::TriggerSse(body)) => {
+                Some(Canned::Sse(body) | Canned::TriggerSse(body) | Canned::ChatSse(body)) => {
+                    if matches!(script.get(i).or(script.last()), Some(Canned::ChatSse(_))) {
+                        assert!(headers.starts_with("post /chat/completions http/1.1\r\n"));
+                        assert!(headers.contains("authorization: bearer test-key-not-a-secret\r\n"));
+                        assert!(!headers.contains("x-api-key:"));
+                    }
                     if matches!(script.get(i).or(script.last()), Some(Canned::TriggerSse(_))) {
                         assert!(headers.starts_with("post /responses http/1.1\r\n"));
                         assert!(headers.contains("x-codex-beta-features: remote_compaction_v2\r\n"));

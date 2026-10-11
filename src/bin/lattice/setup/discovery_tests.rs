@@ -30,6 +30,19 @@ fn metadata_preserves_unknown_and_distinguishes_input_from_total_context() {
 }
 
 #[test]
+fn together_top_level_model_array_is_supported_without_inventing_capabilities() {
+    let models = parse_page(
+        &json!([{"id":"synthetic/chat","context_length":32000}]),
+        false,
+    )
+    .unwrap();
+    assert_eq!(models[0].id, "synthetic/chat");
+    assert_eq!(models[0].profile, json!({}));
+    assert!(parse_page(&json!([{"id":"synthetic/chat"}]), true).is_err());
+    assert!(parse_page(&json!([{"id":"bad\nidentifier"}]), false).is_err());
+}
+
+#[test]
 fn invalid_lists_do_not_become_empty_successes() {
     for value in [
         json!({"error":"no"}),

@@ -28,6 +28,9 @@ use crate::contracts::event::{EventDraft, EventEnvelope};
 use crate::kernel::host::{Component, Ctx};
 use crate::kernel::log::LogReader;
 
+#[path = "openai_chat_extensions.rs"]
+mod extensions;
+
 pub const NAME: &str = "openai-model";
 
 pub fn manifest() -> ComponentManifest {
@@ -213,7 +216,7 @@ impl Component for OpenAiModel {
             }
         };
         let system = carried.0.as_str().or(self.system.as_deref());
-        let body = build_request(
+        let mut body = build_request(
             &self.model,
             self.max_tokens,
             thinking.as_ref(),
@@ -222,6 +225,14 @@ impl Component for OpenAiModel {
             messages,
             carried.1.as_array(),
         );
+        if let Some(note) = extensions::configure_thinking(
+            &mut body,
+            &self.base_url,
+            thinking.as_ref(),
+            &self.rungs,
+        ) {
+            ctx.notify(json!({"note":note}));
+        }
         let url = format!("{}/chat/completions", self.base_url);
         let token = ctx.cancellation();
         let client = self.client.clone();
@@ -584,19 +595,34 @@ pub(crate) fn materialize_with_reasoning(
                             .is_some_and(|id| answers.contains_key(id))
                     })
                     .map(|call| {
-                        json!({
+                        let mut value = json!({
                             "id": call["id"],
                             "type": "function",
                             "function": {
                                 "name": call["tool"],
-                                // Arguments travel as a JSON STRING in this format
                                 "arguments": call["arguments"].to_string(),
                             },
-                        })
+                        });
+                        if !preserve_reasoning {
+                            // The metadata stays attached to its own call, not a
+                            // parallel list that can shift when calls are filtered.
+                            if let Some(extra) = call["opaque"]["chat"].get("extra_content") {
+                                value["extra_content"] = extra.clone();
+                            }
+                            if let Some(raw) = call["opaque"]["chat"]["arguments"].as_str() {
+                                if serde_json::from_str::<Value>(raw).ok().as_ref()
+                                    == Some(&call["arguments"])
+                                {
+                                    value["function"]["arguments"] = json!(raw);
+                                }
+                            }
+                        }
+                        value
                     })
                     .collect();
                 if text.is_empty()
                     && calls.is_empty()
+                    && (preserve_reasoning || !extensions::has_content(&event.payload))
                     && !(preserve_reasoning
                         && event.payload["reasoning"]
                             .as_array()
@@ -607,27 +633,16 @@ pub(crate) fn materialize_with_reasoning(
                 let mut message = json!({"role": "assistant", "content": text});
                 if !calls.is_empty() {
                     message["tool_calls"] = json!(calls);
-                    // Dialect law, measured against the live endpoint: on a
-                    // turn that called a tool this family DEMANDS the thinking
-                    // back — "The `reasoning_content` in the thinking mode must
-                    // be passed back to the API", 400 — and an EMPTY string
-                    // satisfies it. So the field goes out on EVERY tool-call
-                    // turn, present or not.
-                    //
-                    // Sending it unconditionally is what makes a model swap
-                    // survivable. A turn can reach this point with nothing
-                    // readable to hand back for reasons that have nothing to do
-                    // with this endpoint: another dialect sealed its thinking
-                    // (Anthropic's redacted blocks are carried but unreadable),
-                    // or the model in that seat did not think at all, or
-                    // thinking was off then and is on now. Keying off "did we
-                    // record any thinking" would leave every one of those as a
-                    // conversation that cannot make another call.
-                    //
-                    // On a turn that called nothing the field is not asked for,
-                    // so it is not sent. Endpoints without the notion ignore
-                    // one they are handed.
+                    // Preserve the established DeepSeek fallback, including an
+                    // empty string for historical tool turns without readable
+                    // thinking (for example after a model/dialect change).
+                    // This is not a promise that every Chat endpoint accepts the
+                    // field. Recorded native Chat extensions below take precedence
+                    // and remove this fallback when their representation differs.
                     message["reasoning_content"] = json!(ce::reasoning_text(&event.payload));
+                }
+                if !preserve_reasoning {
+                    extensions::restore(&mut message, &event.payload);
                 }
                 if preserve_reasoning {
                     message["_reasoning"] = event.payload["reasoning"].clone();
@@ -684,6 +699,7 @@ struct ToolCall {
     id: String,
     name: String,
     args: String,
+    extra: Value,
 }
 
 /// Folds Chat Completions stream chunks into one completed-state payload.
@@ -699,6 +715,7 @@ pub struct Accumulator {
     saw_event: bool,
     text: String,
     reasoning: String,
+    extensions: extensions::Message,
     calls: BTreeMap<u64, ToolCall>,
     usage: Map<String, Value>,
     finish_reason: Option<String>,
@@ -730,6 +747,7 @@ impl Accumulator {
             self.finish_reason = Some(reason.to_string());
         }
         let delta = &choice["delta"];
+        self.extensions.apply(delta);
         if let Some(fragments) = delta["tool_calls"].as_array() {
             for fragment in fragments {
                 let index = fragment["index"].as_u64().unwrap_or(0);
@@ -737,7 +755,11 @@ impl Accumulator {
                     id: String::new(),
                     name: String::new(),
                     args: String::new(),
+                    extra: Value::Null,
                 });
+                if let Some(extra) = fragment.get("extra_content") {
+                    extensions::merge(&mut call.extra, extra);
+                }
                 if let Some(id) = fragment["id"].as_str() {
                     call.id.push_str(id);
                 }
@@ -752,7 +774,10 @@ impl Accumulator {
         // Thinking has its own field and never merges into the reply text.
         // Both are read from the SAME delta: a chunk may carry either or both.
         let mut fragments = Vec::new();
-        if let Some(chunk) = delta["reasoning_content"].as_str() {
+        if let Some(chunk) = delta["reasoning_content"]
+            .as_str()
+            .or_else(|| delta["reasoning"].as_str())
+        {
             if !chunk.is_empty() {
                 self.reasoning.push_str(chunk);
                 fragments.push(Fragment::Reasoning(chunk.to_string()));
@@ -763,6 +788,13 @@ impl Accumulator {
                 self.text.push_str(chunk);
                 fragments.push(Fragment::Text(chunk.to_string()));
             }
+        }
+        for fragment in extensions::content_fragments(delta) {
+            match &fragment {
+                Fragment::Text(text) => self.text.push_str(text),
+                Fragment::Reasoning(text) => self.reasoning.push_str(text),
+            }
+            fragments.push(fragment);
         }
         fragments
     }
@@ -790,13 +822,21 @@ impl Accumulator {
         Self::split_inline_thinking(&self.text).0
     }
 
-    fn tool_calls(&self) -> Vec<Value> {
+    fn tool_calls(&self) -> Result<Vec<Value>, String> {
         self.calls
             .values()
             .map(|call| {
-                let arguments: Value =
-                    serde_json::from_str(&call.args).unwrap_or_else(|_| json!({}));
-                json!({"id": call.id, "tool": call.name, "arguments": arguments})
+                let arguments: Value = serde_json::from_str(&call.args)
+                    .map_err(|_| "tool arguments are not complete JSON")?;
+                if !arguments.is_object() || call.id.is_empty() || call.name.is_empty() {
+                    return Err("tool call is missing its identity or object arguments".into());
+                }
+                let mut value = json!({"id": call.id, "tool": call.name, "arguments": arguments});
+                if !call.extra.is_null() {
+                    value["opaque"] =
+                        json!({"chat":{"extra_content":call.extra,"arguments":call.args}});
+                }
+                Ok(value)
             })
             .collect()
     }
@@ -823,6 +863,17 @@ impl Accumulator {
         const CLOSE: &str = "</thinking>";
         let (mut reply, mut thought) = (String::new(), String::new());
         let mut rest = text;
+        // MiniMax's documented inline reasoning is a leading <think> block.
+        // Preserve incidental tags in prose or an unclosed block as text.
+        if let Some((inline, tail)) = text
+            .trim_start()
+            .strip_prefix("<think>")
+            .and_then(|s| s.split_once("</think>"))
+        {
+            thought.push_str(inline);
+            thought.push('\n');
+            rest = tail;
+        }
         while let Some(at) = rest.find(OPEN) {
             let Some(end) = rest[at..].find(CLOSE) else {
                 break; // an unclosed tag is prose, not a wrapper
@@ -840,6 +891,10 @@ impl Accumulator {
         let parts = self.reasoning_parts();
         if !parts.is_empty() {
             payload["reasoning"] = json!(parts);
+        }
+        let extension = self.extensions.value();
+        if extension.as_object().is_some_and(|m| !m.is_empty()) {
+            payload["chatMessage"] = extension;
         }
         payload
     }
@@ -894,7 +949,15 @@ impl Accumulator {
         if !reply.is_empty() {
             payload["text"] = json!(reply);
         }
-        let calls = self.tool_calls();
+        if !self.calls.is_empty()
+            && !matches!(self.finish_reason.as_deref(), Some("tool_calls" | "stop"))
+        {
+            return self.finish_error("tool stream ended without a normal completion marker");
+        }
+        let calls = match self.tool_calls() {
+            Ok(calls) => calls,
+            Err(error) => return self.finish_error(&error),
+        };
         if !calls.is_empty() {
             payload["toolCalls"] = json!(calls);
         }
@@ -916,6 +979,10 @@ impl Accumulator {
         }))
     }
 }
+
+#[cfg(test)]
+#[path = "openai_chat_tests.rs"]
+mod provider_tests;
 
 #[cfg(test)]
 mod tests {

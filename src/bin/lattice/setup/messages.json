@@ -1,4 +1,8 @@
 {
+  "Service": {"en":"Which service endpoint matches your API account?","zh":"请选择与你的 API 账号对应的服务入口"},
+  "ServiceNotice": {"en":"Choose the endpoint for your account. Regions can require different keys and offer different models; no automatic fallback is used.","zh":"请选择账号对应的入口。不同地区可能使用不同密钥、提供不同模型；不会自动切换入口。"},
+  "StandardApiNotice": {"en":"Use an API key for the displayed endpoint. Coding-plan credentials may need a separate endpoint; use Custom configuration for those.","zh":"请使用上方地址对应的 API 密钥。编程套餐可能使用专属地址，请通过自定义配置接入。"},
+  "ManualModelsNotice": {"en":"Enter a model ID from this service's console. Automatic model discovery is not configured for this endpoint.","zh":"请填写此服务控制台中的模型 ID。此入口暂未配置自动获取模型列表。"},
   "LimitsSummary": {"en":"Limits: context {0} · output {1}","zh":"容量：上下文 {0} · 输出 {1}"},
   "CapabilitiesSummary": {"en":"Image input: {0} · thinking rungs: {1}","zh":"图片输入：{0} · 思考档位：{1}"},
   "NoRungs": {"en":"none configured","zh":"未配置"},

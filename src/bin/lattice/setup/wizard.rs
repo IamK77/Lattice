@@ -17,40 +17,7 @@ use std::path::Path;
 mod capabilities;
 use capabilities::Capabilities;
 
-#[derive(Clone, Copy, PartialEq)]
-enum Provider {
-    OpenAI,
-    Anthropic,
-    DeepSeek,
-}
-impl Provider {
-    fn protocols(self) -> &'static [(&'static str, &'static str)] {
-        match self {
-            Self::OpenAI => &[
-                ("responses", "OpenAI Responses"),
-                ("openai", "OpenAI Chat Completions"),
-            ],
-            Self::Anthropic => &[
-                ("anthropic", "Anthropic Messages"),
-                ("openai", "OpenAI Chat Completions"),
-            ],
-            Self::DeepSeek => &[
-                ("openai", "OpenAI Chat Completions"),
-                ("anthropic", "Anthropic Messages"),
-                ("responses", "OpenAI Responses"),
-            ],
-        }
-    }
-    fn base(self, adapter: &str) -> &'static str {
-        match (self, adapter) {
-            (Self::OpenAI, _) => "https://api.openai.com/v1",
-            (Self::Anthropic, "anthropic") => "https://api.anthropic.com",
-            (Self::Anthropic, _) => "https://api.anthropic.com/v1",
-            (Self::DeepSeek, "anthropic") => "https://api.deepseek.com/anthropic",
-            (Self::DeepSeek, _) => "https://api.deepseek.com",
-        }
-    }
-}
+use super::providers::{self, Provider, PROVIDERS};
 pub(super) struct Configured {
     pub id: String,
     pub spec: Value,
@@ -59,6 +26,7 @@ pub(super) struct Configured {
 #[derive(Clone, Copy)]
 enum Step {
     Provider,
+    Service,
     Protocol,
     Endpoint,
     Connection,
@@ -138,6 +106,7 @@ impl Draft {
 pub(super) struct Session {
     custom: bool,
     provider: Option<Provider>,
+    service: usize,
     draft: Draft,
     step: Step,
     id: String,
@@ -150,6 +119,7 @@ impl Session {
         Self {
             custom,
             provider: None,
+            service: 0,
             draft: Draft::new(),
             step: if custom {
                 Step::Protocol
@@ -170,7 +140,7 @@ impl Session {
             && self.draft.capabilities.is_some()
             && matches!(
                 self.step,
-                Step::Provider | Step::Protocol | Step::Connection | Step::Model
+                Step::Provider | Step::Service | Step::Protocol | Step::Connection | Step::Model
             )
         {
             self.step = Step::Review;
@@ -178,6 +148,7 @@ impl Session {
         }
         self.step = match self.step {
             Step::Provider => return false,
+            Step::Service => Step::Provider,
             Step::Protocol => {
                 let target = json!({"adapter":self.draft.spec["adapter"],"baseUrl":self.draft.spec["baseUrl"],"model":"draft"});
                 if super::validate_target(&target).is_err() {
@@ -187,6 +158,9 @@ impl Session {
             }
             Step::Endpoint => Step::Protocol,
             Step::Connection if self.custom => return false,
+            Step::Connection if self.provider.is_some_and(|p| p.services.len() > 1) => {
+                Step::Service
+            }
             Step::Connection => Step::Provider,
             Step::Model => Step::Connection,
             Step::Limits => Step::Model,
@@ -214,7 +188,7 @@ pub(super) fn configure(
         // a cancelled input never commits its unsubmitted text.
         let context = if matches!(
             session.step,
-            Step::Provider | Step::Review | Step::Capabilities
+            Step::Provider | Step::Service | Step::Review | Step::Capabilities
         ) {
             vec![]
         } else {
@@ -234,31 +208,59 @@ pub(super) fn configure(
         let outcome: Result<Transition> = (|| {
             match session.step {
                 Step::Provider => {
-                    let selected = ui.select(
-                        &ui.label(M::Provider),
-                        &[
-                            "OpenAI".into(),
-                            "Anthropic".into(),
-                            "DeepSeek".into(),
-                            ui.label(M::Back),
-                        ],
-                    )?;
-                    let next = match selected {
-                        0 => Provider::OpenAI,
-                        1 => Provider::Anthropic,
-                        2 => Provider::DeepSeek,
-                        _ => return Err(Error::Back),
+                    let mut options = PROVIDERS
+                        .iter()
+                        .map(|p| p.label(ui.language()).to_owned())
+                        .collect::<Vec<_>>();
+                    options.push(ui.label(M::Back));
+                    let selected = ui.select(&ui.label(M::Provider), &options)?;
+                    let Some(&next) = PROVIDERS.get(selected) else {
+                        return Err(Error::Back);
                     };
                     if session.provider != Some(next) {
                         session.draft = Draft::new();
-                        let adapter = next.protocols()[0].0;
-                        session.draft.connection(adapter, next.base(adapter));
+                        session.service = 0;
                     }
                     session.provider = Some(next);
+                    session.step = if next.services.len() > 1 {
+                        Step::Service
+                    } else {
+                        if session.draft.spec["baseUrl"].as_str().is_none() {
+                            session
+                                .draft
+                                .connection(next.protocols[0].0, next.base(0, next.protocols[0].0));
+                        }
+                        Step::Connection
+                    };
+                }
+                Step::Service => {
+                    let provider = session.provider.unwrap();
+                    ui.say(M::ServiceNotice, &[]);
+                    let mut options = provider
+                        .services
+                        .iter()
+                        .map(|s| s.label(ui.language()).to_owned())
+                        .collect::<Vec<_>>();
+                    options.push(ui.label(M::Back));
+                    let selected = ui.select(&ui.label(M::Service), &options)?;
+                    if selected == provider.services.len() {
+                        return Err(Error::Back);
+                    }
+                    if session.service != selected
+                        || session.draft.spec["baseUrl"].as_str().is_none()
+                    {
+                        // A different service is a different credential audience.
+                        session.draft = Draft::new();
+                        session.service = selected;
+                        session.draft.connection(
+                            provider.protocols[0].0,
+                            provider.base(selected, provider.protocols[0].0),
+                        );
+                    }
                     session.step = Step::Connection;
                 }
                 Step::Protocol => {
-                    let protocols = session.provider.map(Provider::protocols).unwrap_or(&[
+                    let protocols = session.provider.map(|p| p.protocols).unwrap_or(&[
                         ("openai", "OpenAI Chat Completions"),
                         ("responses", "OpenAI Responses"),
                         ("anthropic", "Anthropic Messages"),
@@ -291,9 +293,13 @@ pub(super) fn configure(
                     let old_base = session.draft.spec["baseUrl"].as_str().unwrap_or("");
                     let follows_preset = session
                         .provider
-                        .is_some_and(|p| old_base == p.base(old_adapter));
+                        .is_some_and(|p| old_base == p.base(session.service, old_adapter));
                     let base = if old_adapter != adapter && follows_preset {
-                        session.provider.unwrap().base(adapter).to_owned()
+                        session
+                            .provider
+                            .unwrap()
+                            .base(session.service, adapter)
+                            .to_owned()
                     } else {
                         old_base.to_owned()
                     };
@@ -314,6 +320,9 @@ pub(super) fn configure(
                     session.step = Step::Connection;
                 }
                 Step::Connection => {
+                    if session.provider.is_some() {
+                        ui.say(M::StandardApiNotice, &[]);
+                    }
                     let draft = &mut session.draft;
                     if draft.spec["baseUrl"]
                         .as_str()
@@ -525,9 +534,15 @@ fn select_model(
     draft: &mut Draft,
 ) -> Result<bool> {
     loop {
-        let (url, _) = discovery::endpoint(&draft.spec)?;
-        ui.say(M::DiscoveryNotice, &[url.as_str()]);
-        let mut options = vec![M::FetchModels, M::ManualModel];
+        let manual = providers::manual_models(draft.spec["baseUrl"].as_str().unwrap_or(""));
+        let mut options = if manual {
+            ui.say(M::ManualModelsNotice, &[]);
+            vec![M::ManualModel]
+        } else {
+            let (url, _) = discovery::endpoint(&draft.spec)?;
+            ui.say(M::DiscoveryNotice, &[url.as_str()]);
+            vec![M::FetchModels, M::ManualModel]
+        };
         if !draft.listed.is_empty() {
             options.push(M::CachedModels);
         }

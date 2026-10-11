@@ -9,6 +9,7 @@
 | 获取程序、升级或回退 | [安装与升级](installation.zh-CN.md) |
 | 连接账号、提问并继续之前的工作 | [开始使用](getting-started.zh-CN.md) |
 | 添加或调整模型连接 | [模型配置](model-configuration.zh-CN.md) |
+| 查看服务商预设、地区与验证范围 | [模型服务商](model-providers.zh-CN.md) |
 | 查找问题原因 | [故障排查](troubleshooting.zh-CN.md) |
 | 配置可选的桌面工具 | [桌面配置](desktop.zh-CN.md) |
 | 使用 JavaScript/Ink 客户端 | [Ink 指南](../../clients/ink/README.zh-CN.md) |
