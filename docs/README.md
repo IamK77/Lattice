@@ -54,4 +54,4 @@ This example uses preset replies to show events passing between components. Conn
 
 Browse the directories: [use and configuration](guides/README.md), [development](development/README.md), [contracts](contracts/README.md), [maintenance](maintenance/README.md), and [historical records](records/README.md). Ink documentation stays beside its client.
 
-Deep design documents are mainly Chinese, with their language identified in the English navigation. Filenames use English basenames and `.zh-CN.md` for Chinese documents. The [path migration map](path-migrations.json) records old names and their current destinations; the two earlier first-use entry pages retain chapter links to the moved guides.
+Deep design documents are mainly Chinese, with their language identified in the English navigation. Filenames use English basenames and `.zh-CN.md` for Chinese documents.
