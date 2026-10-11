@@ -1,6 +1,8 @@
 use super::*;
 use std::collections::VecDeque;
 
+#[path = "provider_tests.rs"]
+mod provider_tests;
 #[path = "ux_tests.rs"]
 mod ux;
 
@@ -120,6 +122,7 @@ pub(super) struct Script {
     pub(super) multi_prompts: Vec<(Vec<String>, Vec<usize>)>,
     pub(super) language: Language,
     pub(super) prompts: Vec<String>,
+    pub(super) selections: Vec<(String, Vec<String>)>,
     pub(super) text_prompts: Vec<(String, String)>,
 }
 impl Script {
@@ -136,11 +139,16 @@ impl Script {
             multi_prompts: vec![],
             language: Language::English,
             prompts: vec![],
+            selections: vec![],
             text_prompts: vec![],
         }
     }
     fn next(&mut self) -> Result<Answer> {
-        match self.answers.pop_front().expect("unexpected extra prompt") {
+        match self
+            .answers
+            .pop_front()
+            .unwrap_or_else(|| panic!("unexpected extra prompt: {:?}", self.prompts.last()))
+        {
             Answer::Cancel => Err(Error::Cancelled),
             Answer::Back => Err(Error::Back),
             value => Ok(value),
@@ -159,6 +167,7 @@ impl Questions for Script {
     }
     fn select(&mut self, message: &str, options: &[String]) -> Result<usize> {
         self.prompts.push(message.into());
+        self.selections.push((message.into(), options.to_vec()));
         let Answer::Select(i) = self.next()? else {
             panic!("expected selection at {message}")
         };

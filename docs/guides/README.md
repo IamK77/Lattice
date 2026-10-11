@@ -9,6 +9,7 @@ Choose the task you want to complete, from obtaining a program to everyday use.
 | Obtain a program, upgrade or roll back | [Installation and upgrades](installation.md) |
 | Connect an account, ask a question and return to saved work | [Getting started](getting-started.md) |
 | Add or adjust a model connection | [Model configuration](model-configuration.md) |
+| Find provider presets, regions and verification limits | [Model providers](model-providers.md) |
 | Find the cause of a problem | [Troubleshooting](troubleshooting.md) |
 | Set up the optional desktop tools | [Desktop setup](desktop.md) |
 | Use the JavaScript/Ink client | [Ink guide](../../clients/ink/README.md) |

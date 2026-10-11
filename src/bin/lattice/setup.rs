@@ -16,6 +16,8 @@ mod input;
 mod probe;
 #[path = "setup/prompts.rs"]
 mod prompts;
+#[path = "setup/providers.rs"]
+mod providers;
 #[path = "setup/repair.rs"]
 mod repair;
 #[path = "setup/screen.rs"]

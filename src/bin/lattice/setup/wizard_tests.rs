@@ -3,6 +3,52 @@ use super::*;
 use std::collections::VecDeque;
 
 #[test]
+fn region_selection_keeps_or_clears_a_completed_environment_key_draft() {
+    for selected in [0, 1] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("models.json");
+        let snapshot = Snapshot::read(&path).unwrap();
+        let mut session = Session::new(false);
+        session.provider = Some(PROVIDERS[5]);
+        session
+            .draft
+            .connection("openai", "https://api.moonshot.cn/v1");
+        session.draft.spec["apiKeyEnv"] = json!("SYNTHETIC_REGION_ENV");
+        let listed = model("synthetic-completed-model");
+        session.draft.listed = vec![listed.clone()];
+        session.draft.model(&listed);
+        session.draft.capabilities.as_mut().unwrap().value["contextWindow"] = json!(64000);
+        let before = session.draft.spec.clone();
+        session.step = Step::Service;
+        let mut ui = Script::new([Select(selected), Cancel]);
+        let mut network = Network {
+            replies: VecDeque::new(),
+            requests: vec![],
+        };
+        assert!(matches!(
+            configure(&mut ui, &mut network, &path, &snapshot, &mut session, None),
+            Err(Error::Cancelled)
+        ));
+        if selected == 0 {
+            assert_eq!(session.draft.spec, before);
+            assert_eq!(session.draft.listed, vec![listed]);
+            assert_eq!(
+                session.draft.capabilities.as_ref().unwrap().value["contextWindow"],
+                64000
+            );
+        } else {
+            assert!(session.draft.spec.get("apiKeyEnv").is_none());
+            assert!(session.draft.spec.get("model").is_none());
+            assert!(session.draft.listed.is_empty());
+            assert!(session.draft.capabilities.is_none());
+            assert_eq!(session.draft.spec["baseUrl"], "https://api.moonshot.ai/v1");
+        }
+        assert!(network.requests.is_empty());
+        assert!(!path.exists());
+    }
+}
+
+#[test]
 fn compact_summary_distinguishes_empty_rungs_from_missing_metadata() {
     let capabilities = Capabilities::new(
         "synthetic-unlisted",
@@ -213,35 +259,35 @@ fn capability_checkboxes_preserve_defaults_and_update_only_changed_fields() {
 #[test]
 fn provider_and_protocol_are_distinct_and_only_documented_combinations_are_offered() {
     assert_eq!(
-        Provider::OpenAI
-            .protocols()
+        PROVIDERS[0]
+            .protocols
             .iter()
             .map(|p| p.0)
             .collect::<Vec<_>>(),
         ["responses", "openai"]
     );
     assert_eq!(
-        Provider::Anthropic
-            .protocols()
+        PROVIDERS[1]
+            .protocols
             .iter()
             .map(|p| p.0)
             .collect::<Vec<_>>(),
         ["anthropic", "openai"]
     );
     assert_eq!(
-        Provider::DeepSeek
-            .protocols()
+        PROVIDERS[2]
+            .protocols
             .iter()
             .map(|p| p.0)
             .collect::<Vec<_>>(),
         ["openai", "anthropic", "responses"]
     );
     assert_eq!(
-        Provider::DeepSeek.base("anthropic"),
+        PROVIDERS[2].base(0, "anthropic"),
         "https://api.deepseek.com/anthropic"
     );
     assert_eq!(
-        Provider::Anthropic.base("openai"),
+        PROVIDERS[1].base(0, "openai"),
         "https://api.anthropic.com/v1"
     );
 }

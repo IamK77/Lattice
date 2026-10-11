@@ -57,9 +57,13 @@ pub(super) fn valid_id(id: &str) -> bool {
 }
 
 fn parse_page(value: &Value, anthropic: bool) -> Result<Vec<Model>, String> {
-    let data = value["data"]
-        .as_array()
-        .ok_or("model list has no data array")?;
+    // Together's documented list is a top-level array; other Chat services
+    // generally wrap it in `data`. Neither shape proves generation capability.
+    let data = value
+        .get("data")
+        .and_then(Value::as_array)
+        .or_else(|| (!anthropic).then(|| value.as_array()).flatten())
+        .ok_or("model list has no model array")?;
     if data.len() > 2000 {
         return Err("model list exceeds the entry limit".into());
     }

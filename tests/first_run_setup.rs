@@ -254,6 +254,61 @@ fn escape_and_control_c_exit_the_real_guide_without_creating_a_conversation() {
 }
 
 #[test]
+fn expanded_provider_search_and_explicit_region_work_in_the_real_terminal() {
+    let home = tempfile::tempdir().unwrap();
+    let mut terminal = Terminal::start(home.path());
+    terminal.wait("Choose how to configure the model");
+    terminal.send(b"\r");
+    terminal.wait("Choose a provider");
+    // This entry is beyond the initial viewport; exercise filtering, not index math.
+    terminal.send(b"Mistral\r");
+    terminal.wait_prompt("Which service endpoint matches your API account?");
+    terminal.send(b"US\r");
+    terminal.wait("How should Lattice obtain the key?");
+    assert!(terminal
+        .parser
+        .screen()
+        .contents()
+        .contains("api.us.mistral.ai"));
+    terminal.send(b"\r");
+    terminal.wait("API key");
+    terminal.send(b"SYNTHETIC_REGION_KEY\r");
+    terminal.wait_prompt("Choose a model");
+    terminal.send(b"\x1b[B\r");
+    terminal.wait("Exact model identifier");
+    terminal.send(b"synthetic-regional-model\r");
+    terminal.wait_prompt("Context window in tokens");
+    terminal.send(b"32k\r");
+    terminal.wait_prompt("Maximum output tokens");
+    terminal.send(b"4k\r");
+    terminal.wait_prompt("3/3 Review configuration");
+    assert!(terminal
+        .parser
+        .screen()
+        .contents()
+        .contains("api.us.mistral.ai"));
+    terminal.send(b"\r");
+    terminal.wait("Connection test (optional)");
+    terminal.send(b"\x03");
+    terminal.exited_cleanly();
+    terminal.assert_restored();
+    let saved: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(home.path().join(".lattice/models.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        saved["models"]["synthetic-regional-model"]["baseUrl"],
+        "https://api.us.mistral.ai/v1"
+    );
+    assert_eq!(
+        saved["models"]["synthetic-regional-model"]["adapter"],
+        "openai"
+    );
+    assert!(!String::from_utf8_lossy(&terminal.bytes).contains("SYNTHETIC_REGION_KEY"));
+    assert!(!home.path().join(".lattice/setup-tests").exists());
+    assert!(!home.path().join(".lattice/ledgers").exists());
+}
+
+#[test]
 fn guided_save_hands_off_to_tui_without_echoing_key_or_testing_automatically() {
     let home = tempfile::tempdir().unwrap();
     let mut terminal = Terminal::start(home.path());
