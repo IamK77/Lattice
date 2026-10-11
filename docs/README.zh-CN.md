@@ -54,4 +54,4 @@ cargo run --locked --example heartbeat
 
 按目录浏览：[使用与配置](guides/README.zh-CN.md)、[开发参考](development/README.zh-CN.md)、[契约](contracts/README.zh-CN.md)、[维护流程](maintenance/README.zh-CN.md)、[历史记录](records/README.zh-CN.md)。Ink 文档仍放在客户端代码旁边。
 
-深层设计文档主要使用中文，英文入口标明了语言。文件名使用英文，中文文档以 `.zh-CN.md` 区分。[路径迁移表](path-migrations.json)记录旧名称与现在的位置；两份旧的首次使用入口保留了通往新指南的章节链接。
+深层设计文档主要使用中文，英文入口标明了语言。文件名使用英文，中文文档以 `.zh-CN.md` 区分。
