@@ -149,6 +149,9 @@ fn known_services_do_not_receive_deepseek_controls_or_fake_disable_claims() {
         "api.moonshot.cn",
         "api.minimax.cn",
         "dashscope.aliyuncs.com",
+        "workspace.cn-beijing.maas.aliyuncs.com",
+        "workspace.ap-southeast-1.maas.aliyuncs.com",
+        "workspace.us-east-1.maas.aliyuncs.com",
     ] {
         let mut body = build_request(
             "synthetic",

@@ -2,50 +2,60 @@
 
 [文档导航](../README.zh-CN.md) · [English](model-providers.md)
 
-配置时可以直接选择常见服务商；如果有多个入口，再选择与你的 API 账号对应的地区，填写密钥。地址可以修改，模型 ID 也可以手填。这些是连接预设，不是随软件赠送的账号或固定模型目录。
+向导提供的是连接预设，不是账号或随软件赠送的模型目录。先选服务商，再选与你的 API 账号对应的服务或地区。通过**修改连接**可以选择另一种已支持的格式、修改地址。切换格式时，预设地址会跟着切换；你自己填写的地址则保留。切换服务或地区会清掉凭据和依赖它的模型资料。不会自动回退到别的服务商或地区。
 
-本页对应 #95 的实现。**本轮没有进行真实账号验收。** 官方资料用于核对地址和接口格式；本地合成测试只能证明所覆盖的行为。短连接测试成功，不等于完整的工具调用兼容性已经验证。
+## 格式与默认选择
 
-## 标准 API 预设
+**Chat** 指 OpenAI Chat Completions，**Messages** 指 Anthropic Messages，**Responses** 指 OpenAI Responses。格式同名，不代表鉴权、选填参数和计费方式相同。下表排在第一位的是**新建条目时的 Lattice 默认项**，不冒充每家服务商的官方推荐。已有条目不会自动迁移。
 
-下文 Chat 指 OpenAI Chat Completions。新增预设先采用这一格式；即使服务商另有其他接口，也不把它们当成可以直接互换。地区由你明确选择，不按界面语言或密钥猜测。可用模型取决于账号和所选入口。
+本表记录 #95 之后、#98 中逐家核对官方资料的结果。**没有使用真实账号或发起付费推理验证。**“只确认此格式”仅指这三种适配件之内，不代表服务商没有其他接口。
 
-| 服务商 | 可选入口 | 模型选择 | 官方资料 |
+| 服务商 | 服务或地区 | 可选格式，默认在前 | 默认依据与官方资料 |
 |---|---|---|---|
-| OpenAI | 标准 API | 明确选择获取列表，或手填 | [接口文档](https://developers.openai.com/api/reference/resources/models/methods/list) |
-| Anthropic | 标准 API | 明确选择获取列表，或手填 | [模型列表](https://platform.claude.com/docs/en/api/models/list) |
-| DeepSeek | 标准 API | 明确选择获取列表，或手填 | [模型列表](https://api-docs.deepseek.com/api/list-models/) |
-| Google Gemini | 开发者 API 的 OpenAI 兼容入口 | 明确选择获取列表，或手填 | [兼容接口与签名](https://ai.google.dev/gemini-api/docs/openai) |
-| 阿里云百炼／通义千问 | 北京、新加坡、弗吉尼亚 | 从服务控制台复制模型 ID | [地址说明](https://help.aliyun.com/zh/model-studio/base-url)、[原生模型列表](https://help.aliyun.com/zh/model-studio/list-models) |
-| 月之暗面／Kimi | 中国站、全球站 | 明确选择获取列表，或手填 | [中国站](https://platform.kimi.com/docs/api/overview)、[全球站](https://platform.kimi.ai/docs/api/overview) |
-| 智谱／Z.AI／GLM | 智谱中国站、Z.AI 全球站 | 从服务控制台复制模型 ID | [标准与套餐入口](https://zcode.z.ai/en/docs/configuration) |
-| MiniMax | 中国站、全球站 | 从服务控制台复制模型 ID | [中国站](https://platform.minimax.cn/docs/api-reference/text-openai-api)、[全球站](https://platform.minimax.io/docs/api-reference/text-openai-api) |
-| 火山方舟 | 北京标准 API | 从服务控制台复制模型或推理接入点 ID | [接入说明](https://docs.volcengine.com/docs/ark/integrate-third-party-tools?lang=zh) |
-| 硅基流动／SiliconFlow | 中国站、全球站 | 明确选择获取列表，或手填 | [中国站模型列表](https://docs.siliconflow.cn/docs/api/models-get)、[全球站模型列表](https://docs.siliconflow.com/en/api-reference/models/get-model-list) |
-| OpenRouter | 标准 API | 明确选择获取列表，或手填 | [接口说明](https://openrouter.ai/docs/api/reference/overview) |
-| xAI | 全球入口、美国区域入口 | 明确选择获取列表，或手填 | [接口](https://docs.x.ai/developers/rest-api-reference/inference)、[区域](https://docs.x.ai/developers/faq/security) |
-| Mistral | 标准入口、欧盟区域入口、美国区域入口 | 明确选择获取列表，或手填 | [区域推理](https://docs.mistral.ai/inference/regional-inference) |
-| Groq | 标准 API | 明确选择获取列表，或手填 | [接口说明](https://console.groq.com/docs/api-reference) |
-| Together AI | 标准 API | 明确选择获取列表，或手填 | [兼容性](https://docs.together.ai/docs/inference/openai-compatibility)、[模型列表](https://docs.together.ai/reference/models) |
+| OpenAI | 标准 API | **Responses**、Chat | [官方迁移建议](https://developers.openai.com/api/docs/guides/migrate-to-responses) |
+| Anthropic | 标准 API | **Messages**、Chat | 原生接口；[Chat 兼容指南](https://platform.claude.com/docs/en/api/openai-sdk)建议生产环境使用原生接口，并列明兼容限制 |
+| DeepSeek | 标准 API | **Chat**、Messages、Responses | Lattice 保留原默认项；官方的 [Messages](https://api-docs.deepseek.com/guides/anthropic_api/) 和 [Responses](https://api-docs.deepseek.com/guides/responses_api/) 文档证明可选格式，不证明全局优先顺序 |
+| 阿里云百炼／通义千问 | 北京、新加坡、弗吉尼亚 | **Chat**、Messages、Responses | Lattice 保留 Chat。[地址](https://www.alibabacloud.com/help/en/model-studio/base-url)、[Messages](https://www.alibabacloud.com/help/en/model-studio/anthropic-api-messages)、[Responses](https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-responses) |
+| 月之暗面／Kimi | 中国站、全球站 | **Chat**、Messages、Responses | Lattice 保留 Chat；官方总览列明各格式，没有给出统一优先项：[中国站](https://platform.kimi.com/docs/api/overview)、[全球站](https://platform.kimi.ai/docs/api/overview) |
+| 智谱／Z.AI／GLM | 智谱中国站、Z.AI 全球站 | 中国站：**Chat**、Responses；全球站：**Chat** | 标准账号默认仍用 Chat。[中国站 Responses](https://docs.bigmodel.cn/cn/guide/develop/responses/introduction)、[Messages 的账号计费限制](https://zcode.z.ai/en/docs/configuration)，限制详见下文 |
+| MiniMax | 中国站、全球站 | **Messages**、Chat、Responses | [官方推荐 Messages](https://platform.minimax.io/docs/guides/text-generation)；[中国站 Messages](https://platform.minimax.cn/docs/api-reference/text-anthropic-api)、[Responses](https://platform.minimax.io/docs/api-reference/responses-create) |
+| 火山方舟 | 北京标准 API | **Responses**、Chat、Messages | [官方推荐 Responses](https://docs.volcengine.com/docs/ark/responses-api-text-generation?lang=zh)；[Messages](https://docs.volcengine.com/docs/ark/messages-api?lang=zh)、[Responses 请求类型](https://github.com/volcengine/ark-runtime-python/tree/main/src/arkruntime/types/responses) |
+| 硅基流动／SiliconFlow | 中国站、全球站 | **Chat**、Messages | [官方推荐 Chat，并说明地区等价入口](https://github.com/siliconflow/siliconflow-open-source-tasks)；[Messages](https://docs.siliconflow.cn/docs/api/messages-post) |
+| OpenRouter | 标准 API | **Chat**、Messages、Responses | Lattice 保留 Chat；[Messages 文档](https://openrouter.ai/docs/api/api-reference/anthropic-messages/create-a-message)、[Responses 文档](https://openrouter.ai/docs/api/api-reference/responses/create-a-response)没有确立统一首选格式 |
+| xAI | 全球入口、美国区域入口 | 全球：**Responses**、Chat；美国区域：**Responses** | [官方推荐 Responses](https://docs.x.ai/developers/model-capabilities/text/comparison)、[地区说明](https://docs.x.ai/developers/advanced-api-usage/regions)；不提供已弃用的 Messages，也没有把未经单独确认的美国区域 Chat 加进去 |
+| Google Gemini | 开发者 API | **Chat** | [这三种适配件中只确认此格式](https://ai.google.dev/gemini-api/docs/openai)。Google 对原生 Gemini API 的推荐，不等于推荐这个兼容入口 |
+| Mistral | 标准、欧盟、美国区域入口 | **Chat** | 这三种适配件中只确认此格式；[地区说明](https://docs.mistral.ai/inference/regional-inference)。Mistral Conversations 不是 OpenAI Responses |
+| Groq | 标准 API | **Chat**、Responses | Lattice 保留 Chat；[Responses 文档标为测试版](https://console.groq.com/docs/responses-api) |
+| Together AI | 标准 API | **Chat** | [这三种适配件中只确认此格式](https://docs.together.ai/docs/inference/openai-compatibility) |
 
-保存或测试之前，总览会显示准确地址。切换服务或地区会清掉原密钥和依赖它的模型资料；返回相同选择则保留草稿。不会自动回退到另一个地区或服务商。
+百炼预设保留官方仍支持的共享 `dashscope` 地址。阿里云建议生产环境使用工作空间专属域名；请在**修改连接**中填写你自己的工作空间地址，不猜工作空间编号。各地区的密钥和模型仍然独立。
 
-获取列表必须由你明确选择，使用当前入口对应的密钥。没有接入并核实列表接口的服务直接提供手填，不发送猜出来的请求。百炼的原生列表格式并不是 Chat 的 `data` 数组，本轮未接入它的专用接口；Together 的顶层数组则作为另一种列表格式处理。列表里有一个模型，不证明它支持工具、图片或思考；不明确的能力仍需确认。
+GLM Messages 故意**不作为普通标准账号预设**。其 `/api/anthropic` 路由受编程套餐、白名单和账号历史计费规则影响，套餐过期也不意味着恢复普通余额计费。请根据账号对应的官方说明使用自定义配置。中国站 Responses 使用 `/api/v1`，不是 Chat 的 `/api/paas/v4`。本轮没有确认相应的全球站 Responses 地址，不通过换域名猜一个出来。
 
-## 订阅和编程套餐
+## 地址、鉴权与模型列表
 
-这些预设用于标准 API。聊天会员不等于 API 凭据。编程套餐可能使用不同的密钥、地址，并限制可用客户端；请按服务商当前说明使用**自定义配置**，不要通过猜域名把密钥从一个地区或套餐搬到另一个。
+保存或测试前，总览显示准确地址。换格式不只是换标签：MiniMax、Kimi 的 Messages 基址带 `/anthropic`，百炼带 `/apps/anthropic`，方舟带 `/api/compatible`，OpenRouter 带 `/api`。适配件随后拼接 `/v1/messages`。硅基流动 Messages 从域名根开始，不能再预先带一个 `/v1`。
 
-尤其要区分：Kimi Code 与 Kimi 开放平台是两套系统；智谱／Z.AI 区分普通与编程套餐地址；百炼编程套餐使用专属凭据；MiniMax 订阅密钥与普通 API 密钥不能视作通用。火山的套餐命名和路径正在调整，本轮不提供猜测的套餐预设。
+已识别的 MiniMax、Kimi、硅基流动和 OpenRouter Messages 使用 Bearer 鉴权；百炼和方舟使用 `x-api-key`。原生 Anthropic 和既有的 DeepSeek Messages 保持 `x-api-key`。向导的连接测试和运行时共用这一判断。Chat、Responses 使用 Bearer。模型列表按它自己的已确认路径和鉴权获取，不从生成接口格式猜路径：例如 Anthropic 的 Chat 选项仍使用原生、分页的模型目录。
 
-## 验证范围
+获取模型列表仍须明确选择。OpenAI、Anthropic、DeepSeek、Gemini、Kimi、MiniMax、硅基流动、OpenRouter、xAI、Mistral、Groq、Together 已接入列表，也始终可以手填。MiniMax 使用其已记录的 [OpenAI 格式目录](https://platform.minimax.io/docs/api-reference/models/openai/list-models)。百炼、GLM、方舟尚未接入并验证适用的列表路线，仍然手填。Together 的顶层数组与常见的 `data` 数组分别处理。出现在列表中，不证明模型支持图片、工具或思考。
 
-本页不保证每家托管的所有模型都能使用。同样叫 Chat Completions，选填参数、思考块、工具调用附加字段仍可能不同。实现需要让适用的思考和签名走完工具调用、工具返回、下一次请求这一整轮；菜单里出现名字或短请求返回文字都不能代替这项检查。
+## 兼容边界
 
-本地检查包括逐个预设的双语保存且不发请求、地区凭据隔离、模型列表的准确路径。合成流式回复还走过流水和第二次带鉴权的 HTTP 请求，覆盖 [Gemini 签名](https://ai.google.dev/gemini-api/docs/generate-content/thought-signatures)、[OpenRouter 结构化推理](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens)、[Mistral 分块内容](https://docs.mistral.ai/studio/conversations/reasoning)、[Together 思考字段](https://docs.together.ai/docs/inference/chat/reasoning)和 [MiniMax 内联思考](https://platform.minimax.io/docs/api-reference/text-openai-api)。这些测试不能代替真实账号，也没有覆盖每个托管型号。
+- 不把 OpenAI 的选填字段整包照搬。例如 Groq 不接受获取加密推理的 include 或提示缓存键。OpenRouter、方舟保留文档已确认的加密 include 和缓存键；百炼、GLM 不发送未经确认的加密 include。Kimi 保留已支持的网页搜索 include，只去掉加密推理这一项。
+- MiniMax、Kimi 的 Responses 请求结构没有声明 `store`，所以运行时和连接测试都不发送它。回复示例里的 `store:false` **不等于数据保留承诺**。其他已配置的 Responses 路线仍显式请求 `store:false`。本地携带完整历史，也不证明服务端不保留数据。
+- 思考控制取决于**入口和型号配置中的档位**。没有声明的控制，包括不能确认的关闭操作，会提示采用服务默认行为；后台生成纪要时也可能继续思考。硅基流动 Messages 的 token 预算接口，不会被悄悄替换成不支持的 effort 字段，也不会凭空猜一个预算。自定义代理保持原有映射，需要另行验证。
+- 已识别的兼容 Responses 服务使用 Lattice 的普通文字纪要，不套用 Codex 专用的触发式原生压缩。支持 `/responses` 本身不证明支持该扩展。
+- 新支持的兼容 Messages 入口会保留真实思考和签名，不凭空补一个空思考块。Responses 保留原始输出项用于回传，并把明文思考呈现出来，包括 GLM 使用单个对象表示内容的形式。这些本地性质不等于每家托管的每个型号都能接收所有历史项。
 
-思考控制并非各家通用。已识别的官方 Chat 入口不再直接套用 DeepSeek 的 `thinking` 字段，而按配置中的型号档位生成请求。没有配置所请求的控制能力时，包括无法确认关闭思考的情况，适配件会提示采用服务默认行为。此时后台生成纪要也不能保证关闭思考。自定义代理保留原有映射，需要单独检查兼容性。
+MiniMax Responses 文档还有一个明确缺口：输出思考使用 `content`，输入结构却描述 `summary`。Lattice 不把两者悄悄改写成同一种东西。其完整思考回传和准确的流式结束行为仍需真实端点验证；不能接受这一不确定性时，使用官方推荐的 Messages 路线。
 
-官方资料核对和本地验证分别记录在 #95 中。本页不意味着已经发起付费请求、取得凭据、安装程序或发布版本。对于未支持的认证方式、原生接口或套餐特有行为，请使用有明确依据的自定义配置，或反馈具体缺口。
+## 订阅账号与验证
 
-修改模型条目见[模型配置](model-configuration.zh-CN.md)，完整启动流程见[首次使用](getting-started.zh-CN.md)。
+这些预设针对标准 API。聊天会员不等于 API 凭据。Kimi Code、百炼编程套餐、GLM 编程套餐和 MiniMax 订阅可能使用不同凭据、地址或允许的客户端。请按服务商当前说明使用**自定义配置**，不要猜域名、把密钥挪到另一套服务。
+
+本地测试固定了各地区的格式和默认项、替代格式的 POST 路径；逐个选项在中英文向导中完成不发请求的保存；检查地区凭据隔离，并用合成回复跑带鉴权的 HTTP 工具往返。新增 Messages 测试检查各入口的请求头与签名回传；Responses 测试检查选填字段、明文思考、调用编号和工具返回。既有 Chat 测试覆盖 [Gemini 签名](https://ai.google.dev/gemini-api/docs/generate-content/thought-signatures)、[OpenRouter 推理](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens)、[Mistral 分块内容](https://docs.mistral.ai/studio/conversations/reasoning)、[Together 思考](https://docs.together.ai/docs/inference/chat/reasoning)和 [MiniMax 内联思考](https://platform.minimax.io/docs/api-reference/text-openai-api)。
+
+合成回复只证明测试实际覆盖的行为。短连接测试不等于完整兼容性考试。#98 分别记录官方资料证据与本地验证，真实型号、真实账号的验收仍未完成。本页不意味着取得了凭据、发起付费请求、安装程序或发布版本。
+
+参见[模型配置](model-configuration.zh-CN.md)和[首次使用](getting-started.zh-CN.md)。

@@ -22,20 +22,22 @@ pub(super) fn endpoint(spec: &Value) -> Result<(reqwest::Url, bool), String> {
         .as_str()
         .ok_or("missing endpoint")?
         .trim_end_matches('/');
-    let mut url = reqwest::Url::parse(base).map_err(|_| "invalid endpoint")?;
-    // DeepSeek exposes its catalog at its common API root, including when
-    // Messages calls use the provider's /anthropic compatibility prefix.
-    let deepseek = url.host_str() == Some("api.deepseek.com") && url.path() == "/anthropic";
-    let anthropic = spec["adapter"] == "anthropic" && !deepseek;
-    if deepseek {
-        url.set_path("/models");
-    } else {
-        url = reqwest::Url::parse(&format!(
-            "{base}{}",
-            if anthropic { "/v1/models" } else { "/models" }
-        ))
-        .map_err(|_| "invalid model-list endpoint")?;
+    if let Some(route) = super::providers::selected_route(spec) {
+        let (url, native) = route
+            .models
+            .ok_or("this endpoint requires manual model entry")?;
+        return Ok((
+            reqwest::Url::parse(url).map_err(|_| "invalid model-list endpoint")?,
+            native,
+        ));
     }
+    // Unknown custom endpoints retain the selected dialect's discovery convention.
+    let anthropic = spec["adapter"] == "anthropic";
+    let url = reqwest::Url::parse(&format!(
+        "{base}{}",
+        if anthropic { "/v1/models" } else { "/models" }
+    ))
+    .map_err(|_| "invalid model-list endpoint")?;
     Ok((url, anthropic))
 }
 

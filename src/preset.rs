@@ -483,13 +483,15 @@ pub fn main_model_config(entry: &crate::models::Entry, thinking: Option<&Value>)
 /// about thinking, and left unsaid otherwise, because an endpoint that rejects
 /// the parameter must not meet it here either.
 pub fn condenser_config(entry: &crate::models::Entry) -> Value {
+    let native =
+        crate::components::model_compat::native_compaction(&entry.adapter, &entry.base_url);
     json!({
         "model": entry.model,
         "baseUrl": entry.base_url,
         "apiKeyEnv": entry.key_env,
         "maxTokens": 1024,
-        "compactionProtocol": if entry.adapter == "responses" { json!("trigger") } else { Value::Null },
-        "system": if entry.adapter == "responses" { Value::Null } else { json!(CONDENSER_SYSTEM) },
+        "compactionProtocol": if native { json!("trigger") } else { Value::Null },
+        "system": if native { Value::Null } else { json!(CONDENSER_SYSTEM) },
         // Same component as the main brain, so it carries the same fragment —
         // and every fragment lands in the MAIN model's system. Null suppresses
         // it, or the interruption passage arrives twice.
@@ -822,7 +824,7 @@ pub fn standard_at_depth(cfg: &PresetConfig, depth: u64) -> Result<StandardAssem
             "profile": model_profile(cfg),
             "modelName": cfg.model,
             "condense": true,
-            "nativeCompaction": cfg.adapter == "responses",
+            "nativeCompaction": crate::components::model_compat::native_compaction(&cfg.adapter, &cfg.base_url),
             "nativeTarget": {"model": cfg.model, "baseUrl": cfg.base_url},
             "system": cfg.system,
             "fragmentsHeading": FRAGMENTS_HEADING,
@@ -1491,6 +1493,23 @@ mod tests {
         assert_eq!(config["compactionProtocol"], "trigger");
         assert!(config["system"].is_null());
         assert_eq!(config["baseUrl"], model.base_url);
+        for base in [
+            "https://api.groq.com/openai/v1",
+            "https://openrouter.ai/api/v1",
+            "https://api.x.ai/v1",
+            "https://api.deepseek.com",
+            "https://api.minimax.io/v1",
+            "https://api.moonshot.ai/v1",
+            "https://open.bigmodel.cn/api/v1",
+            "https://ark.cn-beijing.volces.com/api/v3",
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        ] {
+            model.base_url = base.into();
+            let config = condenser_config(&model);
+            assert!(config["compactionProtocol"].is_null());
+            assert_eq!(config["system"], CONDENSER_SYSTEM);
+            assert_eq!(config["baseUrl"], base);
+        }
         model.adapter = "openai".into();
         let config = condenser_config(&model);
         assert!(config["compactionProtocol"].is_null());

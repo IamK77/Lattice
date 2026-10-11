@@ -65,6 +65,33 @@ fn each_protocol_has_an_explicit_small_request_and_strict_success_shape() {
 }
 
 #[test]
+fn responses_probe_matches_runtime_storage_fields_and_single_object_content() {
+    for (base, store) in [
+        ("https://api.minimax.cn/v1", false),
+        ("https://api.minimax.io/v1", false),
+        ("https://api.moonshot.cn/v1", false),
+        ("https://api.moonshot.ai/v1", false),
+        ("https://ark.cn-beijing.volces.com/api/v3", true),
+        ("https://open.bigmodel.cn/api/v1", true),
+        ("https://dashscope.aliyuncs.com/compatible-mode/v1", true),
+    ] {
+        let mut e = entry(base.into());
+        e.adapter = "responses".into();
+        assert_eq!(
+            request(&e).unwrap().1.get("store"),
+            store.then_some(&Value::Bool(false))
+        );
+    }
+    let mut reply = json!({"status":"completed","output":[{"type":"message","content":{"type":"output_text","text":"OK"}}]});
+    assert!(valid_response("responses", &reply));
+    reply["status"] = json!("incomplete");
+    assert!(!valid_response("responses", &reply));
+    reply["status"] = json!("completed");
+    reply["output"][0]["content"] = json!(42);
+    assert!(!valid_response("responses", &reply));
+}
+
+#[test]
 fn failed_http_test_sends_once_and_journals_no_credential_or_response_body() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();

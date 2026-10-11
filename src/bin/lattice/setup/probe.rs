@@ -119,10 +119,7 @@ async fn send(entry: &Entry, key: &str) -> Result<(), String> {
         .build()
         .map_err(|_| "cannot initialize the HTTP client")?;
     let request = if entry.adapter == "anthropic" {
-        client
-            .post(url)
-            .header("x-api-key", key)
-            .header("anthropic-version", "2023-06-01")
+        lattice::components::model_compat::messages_auth(client.post(&url), &url, key)
     } else {
         client.post(url).bearer_auth(key)
     };
@@ -179,12 +176,13 @@ fn request(entry: &Entry) -> Result<(String, Value), String> {
             }
             (format!("{base}/chat/completions"), body)
         }
-        "responses" => (
-            format!("{base}/responses"),
-            json!({"model":entry.model,"input":"Reply with OK.","max_output_tokens":32,"stream":false,"store":false}),
-        ),
+        "responses" => {
+            let mut body = json!({"model":entry.model,"input":"Reply with OK.","max_output_tokens":32,"stream":false,"store":false});
+            lattice::components::model_compat::responses_request(base, &mut body, &[], false);
+            (format!("{base}/responses"), body)
+        }
         "anthropic" => (
-            format!("{base}/v1/messages"),
+            lattice::components::model_compat::messages_url(base),
             json!({"model":entry.model,"messages":message,"max_tokens":32,"stream":false}),
         ),
         _ => return Err("unsupported test protocol".into()),
@@ -216,11 +214,12 @@ fn valid_response(adapter: &str, value: &Value) -> bool {
             value["status"] == "completed"
                 && value["output"].as_array().is_some_and(|output| {
                     output.iter().any(|item| {
-                        item["content"].as_array().is_some_and(|parts| {
-                            parts
-                                .iter()
-                                .any(|p| p["type"] == "output_text" && text(&p["text"]))
-                        })
+                        lattice::components::model_compat::response_content_parts(&item["content"])
+                            .is_some_and(|parts| {
+                                parts
+                                    .iter()
+                                    .any(|p| p["type"] == "output_text" && text(&p["text"]))
+                            })
                     })
                 })
         }

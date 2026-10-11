@@ -78,6 +78,16 @@ impl Dials {
         if let Some(enabled) = self.values.get("nativeCompaction").and_then(Value::as_bool) {
             gate.native_compaction = enabled;
             gate.native_target = self.values.get("nativeTarget").cloned();
+            // Historical dials are settings, not proof that today's adapter
+            // supports the target's native-compaction extension.
+            if let Some(target) = &gate.native_target {
+                if !crate::components::model_compat::native_compaction(
+                    "responses",
+                    target["baseUrl"].as_str().unwrap_or_default(),
+                ) {
+                    gate.native_compaction = false;
+                }
+            }
         }
         if let Some(name) = self.values.get("model").and_then(Value::as_str) {
             gate.model_name = Some(name.into());
@@ -90,6 +100,36 @@ impl Dials {
         }
         if let Some(field) = self.values.get("cacheRead").and_then(Value::as_str) {
             gate.usage_cache_field = field.into();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn historical_dials_cannot_enable_native_compaction_on_an_incompatible_target() {
+        for (base, expected) in [
+            ("https://api.groq.com/openai/v1", false),
+            ("https://openrouter.ai/api/v1", false),
+            ("https://api.openai.com/v1", true),
+            ("https://custom.invalid/v1", true),
+        ] {
+            let mut dials = Dials::default();
+            dials.observe(
+                &json!({"channel":MODEL_CHANNEL,"model":"synthetic", "nativeCompaction":true,
+                "nativeTarget":{"baseUrl":base,"model":"synthetic"}}),
+            );
+            // Check both replayed events and serialized checkpoint recovery.
+            let restored: Dials =
+                serde_json::from_value(serde_json::to_value(&dials).unwrap()).unwrap();
+            for state in [dials, restored] {
+                let mut gate = ContextGate::from_config(Some(&json!({"nativeCompaction":false})));
+                state.apply(&mut gate);
+                assert_eq!(gate.native_compaction, expected, "{base}");
+            }
         }
     }
 }

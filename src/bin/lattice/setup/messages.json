@@ -54,7 +54,7 @@
   "CheckAgain": {"en":"Check again after repair","zh":"修复文件后重新检查"},
   "LaunchOverride": {"en":"Launch environment settings override saved preferences on future launches. This selection applies to this launch.","zh":"启动环境变量在以后启动时仍优先于保存的偏好，本次选择用于本次启动。"},
   "Protocol": {"en":"API format","zh":"接口格式"},
-  "Recommended": {"en":"{0} (recommended)","zh":"{0}（推荐）"},
+  "Recommended": {"en":"{0} (Lattice default)","zh":"{0}（Lattice 默认）"},
   "Compatibility": {"en":"{0} (provider compatibility limits apply)","zh":"{0}（兼容范围由提供方决定）"},
   "Endpoint": {"en":"API base URL","zh":"接口基础地址"},
   "ConnectionSummary": {"en":"1/3 Connection · {0}\nEndpoint: {1}","zh":"1/3 连接服务 · {0}\n地址：{1}"},

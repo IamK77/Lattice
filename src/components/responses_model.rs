@@ -150,23 +150,30 @@ impl ResponsesModel {
             body["instructions"] = json!(system);
         }
         let fallback = model_common::thinking_from_config(self.config.get("thinking"));
-        if let Some(thinking) = model_common::thinking_for_call(&event.payload, fallback.as_ref()) {
+        let thinking = model_common::thinking_for_call(&event.payload, fallback.as_ref());
+        let rungs = self.config["effort"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|value| value.as_str().map(str::to_owned))
+            .collect::<Vec<_>>();
+        if let Some(thinking) = thinking.as_ref() {
             let effort = match thinking {
                 model_common::Thinking::Off => "none".to_string(),
-                model_common::Thinking::Rung(rung) => {
-                    let available: Vec<String> = self.config["effort"]
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .filter_map(|v| v.as_str().map(str::to_owned))
-                        .collect();
-                    model_common::place(rung, &available)
-                        .unwrap_or(rung.name())
-                        .to_string()
-                }
-                model_common::Thinking::Raw(word) => word,
+                model_common::Thinking::Rung(rung) => model_common::place(*rung, &rungs)
+                    .unwrap_or(rung.name())
+                    .to_string(),
+                model_common::Thinking::Raw(word) => word.clone(),
             };
             body["reasoning"] = json!({"effort": effort, "summary": "auto"});
+        }
+        if let Some(note) = super::model_compat::responses_request(
+            self.config["baseUrl"].as_str().ok_or("missing base URL")?,
+            &mut body,
+            &rungs,
+            matches!(thinking, Some(model_common::Thinking::Raw(_))),
+        ) {
+            ctx.notify(json!({"note":note}));
         }
         Ok(body)
     }
@@ -471,6 +478,10 @@ impl Component for ResponsesModel {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "responses_provider_tests.rs"]
+mod provider_tests;
 
 #[cfg(test)]
 mod tests {
