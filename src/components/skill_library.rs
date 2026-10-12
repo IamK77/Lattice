@@ -233,6 +233,7 @@ fn read_skill_text(text: &str, dir_name: &str) -> Result<(Value, String), String
     let mut front: Value = serde_saphyr::from_str_with_options(
         yaml,
         serde_saphyr::options! {
+            with_snippet: false,
             strict_booleans: true,
             duplicate_keys: serde_saphyr::DuplicateKeyPolicy::Error,
             merge_keys: serde_saphyr::MergeKeyPolicy::AsOrdinary,
@@ -901,6 +902,16 @@ mod yaml_tests {
             "]".repeat(100)
         );
         assert!(parse(&deep).is_err(), "parser nesting budget was disabled");
+    }
+
+    #[test]
+    fn yaml_diagnostics_do_not_embed_the_header() {
+        let error =
+            parse("description: example\nmetadata: {private-note: synthetic-content-marker\n")
+                .unwrap_err();
+        assert!(error.contains("frontmatter is not valid YAML"));
+        assert!(!error.contains("synthetic-content-marker"), "{error}");
+        assert!(!error.contains('\n'), "{error}");
     }
 
     #[test]
