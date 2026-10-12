@@ -26,6 +26,9 @@ const CLIENT_CAPABILITIES = ['authorize', 'palette', 'history-pages', 'operation
 export function paletteMatches(inputText, skills) {
   if (!inputText.startsWith('/')) return [];
   const token = inputText.split(/\s/, 1)[0];
+  const reserved = ['exit', 'older', 'latest', 'clear', 'new', 'btw', 'tab', 'close', 'permission', 'grants', 'revoke'];
+  if (reserved.some((name) => `/${name}` === token)
+      || (skills ?? []).some((sk) => `/${sk.name}` === token)) return [];
   return (skills ?? [])
     .filter((sk) => `/${sk.name}`.startsWith(token) && `/${sk.name}` !== token)
     .slice(0, 6);
@@ -236,7 +239,7 @@ export function App({ connection, stream, title }) {
         }
         return true;
       default:
-        return false; // unknown slash falls through to being sent as text
+        return false; // the caller distinguishes exact skills from unknown commands
     }
   };
 
@@ -257,7 +260,14 @@ export function App({ connection, stream, title }) {
       return;
     }
     if (key.tab) {
-      dispatch({ type: 'CYCLE', by: 1 });
+      const matches = paletteMatches(input.current, cur.skills);
+      if (matches.length) {
+        const at = input.current.search(/\s/);
+        const suffix = at < 0 ? ' ' : input.current.slice(at);
+        setInput(`/${matches[0].name}${suffix}`);
+      } else {
+        dispatch({ type: 'CYCLE', by: 1 });
+      }
       return;
     }
     if (key.escape) {
@@ -273,10 +283,18 @@ export function App({ connection, stream, title }) {
       return;
     }
     if (key.return) {
-      const line = input.current.trim();
+      const raw = input.current.trimStart();
+      const token = raw.split(/\s/, 1)[0];
+      const skill = cur.skills.some((sk) => `/${sk.name}` === token);
+      const line = skill ? raw : raw.trimEnd();
+      if (!line) { setInput(''); return; }
+      if (line.startsWith('/') && runSlash(line, cur.id)) { setInput(''); return; }
+      if (/^\/[^/\s]+(?:\s|$)/.test(line) && !skill) {
+        dispatch({ type: 'LOCAL_NOTICE', id: cur.id,
+          message: `Unknown command ${token}; complete a skill name with Tab before submitting.` });
+        return;
+      }
       setInput('');
-      if (!line) return;
-      if (line.startsWith('/') && runSlash(line, cur.id)) return;
       dispatch({ type: 'SENT', id: cur.id });
       connection.sendText(cur.id, line);
       return;

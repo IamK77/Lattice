@@ -110,6 +110,15 @@ impl Editor {
         self.replace(self.cursor..self.cursor, s);
     }
 
+    /// Complete a leading token without destroying folds in the remaining draft.
+    pub fn replace_prefix(&mut self, prefix: &str, replacement: &str) -> bool {
+        if !self.text.starts_with(prefix) {
+            return false;
+        }
+        self.replace(0..prefix.len(), replacement);
+        true
+    }
+
     /// The only range-edit operation: keep fold positions and text inseparable.
     fn replace(&mut self, range: std::ops::Range<usize>, replacement: &str) {
         let removed = range.end - range.start;

@@ -1396,15 +1396,8 @@ fn on_key(
             ) {
                 submission::Intent::Empty => return false,
                 submission::Intent::Command(line) => return run_slash(ui, &line, session),
-                submission::Intent::SkillCandidate(name) => {
-                    ui.transcript_cache.get_mut().invalidate();
-                    ui.live_output.submitted();
-                    ui.browsing.pin();
-                    ui.domain.turns.optimistic_activity();
-                    if let Some(session) = session {
-                        ui.input_latency.submitted(submitted_ns);
-                        session.send_with_origin(name, Vec::new(), ui.initial_origin.take());
-                    }
+                submission::Intent::SkillCandidate(_) => {
+                    ack(ui, "Complete the skill name with Tab before submitting");
                     return false;
                 }
                 submission::Intent::Message { text, kept } => (text, kept),

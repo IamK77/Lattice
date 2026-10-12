@@ -141,49 +141,62 @@ fn submission_sends_only_live_images_in_editor_order_and_consumes_origin_once() 
 }
 
 #[test]
-fn submission_candidate_and_full_skill_keep_their_different_image_rules() {
+fn submission_prefix_waits_for_completion_and_preserves_arguments_folds_and_images() {
     test_support::isolated(|| {
-        for candidate in [true, false] {
-            let (live, received) = session();
-            let mut ui = Ui::replayed(&[]);
-            ui.domain.skills = vec![("research".into(), "test skill".into())];
-            ui.draft.edit().set(if candidate {
-                "/res"
-            } else {
-                "/research argument "
-            });
-            attach(&mut ui, "skill.png");
-            // A candidate with a placeholder after its token is not a prefix.
-            // Keep the reference while restoring the candidate text, as the editor permits.
-            if candidate {
-                ui.draft.edit().set("/res");
-            }
-            assert!(!enter(&mut ui, live.0.as_ref()));
-            let event = next_user(&received);
-            assert_eq!(
-                event.payload["text"],
-                if candidate {
-                    "/research"
-                } else {
-                    "/research argument"
-                }
-            );
-            let images = event.payload.get("images").and_then(Value::as_array);
-            assert_eq!(images.map_or(0, Vec::len), usize::from(!candidate));
-            assert_eq!(ui.draft.references().len(), usize::from(candidate));
-            assert!(ui.busy());
-        }
+        let (live, received) = session();
+        let mut ui = Ui::replayed(&[]);
+        ui.domain.skills = vec![("research".into(), "test skill".into())];
+        ui.draft.edit().set("/res \"a b\"  ");
+        ui.draft
+            .edit()
+            .paste("one\ntwo\nthree\nfour\nfive\nsix\nseven\neight");
+        attach(&mut ui, "skill.png");
+        let original = ui.draft.editor().expanded().to_string();
+        let raw = ui.draft.editor().text().to_string();
+        assert!(!enter(&mut ui, live.0.as_ref()));
+        assert_eq!(ui.draft.editor().text(), raw);
+        assert_eq!(ui.draft.references().len(), 1);
+        assert!(!ui.busy());
+        on_key(
+            &mut ui,
+            live.0.as_ref(),
+            ratatui::crossterm::event::KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+            &Hit::default(),
+        );
+        assert_eq!(
+            ui.draft.editor().expanded(),
+            original.replacen("/res", "/research", 1)
+        );
+        assert!(!enter(&mut ui, live.0.as_ref()));
+        let event = next_user(&received);
+        assert_eq!(
+            event.payload["text"],
+            original.replacen("/res", "/research", 1)
+        );
+        assert_eq!(event.payload["images"].as_array().unwrap().len(), 1);
+        assert!(ui.draft.references().is_empty());
+        assert!(ui.busy());
     });
 }
 
 #[test]
-fn submission_candidates_precede_expansion_and_preserve_the_history_split() {
+fn submission_exact_skills_precede_candidates_and_preserve_history() {
     test_support::isolated(|| {
         let (live, received) = session();
         for (input, expected, candidate, folded) in [
-            ("/res discarded arguments", "/research-more", true, false),
-            ("/research", "/research-more", true, false),
-            ("  /research argument  ", "/research argument", false, false),
+            (
+                "/res preserved arguments",
+                "/res preserved arguments",
+                false,
+                false,
+            ),
+            ("/research", "/research", false, false),
+            (
+                "  /research argument  ",
+                "/research argument  ",
+                false,
+                false,
+            ),
             (
                 "/res\na\nb\nc\nd\ne\nf\ng",
                 "/res\na\nb\nc\nd\ne\nf\ng",
@@ -248,8 +261,12 @@ fn submission_without_a_session_preserves_origin_and_registered_images() {
         assert!(!enter(&mut ui, None));
         assert_eq!(ui.draft.references().len(), 1, "{text}");
         assert!(ui.initial_origin.is_some(), "{text}");
-        assert!(ui.draft.editor().is_empty(), "{text}");
+        assert_eq!(ui.draft.editor().is_empty(), text != "/res", "{text}");
         assert_eq!(ui.entry_count(), 0, "{text}");
-        assert_eq!(ui.busy(), !matches!(text, "" | "/help" | "/he"), "{text}");
+        assert_eq!(
+            ui.busy(),
+            !matches!(text, "" | "/help" | "/he" | "/res"),
+            "{text}"
+        );
     }
 }
