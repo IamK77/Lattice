@@ -431,9 +431,9 @@ impl SkillConsumer {
     /// are appended, mirroring the ecosystem convention.
     fn expand(&self, text: &str) -> Option<String> {
         let rest = text.strip_prefix('/')?;
-        let (name, args) = match rest.split_once(char::is_whitespace) {
-            Some((name, args)) => (name, args.trim()),
-            None => (rest.trim_end(), ""),
+        let (name, args) = match rest.find(char::is_whitespace) {
+            Some(at) => (&rest[..at], rest[at..].trim_start_matches([' ', '\t'])),
+            None => (rest, ""),
         };
         if name.is_empty() {
             return None;
@@ -464,7 +464,7 @@ impl SkillConsumer {
 
     // ── load_skill ──────────────────────────────────────
 
-    fn load(&self, arguments: &Value, ctx: &Ctx) -> Value {
+    fn load(&self, arguments: &Value) -> Value {
         let Some(name) = arguments["name"].as_str() else {
             return error(
                 "skill.bad_request",
@@ -505,37 +505,8 @@ impl SkillConsumer {
         };
         let digest = sha256_hex(body.as_bytes());
 
-        // Already on the ledger with identical content? Answer with a note
-        // instead of re-injecting the full body — the original is in context
-        // (or recoverable via recall_event).
-        let already = match ctx
-            .log()
-            .scan_back_types(&[ce::TOOL_EXEC_COMPLETED], |event, _| {
-                Ok((event.payload["status"] == "ok"
-                    && event.payload["result"]["skill"] == name
-                    && event.payload["result"]["sha256"] == digest.as_str()
-                    && event.payload["result"]["content"].is_string())
-                .then(|| event.id.clone()))
-            }) {
-            Ok(already) => already,
-            Err(problem) => {
-                return error(
-                    "skill.history_read_failed",
-                    &problem.to_string(),
-                    "environment",
-                )
-            }
-        };
-        if let Some(at) = already {
-            return json!({"status": "ok", "result": {
-                "skill": name,
-                "dir": dir_display,
-                "sha256": digest,
-                "note": format!(
-                    "already loaded at event {at}; content unchanged — follow that copy"
-                ),
-            }});
-        }
+        // Ledger history does not prove that the body is still in the model's
+        // active context. Every explicit request returns usable content.
 
         json!({"status": "ok", "result": {
             "skill": name,
@@ -771,7 +742,11 @@ impl Component for SkillConsumer {
             // The expansion station (see the `input` port declaration)
             let text = event.payload["text"].as_str().unwrap_or("");
             let payload = match self.expand(text) {
-                Some(expanded) => json!({"text": expanded}),
+                Some(expanded) => {
+                    let mut payload = event.payload.clone();
+                    payload["text"] = json!(expanded);
+                    payload
+                }
                 None => event.payload.clone(),
             };
             ctx.emit(
@@ -798,7 +773,7 @@ impl Component for SkillConsumer {
         }
         let arguments = &event.payload["arguments"];
         let mut payload = match tool {
-            "LoadSkill" => self.load(arguments, ctx),
+            "LoadSkill" => self.load(arguments),
             other => error("tool.unknown", &format!("unknown tool: {other}"), "request"),
         };
         payload["call"] = event.payload["call"].clone();

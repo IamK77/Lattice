@@ -376,6 +376,69 @@ test('/close detaches the daemon subscription, but never the last tab', async ()
   unmount();
 });
 
+test('skill submission preserves exact names and arguments; prefixes and unknown names keep the draft', async () => {
+  const conn = fakeConnection();
+  const { lastFrame, stdin, unmount } = render(html`<${App} connection=${conn} stream="main" title="test" />`);
+  const until = async (predicate) => {
+    const deadline = Date.now() + 3000;
+    while (!predicate()) {
+      assert.ok(Date.now() < deadline, `expected state not reached: ${lastFrame()}`);
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+  };
+  try {
+    await until(() => conn.listenerCount('message') > 0);
+    conn.emit('connect');
+    conn.emit('message', { attached: { stream: 'main', replay: [{ id: 'skills', type: 'skill.listing', causes: [],
+      payload: { skills: [{ name: 'research', description: 'short skill' }, { name: 'research-more', description: 'long skill' }] } }] } });
+    stdin.write('/res "a b"  c  ');
+    await until(() => lastFrame().includes('short skill'));
+    stdin.write('\r');
+    await until(() => lastFrame().includes('Unknown command /res'));
+    assert.equal(conn.sent.length, 0);
+    stdin.write('\t');
+    await until(() => lastFrame().includes('/research "a b"  c'));
+    stdin.write('\r');
+    await until(() => conn.sent.length === 1);
+    assert.deepEqual(conn.sent[0], ['main', '/research "a b"  c  ']);
+    stdin.write('/unknown keep this');
+    await until(() => lastFrame().includes('❯ /unknown keep this'));
+    stdin.write('\r');
+    await until(() => lastFrame().includes('Unknown command /unknown'));
+    assert.ok(lastFrame().includes('❯ /unknown keep this'));
+    assert.equal(conn.sent.length, 1);
+  } finally { unmount(); }
+});
+
+test('Tab never turns an exact built-in command into a longer skill name', async () => {
+  const { paletteMatches } = await import('../src/app.js');
+  for (const name of ['exit', 'older', 'latest', 'clear', 'new', 'btw', 'tab', 'close', 'permission', 'grants', 'revoke']) {
+    assert.deepEqual(paletteMatches(`/${name} argument`, [{ name: `${name}-skill` }]), []);
+  }
+  const conn = fakeConnection();
+  const { lastFrame, stdin, unmount } = render(html`<${App} connection=${conn} stream="main" title="test" />`);
+  const until = async (predicate) => {
+    const deadline = Date.now() + 3000;
+    while (!predicate()) {
+      assert.ok(Date.now() < deadline, `expected state not reached: ${lastFrame()}`);
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+  };
+  try {
+    await until(() => conn.listenerCount('message') > 0);
+    conn.emit('connect');
+    conn.emit('message', { attached: { stream: 'main', replay: [{ id: 'skills', type: 'skill.listing', causes: [],
+      payload: { skills: [{ name: 'new-project', description: 'not the new command' }] } }] } });
+    stdin.write('/new work');
+    await until(() => lastFrame().includes('❯ /new work'));
+    stdin.write('\t');
+    // Enter is observed via the actual connection, not just a palette helper.
+    stdin.write('\r');
+    await until(() => conn.attached.includes('work'));
+    assert.equal(conn.sent.length, 0);
+  } finally { unmount(); }
+});
+
 test('typing a slash offers the installed skills from the ledger listing', async () => {
   const { paletteMatches } = await import('../src/app.js');
   const skills = [

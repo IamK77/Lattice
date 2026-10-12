@@ -788,6 +788,11 @@ mod tests {
                 &Hit::default(),
             );
             assert_eq!(ui.draft.references().len(), usize::from(case == 2));
+            if case == 2 {
+                assert_eq!(ui.draft.editor().text(), "/res");
+                assert!(!ui.busy(), "a skill prefix must not start a turn");
+                continue;
+            }
             finish(&session, &mut ui);
             let event = session
                 .log_reader()
@@ -797,18 +802,8 @@ mod tests {
                 .rev()
                 .find(|e| e.event_type == core_events::USER_MESSAGE && e.causes.is_empty())
                 .unwrap();
-            assert_eq!(
-                event.payload["text"],
-                if case == 2 { "/research" } else { text }
-            );
-            if case == 2 {
-                assert!(event
-                    .payload
-                    .get("images")
-                    .is_none_or(|v| v.as_array().unwrap().is_empty()));
-            } else {
-                assert_eq!(event.payload["images"][0]["file"], format!("{case}.png"));
-            }
+            assert_eq!(event.payload["text"], text);
+            assert_eq!(event.payload["images"][0]["file"], format!("{case}.png"));
         }
         session.shutdown();
     }

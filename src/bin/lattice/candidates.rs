@@ -24,6 +24,13 @@ pub(super) fn slash_matches(
         return Vec::new();
     }
     let token = input.split_whitespace().next().unwrap_or(input);
+    if reserved(token)
+        || skills
+            .iter()
+            .any(|(name, _)| token.strip_prefix('/') == Some(name.as_str()))
+    {
+        return Vec::new();
+    }
     let mut hints: Vec<Hint> = SLASH
         .iter()
         .filter(|c| c.name.starts_with(token) && c.name != token)
@@ -45,6 +52,11 @@ pub(super) fn slash_matches(
             }),
     );
     hints
+}
+
+pub(super) fn reserved(token: &str) -> bool {
+    matches!(token, "/quit" | "/thinking" | "/remove")
+        || SLASH.iter().any(|command| command.name == token)
 }
 
 /// Fit a bounded window to the actual region and keep the selection visible.

@@ -1,5 +1,5 @@
 //! The skill library, end to end: listing, three-tier loading, bundled-file
-//! confinement, dedup, and installation with its reasoned decision event.
+//! confinement, explicit reloads, and installation with its reasoned decision event.
 //! Skills follow the open Agent Skills standard (folder + SKILL.md with YAML
 //! frontmatter); the canon is schemas/skill_frontmatter.json.
 
@@ -213,10 +213,49 @@ fn a_name_that_contradicts_its_directory_is_unavailable() {
     );
 }
 
+#[test]
+fn allowed_tools_accepts_host_list_syntax_without_changing_tool_authority() {
+    for (value, valid) in [
+        ("Read Bash(git:*)", true),
+        ("[Read, 'Bash(git:*)']", true),
+        ("[]", true),
+        ("[Read, 7]", false),
+        ("true", false),
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        write_skill(
+            root.path(),
+            "sample",
+            &format!("name: sample\ndescription: Test skill.\nallowed-tools: {value}\n"),
+            "Instructions only.",
+        );
+        let events = run_scripted(
+            root.path(),
+            json!({"script": [
+                {"status": "ok", "toolCalls": [{"id": "load", "tool": "LoadSkill", "arguments": {"name": "sample"}}]},
+                {"status": "ok", "text": "done"}
+            ]}),
+        );
+        let completions = skill_completions(&events);
+        assert_eq!(completions.len(), 1);
+        assert_eq!(
+            completions[0].payload["status"],
+            if valid { "ok" } else { "error" },
+            "{value}"
+        );
+        let requests: Vec<_> = events
+            .iter()
+            .filter(|e| e.event_type == ce::TOOL_EXEC_STARTED)
+            .collect();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].payload["tool"], "LoadSkill");
+    }
+}
+
 // ── Loading ─────────────────────────────────────────────
 
 #[test]
-fn loading_returns_the_body_and_a_second_identical_load_only_a_note() {
+fn loading_returns_the_body_on_every_explicit_request() {
     let root = tempfile::tempdir().unwrap();
     write_skill(
         root.path(),
@@ -252,14 +291,8 @@ fn loading_returns_the_body_and_a_second_identical_load_only_a_note() {
 
     let second = &completions[1].payload;
     assert_eq!(second["status"], "ok");
-    assert!(
-        second["result"]["content"].is_null(),
-        "an unchanged reload must not re-inject the body"
-    );
-    assert!(second["result"]["note"]
-        .as_str()
-        .unwrap()
-        .contains(completions[0].id.as_str()));
+    assert_eq!(second["result"]["content"], first["result"]["content"]);
+    assert!(second["result"]["note"].is_null());
 }
 
 #[test]
@@ -994,10 +1027,15 @@ fn slash_messages_expand_on_the_input_line_and_the_rest_pass_through() {
     )
     .expect("the expansion assembly must pass inspection");
 
-    for text in ["/greeting to Ana", "plain sailing", "/nope args"] {
+    let images = json!([{"file": "synthetic.png", "mediaType": "image/png"}]);
+    for text in ["/greeting to Ana  \n", "plain sailing", "/nope args"] {
         kernel.injector("ui").emit(
             "user",
-            EventDraft::new(ce::USER_MESSAGE, &[], json!({"text": text})),
+            EventDraft::new(
+                ce::USER_MESSAGE,
+                &[],
+                json!({"text": text, "images": images}),
+            ),
         );
         kernel.run_until_quiescent().unwrap();
     }
@@ -1012,10 +1050,11 @@ fn slash_messages_expand_on_the_input_line_and_the_rest_pass_through() {
 
     // The invocation: body in, arguments substituted, cause = the original
     let expanded = forwarded[0].payload["text"].as_str().unwrap();
-    assert_eq!(expanded, "Greet like a pirate: to Ana.");
+    assert_eq!(expanded, "Greet like a pirate: to Ana  \n.");
+    assert_eq!(forwarded[0].payload["images"], images);
     let original = events
         .iter()
-        .find(|e| e.payload["text"] == "/greeting to Ana" && e.causes.is_empty())
+        .find(|e| e.payload["text"] == "/greeting to Ana  \n" && e.causes.is_empty())
         .expect("the typed original is on the ledger too");
     assert_eq!(forwarded[0].causes, vec![original.id.clone()]);
 
@@ -1040,7 +1079,7 @@ fn slash_messages_expand_on_the_input_line_and_the_rest_pass_through() {
         .collect();
     assert_eq!(
         texts,
-        vec!["Greet like a pirate: to Ana."],
+        vec!["Greet like a pirate: to Ana  \n."],
         "the model sees the expansion alone, not the typed original as well"
     );
 }
