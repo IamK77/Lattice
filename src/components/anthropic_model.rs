@@ -678,7 +678,9 @@ enum Block {
     Tool {
         id: String,
         name: String,
+        input: Value,
         args: String,
+        closed: bool,
     },
     /// Thinking, and the signature the provider will demand back with it.
     /// They live in one block because they belong to one another.
@@ -701,6 +703,8 @@ pub struct Accumulator {
     usage: Map<String, Value>,
     stop_reason: Option<String>,
     error: Option<String>,
+    tool_error: Option<String>,
+    message_stopped: bool,
 }
 
 impl Accumulator {
@@ -713,8 +717,24 @@ impl Accumulator {
                 None
             }
             "content_block_start" => {
-                let index = data["index"].as_u64()?;
                 let block = &data["content_block"];
+                let is_tool = block["type"] == "tool_use";
+                let Some(index) = data["index"].as_u64() else {
+                    if is_tool {
+                        self.tool_error
+                            .get_or_insert("tool block has no valid index".into());
+                    }
+                    return None;
+                };
+                if (is_tool && self.message_stopped)
+                    || (self.blocks.contains_key(&index)
+                        && (is_tool || matches!(self.blocks.get(&index), Some(Block::Tool { .. }))))
+                {
+                    self.tool_error.get_or_insert(format!(
+                        "tool block {index}: duplicate index or start after message_stop"
+                    ));
+                    return None;
+                }
                 match block["type"].as_str().unwrap_or_default() {
                     "tool_use" => {
                         self.blocks.insert(
@@ -722,7 +742,9 @@ impl Accumulator {
                             Block::Tool {
                                 id: block["id"].as_str().unwrap_or_default().to_string(),
                                 name: block["name"].as_str().unwrap_or_default().to_string(),
+                                input: block["input"].clone(),
                                 args: String::new(),
+                                closed: false,
                             },
                         );
                     }
@@ -754,8 +776,21 @@ impl Accumulator {
                 None
             }
             "content_block_delta" => {
-                let index = data["index"].as_u64()?;
                 let delta = &data["delta"];
+                let Some(index) = data["index"].as_u64() else {
+                    if delta["type"] == "input_json_delta" {
+                        self.tool_error
+                            .get_or_insert("input_json_delta has no valid block index".into());
+                    }
+                    return None;
+                };
+                if matches!(self.blocks.get(&index), Some(Block::Tool { .. }))
+                    && delta["type"] != "input_json_delta"
+                {
+                    self.tool_error
+                        .get_or_insert(format!("tool block {index}: expected input_json_delta"));
+                    return None;
+                }
                 match delta["type"].as_str()? {
                     "text_delta" => {
                         let chunk = delta["text"].as_str()?.to_string();
@@ -778,15 +813,42 @@ impl Accumulator {
                         None
                     }
                     "input_json_delta" => {
-                        if let Some(Block::Tool { args, .. }) = self.blocks.get_mut(&index) {
-                            args.push_str(delta["partial_json"].as_str().unwrap_or_default());
+                        match (self.blocks.get_mut(&index), delta["partial_json"].as_str()) {
+                            (Some(Block::Tool { args, closed, .. }), Some(partial))
+                                if !*closed && !self.message_stopped =>
+                            {
+                                args.push_str(partial)
+                            }
+                            _ => {
+                                self.tool_error.get_or_insert(format!("tool block {index}: invalid, orphaned, or late input_json_delta"));
+                            }
                         }
                         None
                     }
                     _ => None,
                 }
             }
+            "content_block_stop" => {
+                let index = data["index"].as_u64()?;
+                if let Some(Block::Tool { closed, .. }) = self.blocks.get_mut(&index) {
+                    if *closed || self.message_stopped {
+                        self.tool_error.get_or_insert(format!(
+                            "tool block {index}: duplicate or late content_block_stop"
+                        ));
+                    }
+                    *closed = true;
+                }
+                None
+            }
+            "message_stop" => {
+                self.message_stopped = true;
+                None
+            }
             "message_delta" => {
+                if self.message_stopped {
+                    self.tool_error
+                        .get_or_insert("message_delta arrived after message_stop".into());
+                }
                 if let Some(usage) = data["usage"].as_object() {
                     self.usage.extend(usage.clone());
                 }
@@ -803,17 +865,58 @@ impl Accumulator {
         }
     }
 
-    fn tool_calls(&self) -> Vec<Value> {
-        self.blocks
-            .values()
-            .filter_map(|block| match block {
-                Block::Tool { id, name, args } => {
-                    let arguments: Value = serde_json::from_str(args).unwrap_or_else(|_| json!({}));
-                    Some(json!({"id": id, "tool": name, "arguments": arguments}))
-                }
-                _ => None,
-            })
-            .collect()
+    fn tool_calls(&self) -> Result<Vec<Value>, String> {
+        if let Some(error) = &self.tool_error {
+            return Err(error.clone());
+        }
+        let mut calls = Vec::new();
+        let mut ids = std::collections::BTreeSet::new();
+        for (index, block) in &self.blocks {
+            let Block::Tool {
+                id,
+                name,
+                input,
+                args,
+                closed,
+            } = block
+            else {
+                continue;
+            };
+            if id.trim().is_empty() || name.trim().is_empty() || !ids.insert(id) {
+                return Err(format!(
+                    "tool block {index}: missing name/id or duplicate tool id"
+                ));
+            }
+            if !input.is_object() {
+                return Err(format!(
+                    "tool block {index}: initial input must be an object"
+                ));
+            }
+            // Initial input is not a prefix or patch for the delta JSON. Like
+            // the Python SDK, retain it if deltas are absent or only empty.
+            let arguments: Value = if args.is_empty() {
+                input.clone()
+            } else {
+                serde_json::from_str(args).map_err(|error| {
+                    format!("tool block {index}: invalid argument JSON: {error}")
+                })?
+            };
+            if !arguments.is_object() {
+                return Err(format!(
+                    "tool block {index}: arguments must be a JSON object"
+                ));
+            }
+            if !closed {
+                return Err(format!("tool block {index}: missing content_block_stop"));
+            }
+            calls.push(json!({"id": id, "tool": name, "arguments": arguments}));
+        }
+        if !calls.is_empty()
+            && (!self.message_stopped || self.stop_reason.as_deref() != Some("tool_use"))
+        {
+            return Err("tool response lacks message_stop or the tool_use stop reason".into());
+        }
+        Ok(calls)
     }
 
     /// The reasoning parts of this call, in contract shape and in block order.
@@ -857,7 +960,12 @@ impl Accumulator {
         // Defense borrowed from pi: a response truncated by max_tokens can
         // carry tool-call JSON that parses but is silently incomplete —
         // executing it would act on half an intention. Fail the whole call.
-        if self.stop_reason.as_deref() == Some("max_tokens") && !self.tool_calls().is_empty() {
+        if self.stop_reason.as_deref() == Some("max_tokens")
+            && self
+                .blocks
+                .values()
+                .any(|block| matches!(block, Block::Tool { .. }))
+        {
             return self.with_reasoning(json!({
                 "status": "error",
                 "error": error_info(
@@ -880,9 +988,19 @@ impl Accumulator {
         if !self.text.is_empty() {
             payload["text"] = json!(self.text);
         }
-        let calls = self.tool_calls();
-        if !calls.is_empty() {
-            payload["toolCalls"] = json!(calls);
+        match self.tool_calls() {
+            Ok(calls) if !calls.is_empty() => payload["toolCalls"] = json!(calls),
+            Ok(_) => {}
+            Err(error) => {
+                payload["status"] = json!("error");
+                payload["error"] = error_info(
+                    "provider.invalid_tool_call",
+                    &error,
+                    "provider",
+                    false,
+                    false,
+                );
+            }
         }
         self.with_reasoning(payload)
     }
@@ -906,6 +1024,10 @@ impl Accumulator {
 #[cfg(test)]
 #[path = "anthropic_provider_tests.rs"]
 mod provider_tests;
+
+#[cfg(test)]
+#[path = "anthropic_tool_tests.rs"]
+mod tool_tests;
 
 #[cfg(test)]
 mod tests {
@@ -1279,6 +1401,7 @@ mod tests {
             "data: {\"type\":\"content_block_start\",\"index\":3,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_9\",\"name\":\"calc\",\"input\":{}}}\n\n",
             "data: {\"type\":\"content_block_delta\",\"index\":3,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"numbers\\\":\"}}\n\n",
             "data: {\"type\":\"content_block_delta\",\"index\":3,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"[1,2]}\"}}\n\n",
+            "data: {\"type\":\"content_block_stop\",\"index\":3}\n\n",
             "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"},\"usage\":{\"output_tokens\":25}}\n\n",
             "data: {\"type\":\"message_stop\"}\n\n",
         );

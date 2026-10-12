@@ -26,6 +26,8 @@ use lattice::{
     EventEnvelope, Factory, Kernel, KernelOptions, PortDecl, RuntimeKind, Wire,
 };
 
+#[path = "adapter_shell/anthropic_tools.rs"]
+mod anthropic_tools;
 #[path = "adapter_shell/chat_providers.rs"]
 mod chat_providers;
 #[path = "adapter_shell/compaction_history.rs"]
