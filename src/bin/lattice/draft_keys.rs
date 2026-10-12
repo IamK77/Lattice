@@ -61,7 +61,15 @@ pub(super) fn handle(
             let candidates = slash_matches(draft.editor().text(), skills, effort);
             if !candidates.is_empty() {
                 let selected = draft.selected().min(candidates.len() - 1);
-                draft.edit().set(format!("{} ", candidates[selected].name));
+                let raw = draft.editor().text();
+                let at = raw.find(char::is_whitespace).unwrap_or(raw.len());
+                let prefix = raw[..at].to_string();
+                let replacement = if at == raw.len() {
+                    format!("{} ", candidates[selected].name)
+                } else {
+                    candidates[selected].name.clone()
+                };
+                draft.edit().replace_prefix(&prefix, &replacement);
                 draft.reset_selection();
             }
         }

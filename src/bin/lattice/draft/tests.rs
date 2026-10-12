@@ -35,9 +35,10 @@ fn key_paths_that_do_not_send_an_ordinary_message_keep_image_references() {
             1,
             "path {case} cleared references without a send"
         );
-        assert!(
-            ui.draft.editor().is_empty(),
-            "path {case} did not clear submitted input"
+        assert_eq!(
+            ui.draft.editor().text(),
+            if case == 2 { "/res" } else { "" },
+            "path {case} changed the wrong draft state"
         );
     }
 }

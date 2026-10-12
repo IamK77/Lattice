@@ -31,8 +31,11 @@
       "description": "Free-form key/value pairs (the specification's own examples put author and version here)"
     },
     "allowed-tools": {
-      "type": "string",
-      "description": "Space-separated pre-approved tool list — experimental in the specification, accepted here for compatibility and deliberately ignored by Lattice"
+      "oneOf": [
+        { "type": "string" },
+        { "type": "array", "items": { "type": "string" } }
+      ],
+      "description": "The open specification's experimental string form, or the Claude Code string-list extension. Neither form grants permissions in Lattice."
     }
   }
 }
