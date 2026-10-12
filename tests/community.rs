@@ -28,7 +28,7 @@ fn issue_forms_collect_reproductions_and_route_secrets_privately() {
             "enhancement",
         ),
     ] {
-        let form: Value = serde_yaml::from_str(text).unwrap();
+        let form: Value = serde_saphyr::from_str(text).unwrap();
         assert!(form["name"].as_str().is_some_and(|v| !v.is_empty()));
         assert_eq!(form["labels"][0], expected_label);
         let mut ids = HashSet::new();
@@ -43,7 +43,7 @@ fn issue_forms_collect_reproductions_and_route_secrets_privately() {
         assert!(body.iter().any(|f| f["validations"]["required"] == true));
     }
     let bug: Value =
-        serde_yaml::from_str(include_str!("../.github/ISSUE_TEMPLATE/bug_report.yml")).unwrap();
+        serde_saphyr::from_str(include_str!("../.github/ISSUE_TEMPLATE/bug_report.yml")).unwrap();
     for id in ["version", "platform", "reproduce", "expected", "actual"] {
         let field = bug["body"]
             .as_array()
@@ -54,7 +54,7 @@ fn issue_forms_collect_reproductions_and_route_secrets_privately() {
         assert_eq!(field["validations"]["required"], true, "{id}");
     }
     let config: Value =
-        serde_yaml::from_str(include_str!("../.github/ISSUE_TEMPLATE/config.yml")).unwrap();
+        serde_saphyr::from_str(include_str!("../.github/ISSUE_TEMPLATE/config.yml")).unwrap();
     assert_eq!(config["blank_issues_enabled"], false);
     assert!(config["contact_links"]
         .as_array()
