@@ -230,8 +230,19 @@ fn split_frontmatter(text: &str) -> Option<(&str, &str)> {
 /// Returns (frontmatter, body) or a one-line reason the skill is unusable.
 fn read_skill_text(text: &str, dir_name: &str) -> Result<(Value, String), String> {
     let (yaml, body) = split_frontmatter(text).ok_or("SKILL.md has no YAML frontmatter")?;
-    let mut front: Value =
-        serde_yaml::from_str(yaml).map_err(|e| format!("frontmatter is not valid YAML: {e}"))?;
+    let mut front: Value = serde_saphyr::from_str_with_options(
+        yaml,
+        serde_saphyr::options! {
+            with_snippet: false,
+            strict_booleans: true,
+            duplicate_keys: serde_saphyr::DuplicateKeyPolicy::Error,
+            merge_keys: serde_saphyr::MergeKeyPolicy::AsOrdinary,
+            reject_unsupported_tags: true,
+            reject_non_finite_typeless_float: true,
+            budget: serde_saphyr::budget! { max_documents: 1 },
+        },
+    )
+    .map_err(|e| format!("frontmatter is not valid YAML: {e}"))?;
     if !front.is_object() {
         return Err("frontmatter is not a YAML mapping".to_string());
     }
@@ -801,4 +812,103 @@ fn sha256_hex(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
     format!("{:x}", hasher.finalize())
+}
+
+#[cfg(test)]
+mod yaml_tests {
+    use super::*;
+
+    fn parse(header: &str) -> Result<(Value, String), String> {
+        read_skill_text(&format!("---\n{header}\n---\nBody\n"), "sample")
+    }
+
+    #[test]
+    fn yaml_preserves_data_types_aliases_and_literal_variables() {
+        let (front, body) = parse(
+            "description: &desc Example\ncompatibility: *desc\nmetadata:\n  flag: false\n  count: 3\n  quoted: '3'\n  items: [one, two]\n  variable: '${HOME}'\n  expression: '${{ github.ref }}'",
+        )
+        .unwrap();
+        assert_eq!(front["name"], "sample");
+        assert_eq!(front["description"], "Example");
+        assert_eq!(front["compatibility"], "Example");
+        assert_eq!(
+            front["metadata"],
+            json!({
+                "flag": false, "count": 3, "quoted": "3", "items": ["one", "two"],
+                "variable": "${HOME}", "expression": "${{ github.ref }}"
+            })
+        );
+        assert_eq!(body, "Body\n");
+        assert_eq!(
+            parse("description: |\n  First\n  Second\n").unwrap().0["description"],
+            "First\nSecond\n"
+        );
+    }
+
+    #[test]
+    fn yaml_uses_explicit_scalar_and_merge_policies() {
+        for word in ["on", "off", "yes", "no"] {
+            assert_eq!(
+                parse(&format!("description: {word}")).unwrap().0["description"],
+                word
+            );
+        }
+        let (front, _) = parse("description: !!str true\nmetadata:\n  base: &base {item: original}\n  child:\n    <<: *base\n    own: value").unwrap();
+        assert_eq!(front["description"], "true");
+        assert_eq!(
+            parse("description: Example\nmetadata: {upper: True, caps: FALSE}")
+                .unwrap()
+                .0["metadata"],
+            json!({"upper": true, "caps": false})
+        );
+        assert_eq!(
+            front["metadata"]["child"],
+            json!({"<<": {"item": "original"}, "own": "value"})
+        );
+        for number in [".nan", ".inf", "1e999"] {
+            assert!(parse(&format!(
+                "description: Example\nmetadata: {{number: {number}}}"
+            ))
+            .is_err());
+        }
+        let deep = format!(
+            "description: Example\nmetadata: {{deep: {}0{}}}",
+            "[".repeat(100),
+            "]".repeat(100)
+        );
+        assert!(parse(&deep).is_err(), "parser nesting budget was disabled");
+    }
+
+    #[test]
+    fn yaml_diagnostics_do_not_embed_the_header() {
+        let error =
+            parse("description: example\nmetadata: {private-note: synthetic-content-marker\n")
+                .unwrap_err();
+        assert!(error.contains("frontmatter is not valid YAML"));
+        assert!(!error.contains("synthetic-content-marker"), "{error}");
+        assert!(!error.contains('\n'), "{error}");
+    }
+
+    #[test]
+    fn yaml_does_not_interpret_external_content_tags() {
+        for tag in ["!include", "!env", "!python/object"] {
+            let header = format!("description: {tag} synthetic-unread-path");
+            assert!(parse(&header).is_err(), "accepted unsupported tag: {tag}");
+        }
+    }
+
+    #[test]
+    fn yaml_rejects_ambiguous_or_malformed_headers() {
+        for header in [
+            "description: first\ndescription: second",
+            "description: Example\nmetadata: {key: one, key: two}",
+            "description: [unclosed",
+            "description: *missing",
+            "description: &cycle [*cycle]",
+            "- not\n- a mapping",
+            "description: false",
+        ] {
+            assert!(parse(header).is_err(), "accepted invalid header: {header}");
+        }
+    }
 }

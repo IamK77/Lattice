@@ -3,7 +3,7 @@ use serde_json::Value;
 #[test]
 fn ci_pins_actions_and_keeps_candidate_jobs_read_only() {
     let workflow: Value =
-        serde_yaml::from_str(include_str!("../.github/workflows/ci.yml")).unwrap();
+        serde_saphyr::from_str(include_str!("../.github/workflows/ci.yml")).unwrap();
     assert_eq!(
         workflow["permissions"],
         serde_json::json!({"contents": "read"})
@@ -36,7 +36,7 @@ fn ci_pins_actions_and_keeps_candidate_jobs_read_only() {
 #[test]
 fn native_artifacts_use_read_only_hosts_and_non_cached_distribution_paths() {
     let workflow: Value =
-        serde_yaml::from_str(include_str!("../.github/workflows/artifacts.yml")).unwrap();
+        serde_saphyr::from_str(include_str!("../.github/workflows/artifacts.yml")).unwrap();
     assert_eq!(
         workflow["permissions"],
         serde_json::json!({"contents": "read"})
@@ -95,13 +95,13 @@ fn native_artifacts_use_read_only_hosts_and_non_cached_distribution_paths() {
 #[test]
 fn publication_separates_preview_authority_and_retains_proof_before_mutating_releases() {
     let preparation: Value =
-        serde_yaml::from_str(include_str!("../.github/workflows/prepare-release.yml")).unwrap();
+        serde_saphyr::from_str(include_str!("../.github/workflows/prepare-release.yml")).unwrap();
     assert!(preparation["jobs"]["prepare"]["if"]
         .as_str()
         .unwrap()
         .contains("|| github.event_name == 'workflow_dispatch'"));
     let workflow: Value =
-        serde_yaml::from_str(include_str!("../.github/workflows/release.yml")).unwrap();
+        serde_saphyr::from_str(include_str!("../.github/workflows/release.yml")).unwrap();
     assert_eq!(workflow["permissions"], serde_json::json!({}));
     let jobs = &workflow["jobs"];
     assert_eq!(jobs["preview"]["permissions"]["contents"], "read");
@@ -166,9 +166,9 @@ fn publication_separates_preview_authority_and_retains_proof_before_mutating_rel
 #[test]
 fn stable_sync_waits_for_publication_and_has_no_signing_authority() {
     let release: Value =
-        serde_yaml::from_str(include_str!("../.github/workflows/release.yml")).unwrap();
+        serde_saphyr::from_str(include_str!("../.github/workflows/release.yml")).unwrap();
     let recovery: Value =
-        serde_yaml::from_str(include_str!("../.github/workflows/sync-develop.yml")).unwrap();
+        serde_saphyr::from_str(include_str!("../.github/workflows/sync-develop.yml")).unwrap();
     assert_eq!(
         release["jobs"]["sync"]["needs"],
         serde_json::json!(["identity", "publish"])
@@ -254,7 +254,7 @@ fn frontend_lock_is_complete_and_matches_the_private_package() {
 
 #[test]
 fn dependency_updates_target_development_with_bounded_weekly_groups() {
-    let config: Value = serde_yaml::from_str(include_str!("../.github/dependabot.yml")).unwrap();
+    let config: Value = serde_saphyr::from_str(include_str!("../.github/dependabot.yml")).unwrap();
     assert_eq!(config["version"], 2);
     let updates = config["updates"].as_array().unwrap();
     assert_eq!(updates.len(), 3);
