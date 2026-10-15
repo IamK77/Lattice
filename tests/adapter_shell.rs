@@ -32,6 +32,8 @@ mod anthropic_tools;
 mod chat_providers;
 #[path = "adapter_shell/compaction_history.rs"]
 mod compaction_history;
+#[path = "adapter_shell/sse_errors.rs"]
+mod sse_errors;
 
 /// One canned exchange the fake provider performs per incoming request.
 enum Canned {
@@ -39,6 +41,10 @@ enum Canned {
     Status(u16),
     /// Respond 200 with a complete SSE body
     Sse(&'static str),
+    /// Exact byte body, including invalid UTF-8 and clean EOF without a newline.
+    SseBytes(Vec<u8>),
+    /// Send a partial data line, then keep the body pending until cancellation.
+    PartialSse(mpsc::Sender<()>),
     /// Chat round trip with exact route and bearer authentication checks.
     ChatSse(&'static str),
     /// Native trigger must stay on the streaming Responses route.
@@ -92,6 +98,22 @@ fn fake_api(script: Vec<Canned>) -> (String, Arc<AtomicUsize>, Arc<Mutex<Vec<Str
                         "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                         body.len()
                     );
+                }
+                Some(Canned::SseBytes(body)) => {
+                    let _ = write!(stream,
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+                    let _ = stream.write_all(body);
+                }
+                Some(Canned::PartialSse(arrived)) => {
+                    stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: 100000\r\n\r\ndata: {\"unfinished\":").unwrap();
+                    stream.flush().unwrap();
+                    arrived.send(()).unwrap();
+                    let mut sink = [0u8; 64];
+                    while let Ok(n) = stream.read(&mut sink) {
+                        if n == 0 {
+                            break;
+                        }
+                    }
                 }
                 Some(Canned::JsonAt(path, body)) => {
                     assert!(

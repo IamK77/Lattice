@@ -521,31 +521,92 @@ pub fn verify_fingerprint(parts: &[Value], claimed: Option<&str>) -> Result<(), 
 }
 
 /// Splits an SSE byte stream into the JSON payloads of `data:` lines.
-/// The buffer stays bytes and only whole lines are decoded — a multi-byte
-/// UTF-8 character split across network chunks must never be corrupted.
-/// Non-JSON data lines (e.g. the OpenAI-style `[DONE]` sentinel) are skipped.
+/// This deliberately retains the adapters' line-based protocol: LF/CRLF,
+/// ignored metadata, and one JSON value per data line, not multiline joining.
+/// Bytes stay buffered until a whole line arrives, preserving split UTF-8.
 #[derive(Debug, Default)]
 pub struct SseParser {
     buffer: Vec<u8>,
+    error: Option<SseError>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SseError {
+    InvalidUtf8,
+    InvalidJson,
+    UnfinishedLine,
+}
+
+impl SseError {
+    pub fn failure(self) -> Value {
+        // Do not echo provider bytes or JSON diagnostics containing their values.
+        let message = match self {
+            Self::InvalidUtf8 => "the reply contains invalid UTF-8 in an SSE line",
+            Self::InvalidJson => "the reply contains invalid JSON in an SSE data line",
+            Self::UnfinishedLine => "the reply ended with an unfinished SSE line",
+        };
+        json!({
+            "status": "error",
+            "error": error_info("provider.invalid_stream", message, "provider", false, false),
+        })
+    }
 }
 
 impl SseParser {
-    pub fn push(&mut self, bytes: &[u8]) -> Vec<Value> {
-        self.buffer.extend_from_slice(bytes);
-        let mut out = Vec::new();
-        while let Some(newline) = self.buffer.iter().position(|&b| b == b'\n') {
-            let line: Vec<u8> = self.buffer.drain(..=newline).collect();
-            let line = String::from_utf8_lossy(&line);
-            let line = line.trim();
-            if let Some(data) = line.strip_prefix("data:") {
-                if let Ok(value) = serde_json::from_str::<Value>(data.trim()) {
-                    out.push(value);
-                }
-            }
+    /// Decode lazily and in order. A provider terminal event can stop iteration
+    /// before later malformed bytes, regardless of HTTP chunk boundaries.
+    /// The consumer must exhaust this iterator unless it is ending the call.
+    pub fn push(&mut self, bytes: &[u8]) -> impl Iterator<Item = Result<Value, SseError>> + '_ {
+        if self.error.is_none() {
+            self.buffer.extend_from_slice(bytes);
         }
-        out
+        std::iter::from_fn(|| self.next_frame())
+    }
+
+    fn next_frame(&mut self) -> Option<Result<Value, SseError>> {
+        if self.error.is_some() {
+            return None;
+        }
+        loop {
+            let newline = self.buffer.iter().position(|&b| b == b'\n')?;
+            let line: Vec<u8> = self.buffer.drain(..=newline).collect();
+            let parsed = match std::str::from_utf8(&line) {
+                Err(_) => Err(SseError::InvalidUtf8),
+                Ok(line) => {
+                    let Some(data) = line.trim().strip_prefix("data:") else {
+                        continue;
+                    };
+                    let data = data.trim();
+                    if data == "[DONE]" {
+                        continue;
+                    }
+                    serde_json::from_str(data).map_err(|_| SseError::InvalidJson)
+                }
+            };
+            if let Err(error) = parsed {
+                self.error = Some(error);
+                self.buffer.clear();
+            }
+            return Some(parsed);
+        }
+    }
+
+    /// Only for a clean network EOF, never cancellation or a transport error.
+    /// Do not reinterpret an unterminated line as a complete JSON value.
+    pub fn finish(self) -> Result<(), SseError> {
+        if let Some(error) = self.error {
+            Err(error)
+        } else if self.buffer.is_empty() {
+            Ok(())
+        } else {
+            Err(SseError::UnfinishedLine)
+        }
     }
 }
+
+#[cfg(test)]
+#[path = "sse_parser_tests.rs"]
+mod sse_parser_tests;
 
 #[cfg(test)]
 mod tests {

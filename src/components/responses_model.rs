@@ -369,6 +369,10 @@ impl Component for ResponsesModel {
                             if response_bytes == 0 && !bytes.is_empty() { trace.checkpoint("first_response_bytes"); }
                             response_bytes = response_bytes.saturating_add(bytes.len() as u64);
                             for value in parser.push(&bytes) {
+                                let value = match value {
+                                    Ok(value) => value,
+                                    Err(error) => return error.failure(),
+                                };
                                 match value["type"].as_str() {
                                     Some("response.output_text.delta") => {
                                         let mut note = json!({"chunk":value["delta"]});
@@ -432,6 +436,9 @@ impl Component for ResponsesModel {
                                     _ => {}
                                 }
                             }
+                        }
+                        if let Err(error) = parser.finish() {
+                            return error.failure();
                         }
                         failure(
                             "transport.incomplete",
