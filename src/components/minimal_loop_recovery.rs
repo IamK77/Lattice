@@ -3,17 +3,29 @@
 
 use std::io;
 
-use super::{ce, material_store, MinimalLoop};
+use super::{ce, material_store, model_outcome::ModelOutcomes, MinimalLoop};
 use crate::kernel::log::Header;
 use crate::LogReader;
 
 const KEY: &str = "minimal-loop-material";
-const VERSION: u32 = 3;
+const VERSION: u32 = 4;
 const CHECKPOINT_INTERVAL: u64 = 256;
+
+#[cfg(test)]
+#[path = "minimal_loop_recovery_tests.rs"]
+mod tests;
 
 #[derive(Default)]
 pub(super) struct Material {
     pub parts: material_store::Store,
+    models: ModelOutcomes,
+}
+
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Checkpoint {
+    parts: material_store::State,
+    models: ModelOutcomes,
 }
 
 impl Material {
@@ -25,6 +37,11 @@ impl Material {
     }
 
     fn observe(&mut self, reader: &LogReader, header: &Header) -> io::Result<()> {
+        if crate::components::call_purpose::auxiliary_header(reader, header)?
+            || !self.models.accept(reader, header)?
+        {
+            return Ok(());
+        }
         if !matches!(
             header.event_type.as_str(),
             ce::USER_MESSAGE
@@ -33,9 +50,6 @@ impl Material {
                 | ce::TOOL_EXEC_COMPLETED
                 | ce::INTERRUPTED
         ) {
-            return Ok(());
-        }
-        if crate::components::call_purpose::auxiliary_header(reader, header)? {
             return Ok(());
         }
         self.supersede(header)?;
@@ -93,16 +107,19 @@ impl MinimalLoop {
             .as_ref()
             .is_none_or(|source| !source.matches(reader));
         if cold_start {
-            let checkpoint =
-                reader.load_checkpoint::<material_store::State>(KEY, VERSION, through)?;
+            let checkpoint = reader.load_checkpoint::<Checkpoint>(KEY, VERSION, through)?;
             if let Some(reason) = checkpoint.cold_reason {
                 if reader.path().is_some() {
                     eprintln!("slow recovery for {KEY}: {reason}");
                 }
             }
-            match material_store::Store::open(reader, checkpoint.state.unwrap_or_default()) {
+            let state = checkpoint.state.unwrap_or_default();
+            match material_store::Store::open(reader, state.parts) {
                 Ok(parts) => {
-                    self.material = Material { parts };
+                    self.material = Material {
+                        parts,
+                        models: state.models,
+                    };
                     self.material_through = checkpoint.through;
                     self.material_saved = checkpoint.through;
                 }
@@ -110,6 +127,7 @@ impl MinimalLoop {
                     eprintln!("slow recovery for {KEY}: {error}");
                     self.material = Material {
                         parts: material_store::Store::open(reader, Default::default())?,
+                        models: ModelOutcomes::default(),
                     };
                     self.material_through = 0;
                     self.material_saved = 0;
@@ -130,6 +148,7 @@ impl MinimalLoop {
             eprintln!("slow recovery for {KEY}: {error}");
             self.material = Material {
                 parts: material_store::Store::open(reader, Default::default())?,
+                models: ModelOutcomes::default(),
             };
             self.material_through = 0;
             self.material_saved = 0;
@@ -140,12 +159,17 @@ impl MinimalLoop {
             || rebuilt
             || through.saturating_sub(self.material_saved) >= CHECKPOINT_INTERVAL
         {
-            match self
-                .material
-                .parts
-                .snapshot()
-                .and_then(|state| reader.save_checkpoint(KEY, VERSION, through, &state))
-            {
+            match self.material.parts.snapshot().and_then(|parts| {
+                reader.save_checkpoint(
+                    KEY,
+                    VERSION,
+                    through,
+                    &Checkpoint {
+                        parts,
+                        models: self.material.models.clone(),
+                    },
+                )
+            }) {
                 Ok(_) => self.material_saved = through,
                 Err(error) => eprintln!("cannot save derived recovery state for {KEY}: {error}"),
             }
@@ -172,15 +196,14 @@ impl MinimalLoop {
             .ok_or_else(|| io::Error::other("material has no recovery seed"))?;
         let mut seed = Material {
             parts: material_store::Store::open(reader, Default::default())?,
+            models: ModelOutcomes::default(),
         };
         seed.advance(reader, 1, base)?;
         // Forking published this exact prefix before adding the first delivery.
         seed.parts.snapshot()?;
         reader.try_visit_header_range(base + 1, base + 1, |batch| {
             for header in batch {
-                seed.supersede(header)?;
-                seed.parts
-                    .push(header.id.clone(), header.event_type == ce::USER_MESSAGE)?;
+                seed.observe(reader, header)?;
             }
             Ok(())
         })?;
