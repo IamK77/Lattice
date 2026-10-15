@@ -32,6 +32,8 @@ mod anthropic_tools;
 mod chat_providers;
 #[path = "adapter_shell/compaction_history.rs"]
 mod compaction_history;
+#[path = "adapter_shell/partial_line.rs"]
+mod partial_line;
 #[path = "adapter_shell/sse_errors.rs"]
 mod sse_errors;
 
