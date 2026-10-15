@@ -271,6 +271,10 @@ impl Component for OpenAiModel {
                         }
                         Some(Ok(bytes)) => {
                             for data in parser.push(&bytes) {
+                                let data = match data {
+                                    Ok(data) => data,
+                                    Err(error) => return accumulator.finish_invalid_stream(error),
+                                };
                                 for fragment in accumulator.apply(&data) {
                                     let mut note = fragment.note();
                                     if let Some(p) = &purpose {
@@ -282,6 +286,9 @@ impl Component for OpenAiModel {
                         }
                     }
                 }
+            }
+            if let Err(error) = parser.finish() {
+                return accumulator.finish_invalid_stream(error);
             }
             accumulator.finish()
         });
@@ -968,6 +975,13 @@ impl Accumulator {
         self.with_reasoning(json!({
             "status": "cancelled", "text": self.reply_text(), "usage": self.usage,
         }))
+    }
+
+    fn finish_invalid_stream(&self, error: super::model_common::SseError) -> Value {
+        let mut payload = error.failure();
+        payload["text"] = json!(self.reply_text());
+        payload["usage"] = Value::Object(self.usage.clone());
+        self.with_reasoning(payload)
     }
 
     pub fn finish_error(&self, error: &str) -> Value {
@@ -1794,6 +1808,7 @@ mod tests {
         // Feed in awkward slices to prove incremental parsing
         for piece in fixture.as_bytes().chunks(17) {
             for data in parser.push(piece) {
+                let data = data.unwrap();
                 chunks.extend(accumulator.apply(&data));
             }
         }

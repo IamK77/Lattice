@@ -263,6 +263,10 @@ impl Component for AnthropicModel {
                         }
                         Some(Ok(bytes)) => {
                             for data in parser.push(&bytes) {
+                                let data = match data {
+                                    Ok(data) => data,
+                                    Err(error) => return accumulator.finish_invalid_stream(error),
+                                };
                                 if let Some(fragment) = accumulator.apply(&data) {
                                     let mut note = fragment.note();
                                     if let Some(p) = &purpose {
@@ -274,6 +278,9 @@ impl Component for AnthropicModel {
                         }
                     }
                 }
+            }
+            if let Err(error) = parser.finish() {
+                return accumulator.finish_invalid_stream(error);
             }
             accumulator.finish()
         });
@@ -1011,6 +1018,13 @@ impl Accumulator {
         }))
     }
 
+    fn finish_invalid_stream(&self, error: super::model_common::SseError) -> Value {
+        let mut payload = error.failure();
+        payload["text"] = json!(self.text);
+        payload["usage"] = Value::Object(self.usage.clone());
+        self.with_reasoning(payload)
+    }
+
     pub fn finish_error(&self, error: &str) -> Value {
         self.with_reasoning(json!({
             "status": "error",
@@ -1408,6 +1422,7 @@ mod tests {
         // Feed in awkward slices to prove incremental parsing
         for piece in fixture.as_bytes().chunks(17) {
             for data in parser.push(piece) {
+                let data = data.unwrap();
                 if let Some(chunk) = accumulator.apply(&data) {
                     chunks.push(chunk);
                 }
@@ -1483,6 +1498,7 @@ mod tests {
             let mut chunks = Vec::new();
             for piece in fixture.as_bytes().chunks(chunk_size) {
                 for data in parser.push(piece) {
+                    let data = data.unwrap();
                     if let Some(chunk) = accumulator.apply(&data) {
                         chunks.push(chunk);
                     }
