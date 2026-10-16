@@ -64,6 +64,16 @@ impl Component for ReferenceModel {
 struct StaleWitness;
 impl Component for StaleWitness {
     fn handle(&mut self, _: &str, event: &EventEnvelope, ctx: &mut Ctx) {
+        // Observers see all requests, but this fixture is inserted only before
+        // Timer/Watch. Other providers retain their original standard wires.
+        // Forwarding their requests here would create a dead-end copy whose
+        // interruption races the real provider's answer.
+        if !matches!(
+            event.payload["tool"].as_str(),
+            Some("Schedule" | "Unschedule" | "Watch" | "Unwatch")
+        ) {
+            return;
+        }
         let mut payload = event.payload.clone();
         if matches!(
             payload["call"].as_str(),
@@ -254,8 +264,21 @@ fn round_trip(process: bool) {
         .iter()
         .filter(|e| e.event_type == ce::TOOL_EXEC_STARTED && e.payload["call"] == "bad-timer")
         .all(|e| e.payload["arguments"]["timer"] == "00000000"));
-    assert!(!events
+    let fixture_requests: Vec<_> = events
         .iter()
-        .any(|e| e.event_type == ce::INTERRUPTED || e.event_type == ce::ERROR));
+        .filter(|e| e.source == "stale-witness" && e.event_type == ce::TOOL_EXEC_STARTED)
+        .collect();
+    assert!(
+        fixture_requests.iter().all(|e| matches!(
+            e.payload["tool"].as_str(),
+            Some("Schedule" | "Unschedule" | "Watch" | "Unwatch")
+        )),
+        "the fixture must not forward requests outside its wired providers: {fixture_requests:?}"
+    );
+    let faults: Vec<_> = events
+        .iter()
+        .filter(|e| e.event_type == ce::INTERRUPTED || e.event_type == ce::ERROR)
+        .collect();
+    assert!(faults.is_empty(), "unexpected runtime faults: {faults:?}");
     kernel.shutdown();
 }
