@@ -50,7 +50,7 @@ macro_rules! messages {
 }
 messages! {
     LimitsSummary, CapabilitiesSummary, NoRungs, LongSuggestions, ToolsSummary, PageTitle, PageDetails, PageCounter, NextPage, PreviousPage, DetailsShown, SmallTerminal, PendingModels, PendingTest, MoreSettings, CompactSummary, UncertainCapabilities, ShowDetails, PageHelp, ConnectionStage,
-    Welcome, NoCatalog, Exited, Failure, RawError, Back, Exit, Continue, LanguageMenu, LanguageChoice, LanguageSaved, LanguageNotSaved,
+    Welcome, NoCatalog, Exited, Failure, RestoreFailed, ReportFailed, RawError, Back, Exit, Continue, LanguageMenu, LanguageChoice, LanguageSaved, LanguageNotSaved,
     SelectHelp, MultiHelp, InputHelp, SecretHelp, ConfirmHelp, Yes, No, Unknown, Enabled, Disabled,
     Home, Provider, Service, ServiceNotice, StandardApiNotice, ManualModelsNotice, Custom, RepairEntry, RepairLaunch, UnsafeCatalog, CheckAgain, LaunchOverride,
     Protocol, Recommended, Compatibility, Endpoint, ConnectionSummary, ConnectionMenu, UseConnection, EditConnection, CredentialMenu, LocalKey, EnvKey, ApiKey, EnvName, KeyWarning, HttpWarning, ReplaceKey,

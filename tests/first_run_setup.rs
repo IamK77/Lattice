@@ -10,6 +10,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "first_run_setup/diagnostics.rs"]
+mod diagnostics;
+
 struct Terminal {
     child: Child,
     master: File,

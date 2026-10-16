@@ -53,12 +53,7 @@ impl Screen {
         terminal::size().map(|(w, h)| (usize::from(w), usize::from(h)))
     }
     pub fn draw(&mut self, lines: &[String]) -> io::Result<()> {
-        let mut out = io::stderr().lock();
-        execute!(out, ResetColor, MoveTo(0, 0), Clear(ClearType::All))?;
-        for line in lines {
-            write!(out, "{line}\r\n")?;
-        }
-        out.flush()
+        draw_to(&mut io::stderr().lock(), lines)
     }
     pub fn busy(&mut self, lines: &[String]) -> io::Result<()> {
         // Inquire restores cooked mode after each answer. Keep Ctrl+C as input
@@ -72,6 +67,14 @@ impl Drop for Screen {
     fn drop(&mut self) {
         let _ = self.close();
     }
+}
+
+pub(super) fn draw_to(out: &mut impl Write, lines: &[String]) -> io::Result<()> {
+    execute!(out, ResetColor, MoveTo(0, 0), Clear(ClearType::All))?;
+    for line in lines {
+        write!(out, "{line}\r\n")?;
+    }
+    out.flush()
 }
 
 pub(super) fn safe(text: &str) -> String {

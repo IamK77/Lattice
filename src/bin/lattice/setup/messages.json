@@ -27,6 +27,8 @@
   "NoCatalog": {"en":"The model catalog has no location. Set HOME or LATTICE_MODELS and try again.","zh":"模型目录未启用或没有位置。请设置 HOME 或 LATTICE_MODELS 后重试。"},
   "Exited": {"en":"Setup exited. Any configuration already saved remains available.","zh":"已退出配置。先前保存的配置仍然保留。"},
   "Failure": {"en":"Setup could not continue. Original diagnostic: {0}","zh":"配置无法继续。原始诊断：{0}"},
+  "RestoreFailed": {"en":"Could not restore the terminal: {0}","zh":"无法恢复终端：{0}"},
+  "ReportFailed": {"en":"Could not display the setup diagnostics: {0}","zh":"无法显示配置诊断：{0}"},
   "RawError": {"en":"Original diagnostic: {0}","zh":"原始诊断：{0}"},
   "Back": {"en":"Back","zh":"返回"},
   "Exit": {"en":"Exit","zh":"退出"},

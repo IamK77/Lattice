@@ -30,6 +30,9 @@ impl Terminal {
     pub fn close(&mut self) -> std::io::Result<()> {
         self.screen.close()
     }
+    pub fn pending_notes(&self) -> &[String] {
+        &self.notes
+    }
     fn dimensions(&self) -> Result<(usize, usize)> {
         let size = self.screen.size().map_err(io_error)?;
         if size.0 < 40 || size.1 < 14 {
@@ -54,7 +57,17 @@ impl Terminal {
     }
     fn start_prompt(&mut self, message: &str, count: usize, help: &str) -> Result<usize> {
         let mut body = self.context.clone();
-        body.extend(std::mem::take(&mut self.notes));
+        body.extend(self.notes.iter().cloned());
+        let result = self.draw_prompt(&body, message, count, help);
+        finish_display(&mut self.notes, result)
+    }
+    fn draw_prompt(
+        &mut self,
+        body: &[String],
+        message: &str,
+        count: usize,
+        help: &str,
+    ) -> Result<usize> {
         let mut explained = false;
         loop {
             // A detail page may have outlived a window resize. Recompute the
@@ -70,7 +83,7 @@ impl Terminal {
             if wrapped.len() > room {
                 if !explained {
                     // Never silently drop long safety explanations or errors.
-                    self.show_details(M::PageDetails, &body)?;
+                    self.show_details(M::PageDetails, body)?;
                     explained = true;
                     continue;
                 }
@@ -135,6 +148,19 @@ impl Terminal {
         }
     }
 }
+// A successful frame write (including flush) acknowledges the pending notes.
+// Validation, pagination, write, and flush failures leave them for fallback.
+fn finish_display<T>(notes: &mut Vec<String>, result: Result<T>) -> Result<T> {
+    if result.is_ok() {
+        notes.clear();
+    }
+    result
+}
+
+#[cfg(all(test, unix))]
+#[path = "prompts_diagnostics_tests.rs"]
+mod diagnostics_tests;
+
 struct Choice {
     index: usize,
     label: String,
