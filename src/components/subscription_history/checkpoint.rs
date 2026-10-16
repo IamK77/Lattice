@@ -6,10 +6,11 @@ use std::io;
 
 use serde::{Deserialize, Serialize};
 
+use crate::components::subscription_history::cancellation::{Observation, Protocol};
 use crate::components::subscription_history::{Restored, Subscription};
 use crate::{core_events as ce, EventEnvelope, LogReader};
 
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 
 #[derive(Clone, Copy)]
 pub(in crate::components) enum Kind {
@@ -25,7 +26,7 @@ impl Kind {
         }
     }
 
-    fn tools(self) -> (&'static str, &'static str, &'static str) {
+    pub(super) fn tools(self) -> (&'static str, &'static str, &'static str) {
         match self {
             Self::Timer => ("Schedule", "Unschedule", "timer"),
             Self::Watch => ("Watch", "Unwatch", "watch"),
@@ -54,6 +55,7 @@ struct Live {
 struct State {
     next_id: u64,
     live: Vec<Live>,
+    protocol: Protocol,
     // Unschedule accepts not-yet-assigned IDs; a wake may also precede its
     // assignment. These facts remain relevant until that ID has been assigned.
     future_cancelled: BTreeSet<u64>,
@@ -65,6 +67,7 @@ impl Default for State {
         Self {
             next_id: 1,
             live: Vec::new(),
+            protocol: Protocol::default(),
             future_cancelled: BTreeSet::new(),
             future_fired: BTreeMap::new(),
         }
@@ -93,6 +96,7 @@ impl Reads {
 
 pub(in crate::components) struct Recovery {
     pub state: Restored,
+    pub through: u64,
     pub cold_reason: Option<String>,
     #[cfg(test)]
     headers: usize,
@@ -108,7 +112,7 @@ fn fold(
     reads: &mut Reads,
     kind: Kind,
 ) -> io::Result<bool> {
-    let (start_tool, stop_tool, id_field) = kind.tools();
+    let (start_tool, _, id_field) = kind.tools();
     let initial_next = state.next_id;
     let mut starts = HashMap::new();
     let mut assigned = HashMap::new();
@@ -119,15 +123,19 @@ fn fold(
             {
                 reads.headers += 1;
             }
+            match state
+                .protocol
+                .observe_with(reader, header, kind, |id| reads.get(reader, id))?
+            {
+                Observation::LegacyCancellation(id) | Observation::RecordedCancellation(id) => {
+                    state.future_cancelled.insert(id);
+                }
+                Observation::Activated { first: true } => late = true,
+                Observation::Activated { first: false } | Observation::None => {}
+            }
             match header.event_type.as_str() {
                 ce::TOOL_EXEC_STARTED if header.tool.as_deref() == Some(start_tool) => {
                     starts.insert(header.id.clone(), header.seq);
-                }
-                ce::TOOL_EXEC_STARTED if header.tool.as_deref() == Some(stop_tool) => {
-                    let event = reads.get(reader, &header.id)?;
-                    if let Some(id) = event.payload["arguments"][id_field].as_u64() {
-                        state.future_cancelled.insert(id);
-                    }
                 }
                 ce::WAKE => {
                     let event = reads.get(reader, &header.id)?;
@@ -227,8 +235,11 @@ pub(in crate::components) fn recover(reader: &LogReader, kind: Kind) -> io::Resu
         kind,
     )? {
         cold_reason =
-            Some("subscription assignment refers to an older request or identifier".into());
-        state = State::default();
+            Some("subscription assignment or cancellation boundary requires rebuilding".into());
+        state = State {
+            protocol: state.protocol.for_rebuild(),
+            ..State::default()
+        };
         fold(reader, 0, through, &mut state, &mut reads, kind)?;
     }
     let mut live = Vec::new();
@@ -249,7 +260,10 @@ pub(in crate::components) fn recover(reader: &LogReader, kind: Kind) -> io::Resu
         state: Restored {
             next_id: state.next_id,
             live,
+            future_cancelled: state.future_cancelled,
+            protocol: state.protocol,
         },
+        through,
         cold_reason,
         #[cfg(test)]
         headers: reads.headers,

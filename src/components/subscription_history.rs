@@ -1,5 +1,6 @@
 //! Restore subscription state by reduction, not by retaining every notification.
 
+pub(super) mod cancellation;
 mod checkpoint;
 pub(super) use checkpoint::{recover, Kind};
 
@@ -21,6 +22,8 @@ pub(super) struct Subscription {
 pub(super) struct Restored {
     pub next_id: u64,
     pub live: Vec<Subscription>,
+    pub future_cancelled: std::collections::BTreeSet<u64>,
+    pub protocol: cancellation::Protocol,
 }
 
 #[cfg(test)]
@@ -91,7 +94,12 @@ pub(super) fn restore(
         .checked_add(1)
         .ok_or_else(|| io::Error::other("subscription identifier space exhausted"))?;
     live.reverse();
-    Ok(Restored { next_id, live })
+    Ok(Restored {
+        next_id,
+        live,
+        future_cancelled: cancelled.into_iter().filter(|id| *id >= next_id).collect(),
+        protocol: cancellation::Protocol::default(),
+    })
 }
 
 #[cfg(test)]

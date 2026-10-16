@@ -22,10 +22,10 @@
 //! dead process left off (interval measured from now). A one-shot that already
 //! fired is done; an unfired one-shot is fire-and-forget and not resurrected.
 
+use super::subscription_history::cancellation::{self, LiveCancellations};
 use super::subscription_history::{self as recovery, Kind};
 
-use std::collections::HashSet;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{json, Value};
@@ -61,7 +61,8 @@ pub fn tool_decls() -> Vec<Value> {
         }),
         json!({
             "name": "Unschedule",
-            "description": "Cancel a timer by its id; a repeating timer stops firing.",
+            "description": "Cancel future timer fires by id. Cancellation takes effect when the \
+                successful receipt is recorded; a wake already in progress may still arrive.",
             "parameters": {
                 "type": "object",
                 "properties": {"timer": {"type": "integer"}},
@@ -83,8 +84,9 @@ pub fn manifest() -> ComponentManifest {
             PortDecl::new("outcome", &[ce::TOOL_EXEC_COMPLETED]),
             // A timer fires by waking the loop — wire to the loop's input
             PortDecl::new("wake", &[ce::WAKE]),
+            PortDecl::new("state", &[Kind::Timer.cancellation_activation()]),
         ],
-        events: Vec::new(),
+        events: vec![cancellation::declaration(Kind::Timer)],
         default_wiring: Vec::new(),
         capabilities: Some(EffectSurface {
             reversible: true,
@@ -105,8 +107,8 @@ pub fn manifest() -> ComponentManifest {
 
 pub struct TimerTools {
     next_id: u64,
-    /// Shared with every timing thread; an id here means "stop firing"
-    cancelled: Arc<Mutex<HashSet<u64>>>,
+    /// Shared committed-cancellation view, initialized before workers are armed.
+    cancelled: Option<Arc<LiveCancellations>>,
     exclusive: bool,
 }
 
@@ -114,7 +116,7 @@ impl TimerTools {
     pub fn from_config(config: Option<&Value>) -> Self {
         Self {
             next_id: 1,
-            cancelled: Arc::default(),
+            cancelled: None,
             exclusive: config
                 .and_then(|c| c.get("exclusive"))
                 .and_then(Value::as_bool)
@@ -123,6 +125,14 @@ impl TimerTools {
     }
 
     fn schedule(&mut self, args: &Value, started_id: &str, ctx: &mut Ctx) -> Value {
+        let Some(cancelled) = self.cancelled.clone() else {
+            ctx.fail(
+                "schedule timer",
+                "cancellation state has not been restored",
+                &[started_id.to_string()],
+            );
+            return Value::Null;
+        };
         let delay = args["delay_ms"].as_u64().unwrap_or(0);
         let interval = args["interval_ms"].as_u64();
         let max_fires = args["max_fires"].as_u64().unwrap_or(100).max(1);
@@ -131,11 +141,10 @@ impl TimerTools {
         self.next_id += 1;
 
         let injector = ctx.injector();
-        let cancelled = Arc::clone(&self.cancelled);
         let started = started_id.to_string();
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(delay));
-            if stopped(&cancelled, id) {
+            if cancelled.stopped_or_report(id, &injector, Some(&started)) {
                 return;
             }
             fire_wake(&injector, &started, id, 1, &note);
@@ -143,7 +152,7 @@ impl TimerTools {
                 let mut n = 1;
                 while n < max_fires {
                     std::thread::sleep(Duration::from_millis(interval));
-                    if stopped(&cancelled, id) {
+                    if cancelled.stopped_or_report(id, &injector, Some(&started)) {
                         return;
                     }
                     n += 1;
@@ -161,20 +170,27 @@ impl TimerTools {
 
     /// Re-arm a repeating timer on restore: continue firing from `done` up to
     /// `max_fires`, one interval apart, measured from now. Same fire shape and
-    /// the same shared cancellation set as a live timer, so a later
+    /// the same committed-cancellation view as a live timer, so a later
     /// `Unschedule` stops it just the same.
     fn rearm(&self, id: u64, done: u64, args: &Value, started_id: &str, ctx: &mut Ctx) {
+        let Some(cancelled) = self.cancelled.clone() else {
+            ctx.fail(
+                "rearm timer",
+                "cancellation state has not been restored",
+                &[started_id.to_string()],
+            );
+            return;
+        };
         let interval = args["interval_ms"].as_u64().unwrap_or(0);
         let max_fires = args["max_fires"].as_u64().unwrap_or(100).max(1);
         let note = args["note"].clone();
         let injector = ctx.injector();
-        let cancelled = Arc::clone(&self.cancelled);
         let started = started_id.to_string();
         std::thread::spawn(move || {
             let mut n = done;
             while n < max_fires {
                 std::thread::sleep(Duration::from_millis(interval));
-                if stopped(&cancelled, id) {
+                if cancelled.stopped_or_report(id, &injector, Some(&started)) {
                     return;
                 }
                 n += 1;
@@ -185,10 +201,7 @@ impl TimerTools {
 
     fn unschedule(&self, args: &Value) -> Value {
         match args["timer"].as_u64() {
-            Some(id) => {
-                self.cancelled.lock().unwrap().insert(id);
-                json!({"status": "ok", "result": {"timer": id, "note": "cancelled"}})
-            }
+            Some(id) => cancellation::receipt(Kind::Timer, id),
             None => json!({"status": "error", "error": {
                 "code": "tool.bad_arguments",
                 "message": "unschedule needs a numeric 'timer' id",
@@ -217,11 +230,6 @@ fn fire_wake(injector: &Injector, started: &str, id: u64, n: u64, note: &Value) 
     );
 }
 
-/// Has this timer been unscheduled?
-fn stopped(cancelled: &Arc<Mutex<HashSet<u64>>>, id: u64) -> bool {
-    cancelled.lock().unwrap().contains(&id)
-}
-
 impl Component for TimerTools {
     /// Timers are pure data, so a restart is not a loss: read the ledger and
     /// re-arm every repeating timer that is still live (not unscheduled, not
@@ -238,6 +246,18 @@ impl Component for TimerTools {
             eprintln!("slow recovery for timers: {reason}");
         }
         let state = restored.state;
+        let legacy_through = state.protocol.legacy_through.unwrap_or(restored.through);
+        self.cancelled = Some(Arc::new(LiveCancellations::new(
+            ctx.log().clone(),
+            Kind::Timer,
+            restored.through,
+            state.protocol,
+            state.future_cancelled,
+        )));
+        ctx.emit(
+            "state",
+            cancellation::activation(Kind::Timer, legacy_through),
+        );
         // No background activity starts until every required read succeeds.
         for timer in state.live {
             self.rearm(timer.id, timer.fired, &timer.arguments, &timer.cause, ctx);
@@ -263,10 +283,28 @@ impl Component for TimerTools {
                 "transient": false,
             }}),
         };
+        if payload.is_null() {
+            return; // schedule already reported a component fault
+        }
         payload["call"] = event.payload["call"].clone();
         ctx.emit(
             "outcome",
             EventDraft::new(ce::TOOL_EXEC_COMPLETED, &[&event.id], payload),
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cancellation_commits_before_stopping_and_denial_survives_restart() {
+        cancellation::provider_tests::assert_record_first(
+            Kind::Timer,
+            manifest(),
+            || TimerTools::from_config(None),
+            |provider| provider.cancelled.as_ref().unwrap().clone(),
         );
     }
 }
