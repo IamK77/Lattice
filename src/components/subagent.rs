@@ -93,11 +93,11 @@ pub fn tool_decls() -> Vec<Value> {
         }),
         json!({
             "name": CANCEL,
-            "description": "Request cancellation of an expert job delegated by this stream. Requires its job number and a reason. Acceptance is not completion: the expert reports its final disposition separately. Already performed actions are not rolled back; uncooperative in-process work may have an unknown outcome.",
+            "description": "Request cancellation of an expert job delegated by this stream. Requires its exact short reference in this stream or its legacy job number, and a reason. Acceptance is not completion: the expert reports its final disposition separately. Already performed actions are not rolled back; uncooperative in-process work may have an unknown outcome.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "job": {"type": "integer", "minimum": 1},
+                    "job": {"oneOf":[{"type":"integer","minimum":1},{"type":"string","pattern":"^[0-9a-f]{8,64}$"}]},
                     "reason": {"type": "string", "minLength": 1}
                 },
                 "required": ["job", "reason"],
@@ -438,6 +438,16 @@ impl Component for Subagent {
         }
         let call = event.payload["call"].clone();
         if tool == CANCEL {
+            use crate::background_aliases::operations;
+            if let Some(message) = event.payload[operations::RESOLUTION_ERROR].as_str() {
+                let mut payload = operations::failure(message);
+                payload["call"] = call;
+                ctx.emit(
+                    "outcome",
+                    EventDraft::new(ce::TOOL_EXEC_COMPLETED, &[&event.id], payload),
+                );
+                return;
+            }
             let args = &event.payload["arguments"];
             let job = args["job"].as_u64().filter(|job| *job > 0);
             let reason = args["reason"]
@@ -445,11 +455,11 @@ impl Component for Subagent {
                 .map(str::trim)
                 .filter(|s| !s.is_empty());
             if let (Some(job), Some(reason)) = (job, reason) {
-                let mut draft = EventDraft::new(
-                    CANCEL_REQUESTED,
-                    &[&event.id],
-                    json!({"job": job, "reason": reason, "call": call}),
-                );
+                let mut payload = json!({"job": job, "reason": reason, "call": call});
+                if let Some(reference) = event.payload.get(operations::REFERENCE) {
+                    payload[operations::REFERENCE] = reference.clone();
+                }
+                let mut draft = EventDraft::new(CANCEL_REQUESTED, &[&event.id], payload);
                 draft.reason = Some(reason.to_string());
                 ctx.emit("request", draft);
             } else {

@@ -20,6 +20,10 @@
 //! own ports (the skill library watches its skill folders this way — wired
 //! back to itself, no model turn involved).
 
+use crate::background_aliases::{
+    operations::{self, LiveTargets},
+    Kind as BackgroundKind,
+};
 use std::collections::{BTreeSet, HashSet};
 use std::path::Path;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
@@ -64,10 +68,10 @@ pub fn tool_decls() -> Vec<Value> {
         }),
         json!({
             "name": "Unwatch",
-            "description": "Stop a watch by its id.",
+            "description": "Stop a watch by its exact short reference in this stream or its legacy numeric id.",
             "parameters": {
                 "type": "object",
-                "properties": {"watch": {"type": "integer"}},
+                "properties": {"watch": {"oneOf":[{"type":"integer"},{"type":"string","pattern":"^[0-9a-f]{8,64}$"}]}},
                 "required": ["watch"],
             },
             "effects": {"reversible": true},
@@ -110,6 +114,7 @@ pub struct FsWatch {
     next_id: u64,
     /// Shared with every watch thread; an id here means "stop firing"
     cancelled: Arc<Mutex<HashSet<u64>>>,
+    targets: LiveTargets,
     exclusive: bool,
 }
 
@@ -118,6 +123,7 @@ impl FsWatch {
         Self {
             next_id: 1,
             cancelled: Arc::default(),
+            targets: LiveTargets::default(),
             exclusive: config
                 .and_then(|c| c.get("exclusive"))
                 .and_then(Value::as_bool)
@@ -176,7 +182,11 @@ impl FsWatch {
         let max_fires = args["max_fires"].as_u64().unwrap_or(100).max(1);
         let note = args["note"].clone();
         let path = path.to_string();
+        let target = started
+            .as_deref()
+            .map(|creation| self.targets.track(id, creation));
         std::thread::spawn(move || {
+            let _target = target;
             fire_loop(
                 watcher,
                 rx,
@@ -263,7 +273,16 @@ impl Component for FsWatch {
         let args = &event.payload["arguments"];
         let mut payload = match tool {
             "Watch" => self.watch(args, &event.id, ctx),
-            "Unwatch" => self.unwatch(args),
+            "Unwatch" => match operations::validate(
+                &event.payload,
+                &event.stream,
+                BackgroundKind::Watch,
+                args["watch"].as_u64(),
+                self.targets.creation(args["watch"].as_u64()).as_deref(),
+            ) {
+                Ok(()) => self.unwatch(args),
+                Err(message) => operations::failure(message),
+            },
             _ => error("tool.unknown", &format!("unknown tool: {tool}"), "request"),
         };
         payload["call"] = event.payload["call"].clone();

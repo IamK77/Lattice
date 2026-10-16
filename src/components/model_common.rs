@@ -2,6 +2,9 @@
 //! material fingerprint rule (contract-wide, not provider-specific), SSE
 //! line framing, and the structured error payload with judgment fields.
 
+mod background_refs;
+pub(super) use background_refs::BackgroundReferences;
+
 use serde_json::{json, Value};
 
 use crate::kernel::log::LogReader;

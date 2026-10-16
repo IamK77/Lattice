@@ -111,15 +111,82 @@ fn cancel_call(id: &str, job: u64) -> Value {
     json!({"id": id, "tool": "CancelExpert", "arguments": {"job": job, "reason": "requirement changed"}})
 }
 
+/// Resolve the displayed reference when the fixture model makes its decision,
+/// not from a precomputed number or a replacement cancellation implementation.
+struct AliasModel(std::collections::VecDeque<Value>);
+impl Component for AliasModel {
+    fn handle(&mut self, port: &str, event: &EventEnvelope, ctx: &mut Ctx) {
+        if port != "request" {
+            return;
+        }
+        let mut payload = self
+            .0
+            .pop_front()
+            .unwrap_or_else(|| json!({"status":"ok","text":"done"}));
+        if let Some(calls) = payload["toolCalls"].as_array_mut() {
+            for call in calls {
+                if call["arguments"]["job"] == "$expert" {
+                    let projection = lattice::background_aliases::Projection::recover(
+                        ctx.log(),
+                        ctx.log().snapshot_end(),
+                    )
+                    .unwrap();
+                    let identity = projection
+                        .identities()
+                        .iter()
+                        .find(|i| i.kind == lattice::background_aliases::Kind::Expert)
+                        .unwrap();
+                    call["arguments"]["job"] = json!(projection.alias(identity).unwrap());
+                }
+            }
+        }
+        ctx.emit(
+            "result",
+            EventDraft::new(ce::MODEL_CALL_COMPLETED, &[&event.id], payload),
+        );
+    }
+}
+
 #[test]
 fn cancelling_own_expert_is_audited_and_late_result_cannot_restart_work() {
+    own_expert_round_trip(false);
+}
+
+#[test]
+fn displayed_expert_alias_cancels_the_real_child_in_its_own_ledger_stream() {
+    own_expert_round_trip(true);
+}
+
+fn own_expert_round_trip(aliases: bool) {
+    let cancel = |id: &str| {
+        if aliases {
+            json!({"id":id,"tool":"CancelExpert","arguments":{"job":"$expert","reason":"requirement changed"}})
+        } else {
+            cancel_call(id, 1)
+        }
+    };
     let script = json!([
         {"status":"ok", "toolCalls":[{"id":"ask", "tool":"ask", "arguments":{"expert":"worker", "prompt":"wait"}}]},
         {"status":"ok", "text":"delegated"},
-        {"status":"ok", "toolCalls":[cancel_call("cancel", 1), cancel_call("again", 1), cancel_call("unknown", 99)]},
+        {"status":"ok", "toolCalls":[cancel("cancel"), cancel("again"), cancel_call("unknown", 99)]},
         {"status":"ok", "text":"acknowledged"}
     ]);
     let mut parent = template(script);
+    if aliases {
+        parent.factories.insert(
+            scripted_model::NAME.into(),
+            Box::new(|config| {
+                Box::new(AliasModel(
+                    config.unwrap()["script"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .cloned()
+                        .collect(),
+                ))
+            }),
+        );
+    }
     let mut kernel = Kernel::start(
         &parent.assembly,
         &parent.registry,
@@ -199,8 +266,19 @@ fn cancelling_own_expert_is_audited_and_late_result_cannot_restart_work() {
                 .iter()
                 .any(|e| e.event_type == ce::TOOL_EXEC_COMPLETED && e.payload["call"] == *id)
         });
-        if acked && events.iter().any(|e| e.event_type == ce::WAKE) {
-            break;
+        if acked {
+            let cancellation = events
+                .iter()
+                .find(|e| e.event_type == ce::TOOL_EXEC_COMPLETED && e.payload["call"] == "cancel")
+                .unwrap();
+            assert_eq!(
+                cancellation.payload["status"], "ok",
+                "{:?}",
+                cancellation.payload
+            );
+            if events.iter().any(|e| e.event_type == ce::WAKE) {
+                break;
+            }
         }
         wake.recv_timeout(Duration::from_secs(10))
             .expect("a causal host wake must arrive");

@@ -414,7 +414,11 @@ fn build_request(
 /// One material part that ANSWERS a call, as this format's `tool` message —
 /// whether the part points at the result event or carries a digest standing
 /// in for it. Shared so a result reads the same wherever it is placed.
-fn answer_message(part: &Value, log: &LogReader) -> Result<Value, String> {
+fn answer_message(
+    part: &Value,
+    log: &LogReader,
+    background_refs: &mut super::model_common::BackgroundReferences<'_>,
+) -> Result<Value, String> {
     let (id, text) = match (part["event"].as_str(), part["digest"]["of"].as_str()) {
         (Some(id), _) => (id, None),
         (None, Some(of)) => (of, part["digest"]["text"].as_str()),
@@ -439,6 +443,7 @@ fn answer_message(part: &Value, log: &LogReader) -> Result<Value, String> {
         Some(note) => note.to_string(),
         None => crate::components::model_common::completion_text_at(&event.payload, &event.id),
     };
+    let content = background_refs.annotate(&event, content)?;
     Ok(json!({"role": "tool", "tool_call_id": call, "content": content}))
 }
 
@@ -496,6 +501,7 @@ pub(crate) fn materialize_with_reasoning(
     // with no answer at all is dropped rather than replayed: presenting it as
     // if it had come back is the very thing being rejected.
     let answers = crate::components::model_common::answer_index(parts, log)?;
+    let mut background_refs = super::model_common::BackgroundReferences::new(log);
     let mut placed: std::collections::HashSet<usize> = std::collections::HashSet::new();
     let mut messages: Vec<Value> = Vec::new();
     for (at, part) in parts.iter().enumerate() {
@@ -510,13 +516,13 @@ pub(crate) fn materialize_with_reasoning(
         // A digest part: present the note instead of the original (contract
         // 02, third part kind). The note carries the recall id in its text.
         if let Some(digest) = part.get("digest") {
-            if let Some(summary) = digest["of"]
+            let original = digest["of"]
                 .as_str()
                 .map(|id| log.get(id))
                 .transpose()
                 .map_err(|e| e.to_string())?
-                .flatten()
-            {
+                .flatten();
+            if let Some(summary) = &original {
                 if let Some(native) = summary
                     .payload
                     .get("nativeCompaction")
@@ -531,24 +537,26 @@ pub(crate) fn materialize_with_reasoning(
                     continue;
                 }
             }
-            let text = digest["text"].as_str().unwrap_or_default();
+            let text = digest["text"].as_str().unwrap_or_default().to_string();
+            let text = match &original {
+                Some(event) => background_refs.annotate(event, text)?,
+                None => text,
+            };
             // A digest standing in for a tool result MUST still materialize as a
             // `tool` message: this format rejects an assistant `tool_calls`
             // message not immediately followed by a tool message for each id.
             // Context management (contract 02) may digest a tool result on its
             // own — the adapter, which knows this format's rule, repairs the
             // adjacency by re-tagging the digest as the tool reply it replaces.
-            if let Some(of) = digest["of"].as_str() {
-                if let Some(orig) = log.get(of).map_err(|e| e.to_string())? {
-                    if orig.event_type == ce::TOOL_EXEC_COMPLETED {
-                        if let Some(call) = orig.payload["call"].as_str() {
-                            messages.push(json!({
-                                "role": "tool",
-                                "tool_call_id": call,
-                                "content": text,
-                            }));
-                            continue;
-                        }
+            if let Some(orig) = original {
+                if orig.event_type == ce::TOOL_EXEC_COMPLETED {
+                    if let Some(call) = orig.payload["call"].as_str() {
+                        messages.push(json!({
+                            "role": "tool",
+                            "tool_call_id": call,
+                            "content": text,
+                        }));
+                        continue;
                     }
                 }
             }
@@ -588,7 +596,7 @@ pub(crate) fn materialize_with_reasoning(
             }
             ce::WAKE => messages.push(json!({
                 "role": "user",
-                "content": crate::components::model_common::wake_text(&event.payload),
+                "content": background_refs.wake(&event)?,
             })),
             ce::MODEL_CALL_COMPLETED => {
                 let text = event.payload["text"].as_str().unwrap_or_default();
@@ -675,7 +683,11 @@ pub(crate) fn materialize_with_reasoning(
                 // The results, right here, in the order their calls were made
                 for id in ids {
                     if let Some(&answer_at) = answers.get(&id) {
-                        messages.push(answer_message(&parts[answer_at], log)?);
+                        messages.push(answer_message(
+                            &parts[answer_at],
+                            log,
+                            &mut background_refs,
+                        )?);
                         placed.insert(answer_at);
                     }
                 }
@@ -690,7 +702,7 @@ pub(crate) fn materialize_with_reasoning(
             ce::INTERRUPTED | ce::TOOL_EXEC_COMPLETED
                 if crate::components::model_common::is_chosen_answer(&answers, parts, at, log)? =>
             {
-                messages.push(answer_message(part, log)?);
+                messages.push(answer_message(part, log, &mut background_refs)?);
             }
             // Started events and control events carry no message content
             _ => {}

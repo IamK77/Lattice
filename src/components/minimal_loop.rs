@@ -305,6 +305,8 @@ impl Component for MinimalLoop {
                         self.pending_unnamed = calls.len() - self.pending_calls.len();
                         self.gathered.clear();
                         self.only_wait_receipts = true;
+                        let mut references =
+                            crate::background_aliases::operations::Resolver::default();
                         for call in calls {
                             // A dispatcher call carries a DEFERRED tool inside:
                             // unwrap mechanically (same call id, no policy) so
@@ -319,14 +321,13 @@ impl Component for MinimalLoop {
                             } else {
                                 (call["tool"].clone(), call["arguments"].clone())
                             };
+                            let mut request =
+                                json!({"call": call["id"], "tool": tool, "arguments": arguments});
+                            references.normalize(ctx.log(), &mut request);
                             ctx.emit(
-                            "run",
-                            EventDraft::new(
-                                ce::TOOL_EXEC_STARTED,
-                                &[&event.id],
-                                json!({"call": call["id"], "tool": tool, "arguments": arguments}),
-                            ),
-                        );
+                                "run",
+                                EventDraft::new(ce::TOOL_EXEC_STARTED, &[&event.id], request),
+                            );
                         }
                     }
                     _ => {

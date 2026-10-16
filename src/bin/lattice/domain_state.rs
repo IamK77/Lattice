@@ -152,7 +152,8 @@ impl<T: TurnState, B: BackgroundState<T::Clock>> Domain<T, B> {
         let new_turn = measure!(Stage::Bookkeeping, {
             let new_turn = self.note_turn_boundary(event, clock);
             self.authorizations.observe(event);
-            self.unseen.observe(event);
+            self.unseen
+                .observe(event, self.event_inputs.background_reference.as_ref());
             self.note_listing(event);
             self.note_model_swap(event);
             new_turn
@@ -255,7 +256,30 @@ impl<T: TurnState, B: BackgroundState<T::Clock>> Domain<T, B> {
         let Some(mut mutation) = background_state::interpret(event, request) else {
             return;
         };
+        let scoped_target = match &mutation {
+            Mutation::Cancel(key) if self.event_inputs.scoped_background_operation => Some(key),
+            Mutation::Wake(key) if self.event_inputs.background_reference.is_some() => Some(key),
+            _ => None,
+        };
+        if let Some(key) = scoped_target {
+            // Late notifications and authorized operations can outlive their
+            // invocation. A reused provider number is not the same target.
+            if !self.background.history().rows().iter().any(|row| {
+                row.key == *key
+                    && row
+                        .reference
+                        .as_ref()
+                        .zip(self.event_inputs.background_reference.as_ref())
+                        .is_some_and(|(current, target)| current.identity == target.identity)
+            }) {
+                return;
+            }
+        }
         if let Mutation::Start(row) = &mut mutation {
+            if self.event_inputs.background_superseded {
+                return;
+            }
+            row.reference = self.event_inputs.background_reference.clone();
             if row.kind == "expert" {
                 if let (Some(dir), Some(job)) =
                     (self.expert_dir.as_ref(), row.key.rsplit(':').next())

@@ -23,6 +23,10 @@
 //! fired is done; an unfired one-shot is fire-and-forget and not resurrected.
 
 use super::subscription_history::{self as recovery, Kind};
+use crate::background_aliases::{
+    operations::{self, LiveTargets},
+    Kind as BackgroundKind,
+};
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -61,10 +65,10 @@ pub fn tool_decls() -> Vec<Value> {
         }),
         json!({
             "name": "Unschedule",
-            "description": "Cancel a timer by its id; a repeating timer stops firing.",
+            "description": "Cancel a timer by its exact short reference in this stream or its legacy numeric id; a repeating timer stops firing.",
             "parameters": {
                 "type": "object",
-                "properties": {"timer": {"type": "integer"}},
+                "properties": {"timer": {"oneOf":[{"type":"integer"},{"type":"string","pattern":"^[0-9a-f]{8,64}$"}]}},
                 "required": ["timer"],
             },
             "effects": {"reversible": true},
@@ -107,6 +111,7 @@ pub struct TimerTools {
     next_id: u64,
     /// Shared with every timing thread; an id here means "stop firing"
     cancelled: Arc<Mutex<HashSet<u64>>>,
+    targets: LiveTargets,
     exclusive: bool,
 }
 
@@ -115,6 +120,7 @@ impl TimerTools {
         Self {
             next_id: 1,
             cancelled: Arc::default(),
+            targets: LiveTargets::default(),
             exclusive: config
                 .and_then(|c| c.get("exclusive"))
                 .and_then(Value::as_bool)
@@ -133,7 +139,9 @@ impl TimerTools {
         let injector = ctx.injector();
         let cancelled = Arc::clone(&self.cancelled);
         let started = started_id.to_string();
+        let target = self.targets.track(id, started_id);
         std::thread::spawn(move || {
+            let _target = target;
             std::thread::sleep(Duration::from_millis(delay));
             if stopped(&cancelled, id) {
                 return;
@@ -170,7 +178,9 @@ impl TimerTools {
         let injector = ctx.injector();
         let cancelled = Arc::clone(&self.cancelled);
         let started = started_id.to_string();
+        let target = self.targets.track(id, started_id);
         std::thread::spawn(move || {
+            let _target = target;
             let mut n = done;
             while n < max_fires {
                 std::thread::sleep(Duration::from_millis(interval));
@@ -254,7 +264,16 @@ impl Component for TimerTools {
         let args = &event.payload["arguments"];
         let mut payload = match tool {
             "Schedule" => self.schedule(args, &event.id, ctx),
-            "Unschedule" => self.unschedule(args),
+            "Unschedule" => match operations::validate(
+                &event.payload,
+                &event.stream,
+                BackgroundKind::Timer,
+                args["timer"].as_u64(),
+                self.targets.creation(args["timer"].as_u64()).as_deref(),
+            ) {
+                Ok(()) => self.unschedule(args),
+                Err(message) => operations::failure(message),
+            },
             _ => json!({"status": "error", "error": {
                 "code": "tool.unknown",
                 "message": format!("unknown tool: {tool}"),

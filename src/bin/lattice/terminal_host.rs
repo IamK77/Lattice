@@ -843,6 +843,9 @@ fn panel_rows(at: (usize, usize), view: &dyn View, width: usize) -> Vec<(String,
 
 /// Prepare panel contents at their existing read boundaries, then compose.
 fn panel_lines(at: (usize, usize), view: &dyn View, width: usize) -> Vec<Line<'static>> {
+    if at == AT_BACKGROUND {
+        return panels::background::lines(view, width);
+    }
     if at == panels::AT_EXPERTS {
         return panels::experts::lines(view, width);
     }
@@ -6972,6 +6975,7 @@ mod tests {
         u.domain.background.fixture_push(view::Live {
             kind: "expert",
             key: "expert:1".to_string(),
+            reference: None,
             label: "explorer".to_string(),
             standing: false,
             fires: 0,

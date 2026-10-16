@@ -19,7 +19,11 @@ impl Unseen {
     pub fn restore(&mut self, lines: Vec<String>) {
         self.lines = lines;
     }
-    pub fn observe(&mut self, event: &EventEnvelope) {
+    pub fn observe(
+        &mut self,
+        event: &EventEnvelope,
+        reference: Option<&lattice::background_aliases::Reference>,
+    ) {
         match event.event_type.as_str() {
             ce::USER_MESSAGE if event.causes.is_empty() => {
                 if let Some(text) = event.payload["text"].as_str() {
@@ -28,6 +32,9 @@ impl Unseen {
             }
             ce::WAKE => {
                 let source = event.payload["source"].as_str().unwrap_or("wake");
+                let source = reference
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| source.to_owned());
                 self.lines.push(format!("{source} ↯"));
             }
             // Unlike turn activity and usage, every request clears this list,

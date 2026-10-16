@@ -25,6 +25,34 @@ fn record(index: usize) -> Record {
 }
 
 #[test]
+fn a_secondary_identity_can_select_an_older_same_key_across_pages() {
+    for disk in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let mut pages = Pages::open(disk.then(|| dir.path().to_path_buf()), Vec::new(), 0).unwrap();
+        for index in 0..=PAGE_RECORDS {
+            let mut row = record(index);
+            if index == 0 || index == PAGE_RECORDS {
+                row.call = "reused".into();
+            }
+            pages.push(row).unwrap();
+        }
+        assert_eq!(pages.find_last("reused").unwrap(), Some(PAGE_RECORDS));
+        assert_eq!(
+            pages
+                .find_last_where("reused", |row| row.source == "source-0")
+                .unwrap(),
+            Some(0)
+        );
+        assert_eq!(
+            pages
+                .find_last_where("reused", |row| row.source == "missing")
+                .unwrap(),
+            None
+        );
+    }
+}
+
+#[test]
 fn dirty_tail_is_batched_and_bloom_false_positives_still_compare_full_identity() {
     let temp = tempfile::tempdir().unwrap();
     let mut pages = Pages::open(Some(temp.path().into()), Vec::new(), 0).unwrap();

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::components::subscription_history::{Restored, Subscription};
 use crate::{core_events as ce, EventEnvelope, LogReader};
 
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 
 #[derive(Clone, Copy)]
 pub(in crate::components) enum Kind {
@@ -112,6 +112,11 @@ fn fold(
     let initial_next = state.next_id;
     let mut starts = HashMap::new();
     let mut assigned = HashMap::new();
+    // Alias requests retain their target incarnation. This changes neither
+    // legacy numeric cancellation nor request-based cancellation timing.
+    // A later assignment of an earlier request already forces a cold rebuild,
+    // so unassigned scoped cancellations need no additional tombstone cache.
+    let mut scoped_cancelled = BTreeSet::new();
     let mut late = false;
     reader.try_visit_header_range(previous + 1, through, |batch| {
         for header in batch {
@@ -126,7 +131,30 @@ fn fold(
                 ce::TOOL_EXEC_STARTED if header.tool.as_deref() == Some(stop_tool) => {
                     let event = reads.get(reader, &header.id)?;
                     if let Some(id) = event.payload["arguments"][id_field].as_u64() {
-                        state.future_cancelled.insert(id);
+                        use crate::background_aliases::{operations, Kind as BackgroundKind};
+                        match operations::reference(&event.payload) {
+                            Ok(Some(reference)) => {
+                                let target_kind = match kind {
+                                    Kind::Timer => BackgroundKind::Timer,
+                                    Kind::Watch => BackgroundKind::Watch,
+                                };
+                                if operations::validate(
+                                    &event.payload,
+                                    reader.stream(),
+                                    target_kind,
+                                    Some(id),
+                                    Some(&reference.identity.created_by),
+                                )
+                                .is_ok()
+                                {
+                                    scoped_cancelled.insert((id, reference.identity.created_by));
+                                }
+                            }
+                            Ok(None) => {
+                                state.future_cancelled.insert(id);
+                            }
+                            Err(_) => {} // Malformed alias metadata cannot select a numeric target.
+                        }
                     }
                 }
                 ce::WAKE => {
@@ -203,9 +231,11 @@ fn fold(
             .fired
             .max(state.future_fired.get(&timer.id).copied().unwrap_or(0));
     }
-    state
-        .live
-        .retain(|timer| !state.future_cancelled.contains(&timer.id) && timer.fired < timer.limit);
+    state.live.retain(|timer| {
+        !state.future_cancelled.contains(&timer.id)
+            && !scoped_cancelled.contains(&(timer.id, timer.cause.clone()))
+            && timer.fired < timer.limit
+    });
     state.future_cancelled.retain(|id| *id >= state.next_id);
     state.future_fired.retain(|id, _| *id >= state.next_id);
     Ok(false)

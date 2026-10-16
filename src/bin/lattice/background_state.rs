@@ -11,6 +11,7 @@ mod tests;
 pub(super) struct HistoricalRow {
     pub kind: &'static str,
     pub key: String,
+    pub reference: Option<lattice::background_aliases::Reference>,
     pub label: String,
     pub standing: bool,
     pub fires: usize,
@@ -22,6 +23,7 @@ impl HistoricalRow {
         Live {
             kind: self.kind,
             key: self.key.clone(),
+            reference: self.reference.clone(),
             label: self.label.clone(),
             standing: self.standing,
             fires: self.fires,
@@ -37,6 +39,7 @@ impl HistoricalRow {
         Self {
             kind: row.kind,
             key: row.key.clone(),
+            reference: row.reference.clone(),
             label: row.label.clone(),
             standing: row.standing,
             fires: row.fires,
@@ -294,6 +297,7 @@ pub(super) fn started(tool: &str, args: &Value, result: &Value) -> Option<Histor
     Some(HistoricalRow {
         kind,
         key,
+        reference: None,
         label,
         standing,
         fires: 0,

@@ -10,6 +10,8 @@ fn recover(reader: &LogReader) -> io::Result<Recovery> {
     super::recover(reader, Kind::Timer)
 }
 
+#[path = "alias_tests.rs"]
+mod aliases;
 mod watches;
 
 fn open(root: &Path) -> EventLog {

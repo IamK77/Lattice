@@ -292,11 +292,21 @@ impl<T: Item> Pages<T> {
     /// Bloom hints only skip definite misses; every candidate compares the full
     /// lookup identity, and a failed page read is never treated as a miss.
     pub fn find_last(&self, call: &str) -> io::Result<Option<usize>> {
+        self.find_last_where(call, |_| true)
+    }
+
+    /// The lookup key narrows candidates; a caller can require an additional
+    /// identity witness without scanning unrelated pages or retaining bodies.
+    pub fn find_last_where(
+        &self,
+        call: &str,
+        matches: impl Fn(&T) -> bool,
+    ) -> io::Result<Option<usize>> {
         if self.root.is_none() {
             return Ok(self
                 .memory
                 .iter()
-                .rposition(|record| record.lookup_key() == Some(call)));
+                .rposition(|record| record.lookup_key() == Some(call) && matches(record)));
         }
         let mask = key_mask(call);
         let count = self.slots.borrow().len();
@@ -318,7 +328,7 @@ impl<T: Item> Pages<T> {
             if let Some(offset) = cached
                 .records
                 .iter()
-                .rposition(|record| record.lookup_key() == Some(call))
+                .rposition(|record| record.lookup_key() == Some(call) && matches(record))
             {
                 return Ok(Some(slot.first + offset));
             }

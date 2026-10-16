@@ -2,6 +2,9 @@ use super::*;
 use lattice::view::{Entry, Live, ModelForm, ModelRow, ModelView, View};
 use std::borrow::Cow;
 
+#[path = "background_tests.rs"]
+mod background_aliases;
+
 #[derive(Default)]
 struct Fixture {
     models: ModelView,
@@ -205,6 +208,7 @@ fn background_groups_keep_running_work_separate_from_armed_arrangements() {
     let item = |key: &str, standing: bool, ledger: Option<String>, tokens| Live {
         kind: "test",
         key: key.into(),
+        reference: None,
         label: "label".into(),
         standing,
         fires: 3,

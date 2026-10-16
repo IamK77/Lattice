@@ -5,6 +5,7 @@ fn row(key: &str, standing: bool, label: &str) -> HistoricalRow {
     HistoricalRow {
         kind: "timer",
         key: key.into(),
+        reference: None,
         label: label.into(),
         standing,
         fires: 3,

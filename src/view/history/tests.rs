@@ -216,6 +216,61 @@ fn warm_card_recovery_does_not_load_old_recipe_pages_and_reads_only_selected_car
 }
 
 #[test]
+fn causal_updates_reject_other_creations_and_v3_raw_call_projection_is_discarded() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut log = EventLog::open_segmented(
+        declarations(),
+        "owner",
+        dir.path().join("incarnations.ledger"),
+        4096,
+    )
+    .unwrap();
+    let old = append(&mut log, ce::TOOL_EXEC_STARTED, start(json!("same"), "Run"));
+    log.append(
+        EventDraft::new(
+            ce::TOOL_EXEC_COMPLETED,
+            &[&old.id],
+            json!({"call":"same","status":"ok","result":{"background":true,"job":"same"}}),
+        ),
+        "fixture",
+    )
+    .unwrap();
+    let new = append(&mut log, ce::TOOL_EXEC_STARTED, start(json!("same"), "Run"));
+    log.append(
+        EventDraft::new(
+            ce::TOOL_EXEC_COMPLETED,
+            &[&new.id],
+            json!({"call":"same","status":"ok","result":{"background":true,"job":"same"}}),
+        ),
+        "fixture",
+    )
+    .unwrap();
+    let old_wake = log
+        .append(
+            EventDraft::new(ce::WAKE, &[&old.id], wake("same", json!({"exit_code":9}))),
+            "fixture",
+        )
+        .unwrap();
+    let reader = log.reader();
+    reader
+        .save_checkpoint(CONSUMER, 3, reader.snapshot_end(), &State::default())
+        .unwrap();
+    let history = History::recover(reader.clone(), reader.snapshot_end()).unwrap();
+    assert_eq!(
+        history.len(),
+        2,
+        "raw-call-only checkpoints must be rebuilt"
+    );
+    let mut poisoned = history.pages.get(1).unwrap();
+    poisoned.wake = Some(old_wake.id);
+    assert!(history
+        .materialize(&poisoned)
+        .unwrap_err()
+        .to_string()
+        .contains("another request incarnation"));
+}
+
+#[test]
 fn invalid_recipe_sources_and_updates_are_errors_not_missing_cards() {
     let mut log = EventLog::in_memory(declarations(), "cards");
     let source = append(&mut log, ce::TOOL_EXEC_STARTED, start(json!("one"), "Run"));

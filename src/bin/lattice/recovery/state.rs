@@ -39,6 +39,8 @@ pub(super) struct State {
 struct Standing {
     kind: String,
     key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    reference: Option<lattice::background_aliases::Reference>,
     label: String,
     standing: bool,
     fires: usize,
@@ -128,6 +130,7 @@ impl State {
                 .map(|live| Standing {
                     kind: live.kind.into(),
                     key: live.key.clone(),
+                    reference: live.reference.clone(),
                     label: live.label.clone(),
                     standing: live.standing,
                     fires: live.fires,
@@ -177,6 +180,7 @@ impl State {
                 Ok(crate::terminal_host::background_state::HistoricalRow {
                     kind,
                     key: live.key,
+                    reference: live.reference,
                     label: live.label,
                     standing: live.standing,
                     fires: live.fires,

@@ -159,6 +159,7 @@ struct JobState {
 }
 
 struct RunningJob {
+    started: String,
     stop: StopHandle,
     state: Arc<Mutex<JobState>>,
     thread: std::thread::JoinHandle<()>,
@@ -233,6 +234,27 @@ impl SubagentHost {
             return;
         };
         let job = event.payload["job"].as_u64().unwrap_or(0);
+        let creation = self
+            .running
+            .get(&(parent.to_string(), job))
+            .map(|running| running.started.as_str());
+        // Host routing names need not equal ledger stream IDs (MainAndChildren
+        // can name its main kernel independently). References belong to the ledger.
+        if let Err(message) = crate::background_aliases::operations::validate(
+            &event.payload,
+            &event.stream,
+            crate::background_aliases::Kind::Expert,
+            Some(job),
+            creation,
+        ) {
+            let mut payload = crate::background_aliases::operations::failure(message);
+            payload["call"] = event.payload["call"].clone();
+            back.emit(
+                "outcome",
+                EventDraft::new(ce::TOOL_EXEC_COMPLETED, &[started], payload),
+            );
+            return;
+        }
         let reason = event.payload["reason"]
             .as_str()
             .unwrap_or("expert cancelled");
@@ -326,6 +348,7 @@ impl SubagentHost {
         self.running.insert(
             (parent.to_string(), job),
             RunningJob {
+                started: started.to_owned(),
                 stop,
                 state,
                 thread,

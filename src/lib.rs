@@ -1,3 +1,4 @@
+pub mod background_aliases;
 pub mod checkpoint;
 pub mod components;
 pub mod conformance;
