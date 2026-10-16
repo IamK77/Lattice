@@ -108,6 +108,34 @@ export LATTICE_MODEL_KEY
 
 Keep this terminal open and launch Lattice using [First conversation](getting-started.md#2-connect-a-model).
 
+## Local system prompt supplements
+
+To add text you have authored for one catalog entry, set its `profile.systemPromptSupplement` to a JSON string in `models.json`. For example, this **profile fragment** enables the field without providing any instructions:
+
+```json
+{
+  "systemPromptSupplement": ""
+}
+```
+
+Replace the empty string with your own text. Lattice does not ship model-specific prompt supplements or choose their wording. Omit the field or use `""` to add nothing; `null`, numbers, booleans, arrays and objects are invalid and are rejected when the entry is assembled or selected. Whitespace-only strings are not empty and are preserved.
+
+The selected catalog entry supplies the text, not a lookup by model name. Two entries can use the same API format, endpoint, model and key variable while carrying different supplements. Other profile fields still inherit the built-in model profile unless overridden locally.
+
+### Placement and lifetime
+
+For ordinary conversation requests, Lattice assembles its common system sections first and appends the supplement once, separated from nonempty common text by two newlines. Existing `{model}` substitutions apply to common sections **before** the supplement is appended. The supplement itself is literal: whitespace, newlines and `{model}` remain as authored. An explicit system prompt supplied by an upstream component replaces the common sections, not the supplement; it is also left literal and does not become the cached base of later requests.
+
+The file is read at startup/reopen and when a model selection succeeds. Editing it alone does not change a running conversation: reopen the conversation or select the edited entry again. A successful switch replaces the old supplement on the next ordinary request even when the provider cache is warm. Selecting an entry without a supplement removes the old one. Changing a prompt can invalidate the provider's cached prefix and increase input cost. Historical prompts remain in the ledger; reloading does not rewrite them.
+
+### Inspection and internal requests
+
+Run `lattice prompt` to inspect the prompt assembled from the configuration selected by that **new command invocation**. It sends no model request, but it is not a view into another running session's cached prompt. For the exact prompt used by a conversation, inspect the context gate's forwarded `core.model.call_started` event: `system` contains the text or a reference to a document beside the ledger.
+
+Internal requests marked with `purpose` do not receive the ordinary supplement through the gate. Text summaries use their own condenser instructions. Provider-native compaction is different: it retains the effective system prompt of the request being compacted, including any supplement already present, without appending it again. Automatic compaction uses the triggering request; manual compaction uses the last forwarded ordinary request, even if an entry was changed before another ordinary request was sent.
+
+The supplement is sent to the selected service and retained in the conversation audit. Do not put credentials or other secrets in it.
+
 <a id="credential-and-terminal-limitations"></a>
 
 ## Key storage and terminal use

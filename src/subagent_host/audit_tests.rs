@@ -212,6 +212,7 @@ fn a_quiet_expert_waits_for_external_input_instead_of_reporting_an_empty_answer(
         context_window: 64000,
         usage_input_field: "input_tokens".into(),
         profile: None,
+        entry_id: None,
         catalog_problems: Vec::new(),
         system: "test".into(),
         scripted: Some(json!({"script": []})),

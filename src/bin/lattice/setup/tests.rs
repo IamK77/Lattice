@@ -238,6 +238,7 @@ fn cfg() -> PresetConfig {
         context_window: 1000,
         usage_input_field: "prompt_tokens".into(),
         profile: None,
+        entry_id: None,
         catalog_problems: vec![],
         system: "preserve system".into(),
         thinking: None,
@@ -434,7 +435,7 @@ fn confirmed_capabilities_reach_runtime_configuration_not_only_the_catalog() {
     assert_eq!(launch.usage_input_field, "custom.input");
     let running = lattice::preset::running_entry(&launch);
     assert!(running.accepts_images());
-    let gate = lattice::preset::model_profile(&launch);
+    let gate = lattice::preset::model_profile(&launch).unwrap();
     assert_eq!(gate["contextWindow"], 8192);
     assert_eq!(gate["usageFields"]["input"], "custom.input");
     let model = lattice::preset::main_model_config(&running, launch.thinking.as_ref());

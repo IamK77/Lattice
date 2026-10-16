@@ -11,6 +11,8 @@ use serde_json::{json, Value};
 
 #[path = "context/manual.rs"]
 mod manual;
+#[path = "context/model_prompt.rs"]
+mod model_prompt;
 
 use lattice::components::model_common::verify_fingerprint;
 use lattice::components::{context_gate, minimal_loop, scripted_model, silent_ui, timer_tools};

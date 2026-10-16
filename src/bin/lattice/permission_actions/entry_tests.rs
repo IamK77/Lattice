@@ -32,6 +32,7 @@ fn fixture() -> (Ui, Live) {
         context_window: 64_000,
         usage_input_field: "input_tokens".into(),
         profile: None,
+        entry_id: None,
         catalog_problems: vec![],
         system: "Permission test".into(),
         thinking: None,

@@ -265,6 +265,7 @@ fn the_standard_assembly_merges_its_overlay() {
         context_window: 64000,
         usage_input_field: "input_tokens".to_string(),
         profile: None,
+        entry_id: None,
         catalog_problems: Vec::new(),
         system: "test".to_string(),
         scripted: Some(json!({"script": []})),

@@ -197,6 +197,15 @@ impl Operations<'_> {
         }
     }
 
+    fn is_running_id(&self, id: &str) -> bool {
+        self.model.running().id == id
+            || self
+                .model
+                .catalog()
+                .current()
+                .is_some_and(|row| row.id == id)
+    }
+
     fn ask_delete(&mut self) -> Outcome {
         let row = self
             .model
@@ -208,12 +217,10 @@ impl Operations<'_> {
             None => Outcome::Quiet,
             // The running row would outlive its file entry, leaving the panel
             // describing a model that no longer exists anywhere else.
-            Some(row) if Some(self.panel.selected_row()) == self.model.catalog().now => {
-                Outcome::Message(format!(
-                    "{} is the model this conversation is using — switch away first",
-                    row.id
-                ))
-            }
+            Some(row) if self.is_running_id(&row.id) => Outcome::Message(format!(
+                "{} is the model this conversation is using — switch away first",
+                row.id
+            )),
             Some(row) => {
                 self.controls.ask_delete(row.id);
                 Outcome::Quiet
@@ -223,6 +230,11 @@ impl Operations<'_> {
 
     fn confirm_delete(&mut self) -> Outcome {
         let id = self.controls.take_deletion().unwrap_or_default();
+        if self.is_running_id(&id) {
+            return Outcome::Message(format!(
+                "{id} is the model this conversation is using — switch away first"
+            ));
+        }
         // Capture before removal: no backup is kept, so the post-write catalog
         // can no longer explain which endpoint and key name were deleted.
         let note = self

@@ -1,6 +1,32 @@
 use super::*;
 
 #[test]
+fn selected_identity_wins_among_connection_aliases_and_distinct_profiles() {
+    let running = models::Entry {
+        id: "entry-b".into(),
+        adapter: "openai".into(),
+        model: "synthetic".into(),
+        base_url: "http://local".into(),
+        key_env: "UNSET_PROFILE_TEST_KEY".into(),
+        profile: Some(serde_json::json!({"systemPromptSupplement":"SYNTHETIC_B"})),
+    };
+    for different_profile in [false, true] {
+        let mut first = running.clone();
+        first.id = "entry-a".into();
+        if different_profile {
+            first.profile = Some(serde_json::json!({"systemPromptSupplement":"SYNTHETIC_A"}));
+        }
+        let view = from_entries(vec![first, running.clone()], &running);
+        assert_eq!(
+            view.now,
+            Some(1),
+            "selected entry, not first matching model/connection"
+        );
+        assert_eq!(view.rows[view.now.unwrap()].id, "entry-b");
+    }
+}
+
+#[test]
 fn the_marked_row_is_the_one_requests_go_to_not_the_first_of_that_name() {
     let seat = |id: &str, base_url: &str| models::Entry {
         id: id.to_string(),

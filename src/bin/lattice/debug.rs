@@ -104,6 +104,7 @@ pub(crate) fn run_debug_tui(args: Vec<String>) -> std::io::Result<()> {
         context_window: 64000,
         usage_input_field: "input_tokens".to_string(),
         profile: None,
+        entry_id: None,
         catalog_problems: Vec::new(),
         system: "debug".to_string(),
         scripted: Some(replies),

@@ -199,6 +199,12 @@ pub(super) fn prompt() -> std::io::Result<()> {
         Some(&cfg.model),
     )
     .unwrap_or_default();
+    let supplement = lattice::preset::running_entry(&cfg)
+        .system_prompt_supplement()
+        .map_err(std::io::Error::other)?;
+    let system =
+        lattice::components::context_gate::supplement_system(Some(system), supplement.as_deref())
+            .unwrap_or_default();
     println!("{system}");
 
     // Show the effective wire setting and the model's declared effort rungs,

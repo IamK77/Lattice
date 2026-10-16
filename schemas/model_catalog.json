@@ -49,6 +49,10 @@
             "type": "object",
             "description": "This model's temperament, written here for a model no Lattice binary ships a profile for. The same fields as schemas/model_profile.json minus `model`, which the entry already names. Merged FIELD BY FIELD over any shipped profile of the same model: what you write wins, what you leave out is inherited. Without this, a hand-added model has no context window (so it is budgeted against the startup fallback of a million tokens), no effort rungs, and the wrong usage-field names.",
             "properties": {
+              "systemPromptSupplement": {
+                "type": "string",
+                "description": "User-authored system-prompt supplement for this entry, even when another entry names the same model. Appended verbatim; absent or empty adds nothing. Non-string values are configuration errors."
+              },
               "contextWindow": {
                 "type": "integer",
                 "minimum": 1

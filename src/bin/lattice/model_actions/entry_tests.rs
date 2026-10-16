@@ -32,6 +32,7 @@ fn fixture() -> (Ui, Live) {
         context_window: 64_000,
         usage_input_field: "input_tokens".into(),
         profile: None,
+        entry_id: None,
         catalog_problems: Vec::new(),
         system: "Test model.".into(),
         thinking: None,
@@ -195,6 +196,85 @@ fn fill_form(ui: &mut Ui) {
         assert!(ui.controls.paste_form(value));
         ui.controls.next_field();
     }
+}
+
+fn running_identity_protects_an_edited_catalog_row(at_confirmation: bool) {
+    test_support::isolated(|| {
+        let (mut ui, live) = fixture();
+        let path = lattice::models::path().unwrap();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let document = json!({"models":{"selected-entry":{
+            "adapter":"openai", "model":"synthetic", "baseUrl":"http://local",
+            "apiKeyEnv":"UNSET_PROFILE_TEST_KEY", "profile":{"systemPromptSupplement":"SYNTHETIC_EDITED"}
+        }}}).to_string();
+        std::fs::write(&path, &document).unwrap();
+        let catalog = model_catalog::load(ui.domain.model.running());
+        ui.domain.model.install_catalog(catalog);
+        if at_confirmation {
+            run_slash(&mut ui, "/model", Some(live.session()));
+            let row = ui
+                .domain
+                .model
+                .catalog()
+                .rows
+                .iter()
+                .position(|row| row.id == "selected-entry")
+                .unwrap();
+            ui.panel.select_row(row);
+            press(&mut ui, &live, KeyCode::Char('d'));
+            assert_eq!(ui.controls.deletion(), Some("selected-entry"));
+        }
+        let running = lattice::models::Entry {
+            id: "selected-entry".into(),
+            adapter: "openai".into(),
+            model: "synthetic".into(),
+            base_url: "http://local".into(),
+            key_env: "UNSET_PROFILE_TEST_KEY".into(),
+            profile: Some(json!({"systemPromptSupplement":"SYNTHETIC_ACTIVE"})),
+        };
+        ui.domain.model = model_state::ModelState::new(
+            model_catalog::load(&running),
+            running,
+            EffortView {
+                rungs: vec![],
+                now: None,
+            },
+            None,
+        );
+        assert_ne!(
+            ui.domain.model.catalog().current().unwrap().id,
+            "selected-entry",
+            "the running profile needs a synthetic row after the local profile changes"
+        );
+        if at_confirmation {
+            press(&mut ui, &live, KeyCode::Char('y'));
+        } else {
+            run_slash(&mut ui, "/model", Some(live.session()));
+            let row = ui
+                .domain
+                .model
+                .catalog()
+                .rows
+                .iter()
+                .position(|row| row.id == "selected-entry")
+                .unwrap();
+            ui.panel.select_row(row);
+            press(&mut ui, &live, KeyCode::Char('d'));
+        }
+        assert!(ui.controls.deletion().is_none());
+        assert!(ui.flash.as_deref().unwrap().contains("switch away"));
+        assert_eq!(std::fs::read_to_string(path).unwrap(), document);
+    });
+}
+
+#[test]
+fn an_edited_profile_does_not_make_the_running_catalog_entry_deletable() {
+    running_identity_protects_an_edited_catalog_row(false);
+}
+
+#[test]
+fn deletion_rechecks_running_identity_when_confirmation_arrives() {
+    running_identity_protects_an_edited_catalog_row(true);
 }
 
 #[test]

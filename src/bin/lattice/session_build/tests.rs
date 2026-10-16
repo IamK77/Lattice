@@ -15,6 +15,7 @@ fn config(root: &std::path::Path) -> PresetConfig {
         context_window: 64_000,
         usage_input_field: "input_tokens".into(),
         profile: None,
+        entry_id: None,
         catalog_problems: Vec::new(),
         system: "Offline startup fixture.".into(),
         thinking: None,

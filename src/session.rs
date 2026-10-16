@@ -155,7 +155,7 @@ fn running_model(kernel: &Kernel) -> Result<(crate::models::Entry, Option<Value>
     }
     Ok((
         crate::models::Entry {
-            id: model.to_string(),
+            id: config["entryId"].as_str().unwrap_or(model).to_string(),
             adapter: crate::preset::adapter_of(&instance.component).to_string(),
             model: model.to_string(),
             base_url: field("baseUrl").to_string(),
@@ -182,7 +182,10 @@ fn refuse_swap(
     entry: &crate::models::Entry,
     key_present: bool,
 ) -> Option<String> {
-    if entry.same_target(running) {
+    if let Err(problem) = entry.system_prompt_supplement() {
+        return Some(problem);
+    }
+    if entry.same_configuration(running) {
         return Some(format!("already running {} — nothing changed", entry.model));
     }
     if !key_present {
@@ -210,6 +213,7 @@ fn swap_model(kernel: &mut Kernel, id: &str) -> Result<Swapped, String> {
         return Err(problem);
     }
 
+    let supplement = entry.system_prompt_supplement()?;
     let component = crate::preset::brain_name(&entry.adapter);
     let reason = format!(
         "the user chose the model \"{}\" ({} at {})",
@@ -254,6 +258,7 @@ fn swap_model(kernel: &mut Kernel, id: &str) -> Result<Swapped, String> {
     let mut dialed = json!({
         "channel": crate::components::context_gate::MODEL_CHANNEL,
         "model": entry.model,
+        "systemPromptSupplement": supplement,
         "usageFields": entry.usage_fields(),
         "nativeCompaction": crate::components::model_compat::native_compaction(&entry.adapter, &entry.base_url),
         "nativeTarget": {"model": entry.model, "baseUrl": entry.base_url},

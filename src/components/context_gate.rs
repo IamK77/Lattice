@@ -28,6 +28,7 @@
 use std::collections::HashSet;
 
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 
 use crate::components::model_common::material_fingerprint;
 use crate::contracts::component::{ComponentManifest, PortDecl, RuntimeKind};
@@ -243,6 +244,19 @@ pub fn assemble_system(
     })
 }
 
+/// Append selected-profile text after ordinary assembly/template processing.
+/// An absent or empty supplement preserves the original option and bytes.
+/// Authored whitespace and placeholders are not rewritten.
+pub fn supplement_system(system: Option<String>, supplement: Option<&str>) -> Option<String> {
+    let Some(supplement) = supplement.filter(|text| !text.is_empty()) else {
+        return system;
+    };
+    Some(match system {
+        Some(system) if !system.is_empty() => format!("{system}\n\n{supplement}"),
+        _ => supplement.to_owned(),
+    })
+}
+
 pub fn manifest() -> ComponentManifest {
     ComponentManifest {
         name: NAME.to_string(),
@@ -350,6 +364,9 @@ pub struct ContextGate {
     /// fragments land in the middle, so anything that belongs at the end —
     /// standing rules, the last word — has nowhere else to go.
     system_tail: Option<String>,
+    /// Selected-entry data, loaded with the assembly and replaced on a live
+    /// model selection. Historical dials must not override newly loaded data.
+    system_supplement: Option<String>,
     /// The thinking setting a person turned mid-conversation, stamped onto
     /// every ask from then on. `None` until someone turns it — the adapter's
     /// own config is what runs until then, so a session nobody touches
@@ -407,6 +424,11 @@ impl ContextGate {
                 .and_then(Value::as_str)
                 .map(str::to_string),
             thinking: None,
+            system_supplement: profile
+                .and_then(|p| p.get("systemPromptSupplement"))
+                .and_then(Value::as_str)
+                .filter(|text| !text.is_empty())
+                .map(str::to_owned),
             model_name: get("modelName").and_then(Value::as_str).map(str::to_string),
             system_tail: get("systemTail")
                 .and_then(Value::as_str)
@@ -491,13 +513,15 @@ impl ContextGate {
 
     /// The system text of the last MAIN call this gate forwarded (no purpose
     /// marker, system stamped), read off the ledger — no memory, restart-safe.
-    fn last_forwarded_system(&self, ctx: &Ctx) -> Result<Option<String>, String> {
-        // The prompt itself, not the reference to it. Past a size it lives in
-        // a file beside the ledger, and comparing a reference against the
-        // prompt about to be sent would read as "it changed" on every turn.
-        // Resolved outside the scan, because the closure runs under the read
-        // lock and reading a file there would hold it for no reason.
-        let Some(id) = self.observation(ctx.log(), |state| state.system_request.clone())? else {
+    fn last_forwarded_system(
+        &self,
+        ctx: &Ctx,
+        profile_stamp: Option<&str>,
+    ) -> Result<Option<String>, String> {
+        let (request, epoch) = self.observation(ctx.log(), |state| {
+            (state.system_request.clone(), state.epoch)
+        })?;
+        let Some(id) = request else {
             return Ok(None);
         };
         let event = ctx
@@ -505,6 +529,26 @@ impl ContextGate {
             .get(&id)
             .map_err(|e| e.to_string())?
             .ok_or_else(|| "indexed request missing".to_string())?;
+        // Fragment updates can wait for a cold cache; a selected profile cannot.
+        // The stamp also prevents a warm prompt surviving a configuration reload
+        // or removal of the supplement, without duplicating authored text in metadata.
+        if event.seq < epoch || event.payload["contextSystemProfile"].as_str() != profile_stamp {
+            return Ok(None);
+        }
+        // A caller's explicit system belongs to that request, not the common
+        // prompt cache. Read the original header without hydrating its body.
+        let Some(cause) = event.causes.first() else {
+            return Ok(None);
+        };
+        let original = ctx
+            .log()
+            .header(cause)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "cached system request cause missing".to_string())?;
+        if original.event_type != ce::MODEL_CALL_STARTED || original.has_system {
+            return Ok(None);
+        }
+        // Resolve document-backed text outside the observation scan/read lock.
         Ok(ctx
             .document(&event.payload["system"])?
             .as_str()
@@ -898,7 +942,19 @@ impl ContextGate {
         // The injection axis: base text + every assembled component's own
         // fragment ("installed = the model is told"), in instance order.
         // Recorded in the forwarded event — the exact system prompt of every
-        // call is on the ledger. An upstream-provided system wins untouched.
+        // call is on the ledger. Upstream text replaces the common sections,
+        // not the selected entry's supplement. Internal calls do not acquire it.
+        let ordinary = payload.get("purpose").is_none();
+        let supplement = ordinary
+            .then_some(self.system_supplement.as_deref())
+            .flatten();
+        let profile_stamp = supplement.map(|text| {
+            let selected = json!({"model": self.model_name.as_deref(), "supplement": text});
+            format!(
+                "sha256:{:x}",
+                Sha256::digest(selected.to_string().as_bytes())
+            )
+        });
         if payload["system"].is_null() {
             let fresh = assemble_system(
                 self.system_base.as_deref(),
@@ -907,15 +963,15 @@ impl ContextGate {
                 self.system_tail.as_deref(),
                 self.model_name.as_deref(),
             );
-            if let Some(fresh) = fresh {
+            if let Some(fresh) = supplement_system(fresh, supplement) {
                 // Fragments may change at runtime (a skill library refreshing
                 // its listing, a hot-installed component's passage). A changed
                 // system is adopted on the same terms as a deferred tool:
                 // only when the provider cache is cold anyway, on the record.
                 // Needs a profile — no profile, no cache knowledge, no
                 // deferring.
-                let previous_system = if self.context_window.is_some() {
-                    self.last_forwarded_system(ctx)?
+                let previous_system = if ordinary && self.context_window.is_some() {
+                    self.last_forwarded_system(ctx, profile_stamp.as_deref())?
                 } else {
                     None
                 };
@@ -950,6 +1006,20 @@ impl ContextGate {
                     _ => fresh,
                 };
                 payload["system"] = json!(adopted);
+            }
+        } else if supplement.is_some() {
+            let upstream = ctx.document(&payload["system"])?;
+            let text = upstream
+                .as_str()
+                .ok_or("upstream system must resolve to text")?;
+            payload["system"] = json!(supplement_system(Some(text.to_owned()), supplement));
+        }
+        // This is gate-owned provenance, not another provider instruction.
+        // Absence preserves old request shapes when no supplement is configured.
+        if let Some(object) = payload.as_object_mut() {
+            object.remove("contextSystemProfile");
+            if let Some(stamp) = profile_stamp {
+                object.insert("contextSystemProfile".into(), json!(stamp));
             }
         }
         // The thinking axis. Set only once a person has turned it; until then
@@ -998,6 +1068,17 @@ impl ContextGate {
     /// model that ships no profile leaves the previous window in force, which
     /// is the honest fallback (see `crate::profile::context_window`).
     fn on_dial(&mut self, event: &EventEnvelope) {
+        // Profile text follows a live selection, not a restored historical dial:
+        // on startup the currently selected configuration is authoritative.
+        // Missing means an older/partial dial; explicit null clears the supplement.
+        if event.payload["channel"] == MODEL_CHANNEL {
+            if let Some(value) = event.payload.get("systemPromptSupplement") {
+                self.system_supplement = value
+                    .as_str()
+                    .filter(|text| !text.is_empty())
+                    .map(str::to_owned);
+            }
+        }
         let mut dials = dials::Dials::default();
         dials.observe(&event.payload);
         dials.apply(self);
