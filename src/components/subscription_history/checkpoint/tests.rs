@@ -10,10 +10,16 @@ fn recover(reader: &LogReader) -> io::Result<Recovery> {
     super::recover(reader, Kind::Timer)
 }
 
+mod cancel_records;
 mod watches;
 
 fn open(root: &Path) -> EventLog {
-    EventLog::open_segmented(ce::core_event_decls(), "timer-recovery", root.into(), 4096).unwrap()
+    let mut declarations = ce::core_event_decls();
+    declarations.extend([
+        crate::components::subscription_history::cancellation::declaration(Kind::Timer),
+        crate::components::subscription_history::cancellation::declaration(Kind::Watch),
+    ]);
+    EventLog::open_segmented(declarations, "timer-recovery", root.into(), 4096).unwrap()
 }
 fn append(log: &mut EventLog, kind: &str, causes: &[&str], payload: Value) -> EventEnvelope {
     log.append(EventDraft::new(kind, causes, payload), "fixture")

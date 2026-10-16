@@ -20,10 +20,13 @@
 //! own ports (the skill library watches its skill folders this way — wired
 //! back to itself, no model turn involved).
 
-use std::collections::{BTreeSet, HashSet};
+use super::subscription_history::cancellation::{self, LiveCancellations};
+use super::subscription_history::Kind;
+
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
@@ -64,7 +67,8 @@ pub fn tool_decls() -> Vec<Value> {
         }),
         json!({
             "name": "Unwatch",
-            "description": "Stop a watch by its id.",
+            "description": "Cancel future watch notifications by id. Cancellation takes effect when the \
+                successful receipt is recorded; a wake already in progress may still arrive.",
             "parameters": {
                 "type": "object",
                 "properties": {"watch": {"type": "integer"}},
@@ -86,8 +90,9 @@ pub fn manifest() -> ComponentManifest {
             PortDecl::new("outcome", &[ce::TOOL_EXEC_COMPLETED]),
             // A watch fires by waking the loop — wire to the loop's input
             PortDecl::new("wake", &[ce::WAKE]),
+            PortDecl::new("state", &[Kind::Watch.cancellation_activation()]),
         ],
-        events: Vec::new(),
+        events: vec![cancellation::declaration(Kind::Watch)],
         default_wiring: Vec::new(),
         capabilities: Some(EffectSurface {
             reads: vec!["<watched path>".to_string()],
@@ -108,8 +113,8 @@ pub fn manifest() -> ComponentManifest {
 
 pub struct FsWatch {
     next_id: u64,
-    /// Shared with every watch thread; an id here means "stop firing"
-    cancelled: Arc<Mutex<HashSet<u64>>>,
+    /// Shared committed-cancellation view, initialized before workers are armed.
+    cancelled: Option<Arc<LiveCancellations>>,
     exclusive: bool,
 }
 
@@ -117,7 +122,7 @@ impl FsWatch {
     pub fn from_config(config: Option<&Value>) -> Self {
         Self {
             next_id: 1,
-            cancelled: Arc::default(),
+            cancelled: None,
             exclusive: config
                 .and_then(|c| c.get("exclusive"))
                 .and_then(Value::as_bool)
@@ -164,6 +169,10 @@ impl FsWatch {
         started: Option<String>,
         ctx: &mut Ctx,
     ) -> Result<(), notify::Error> {
+        let cancelled = self
+            .cancelled
+            .clone()
+            .ok_or_else(|| notify::Error::generic("cancellation state has not been restored"))?;
         let recursive = if args["recursive"].as_bool().unwrap_or(true) {
             RecursiveMode::Recursive
         } else {
@@ -171,7 +180,6 @@ impl FsWatch {
         };
         let (watcher, rx) = os_watch(&[path.to_string()], recursive)?;
         let injector = ctx.injector();
-        let cancelled = Arc::clone(&self.cancelled);
         let debounce = args["debounce_ms"].as_u64().unwrap_or(200);
         let max_fires = args["max_fires"].as_u64().unwrap_or(100).max(1);
         let note = args["note"].clone();
@@ -186,13 +194,13 @@ impl FsWatch {
                     watch: json!(id),
                     source: format!("watch:{id}"),
                     path,
-                    causes: started,
+                    causes: started.clone(),
                     note,
                 },
                 debounce,
                 fired_already,
                 max_fires,
-                move || cancelled.lock().unwrap().contains(&id),
+                || cancelled.stopped_or_report(id, &injector, started.as_deref()),
             );
         });
         Ok(())
@@ -200,10 +208,7 @@ impl FsWatch {
 
     fn unwatch(&self, args: &Value) -> Value {
         match args["watch"].as_u64() {
-            Some(id) => {
-                self.cancelled.lock().unwrap().insert(id);
-                json!({"status": "ok", "result": {"watch": id, "note": "stopped"}})
-            }
+            Some(id) => cancellation::receipt(Kind::Watch, id),
             None => error(
                 "tool.bad_arguments",
                 "unwatch needs a numeric 'watch' id",
@@ -234,6 +239,18 @@ impl Component for FsWatch {
             eprintln!("slow recovery for file watches: {reason}");
         }
         let state = restored.state;
+        let legacy_through = state.protocol.legacy_through.unwrap_or(restored.through);
+        self.cancelled = Some(Arc::new(LiveCancellations::new(
+            ctx.log().clone(),
+            Kind::Watch,
+            restored.through,
+            state.protocol,
+            state.future_cancelled,
+        )));
+        ctx.emit(
+            "state",
+            cancellation::activation(Kind::Watch, legacy_through),
+        );
         // Required history reads finish before any OS watch is armed.
         for watch in state.live {
             let Some(path) = watch.arguments["path"].as_str() else {
@@ -453,4 +470,19 @@ fn error(code: &str, message: &str, blame: &str) -> Value {
         "retryable": false,
         "transient": false,
     }})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cancellation_commits_before_stopping_and_denial_survives_restart() {
+        cancellation::provider_tests::assert_record_first(
+            Kind::Watch,
+            manifest(),
+            || FsWatch::from_config(None),
+            |provider| provider.cancelled.as_ref().unwrap().clone(),
+        );
+    }
 }
