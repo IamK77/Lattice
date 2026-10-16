@@ -130,6 +130,11 @@ impl Ctx {
         self.cancellation.clone()
     }
 
+    /// The instance identity used as the source of this component's emissions.
+    pub fn source(&self) -> &str {
+        &self.source
+    }
+
     /// Read-only access to this stream's ledger (dereference material
     /// pointers, look back at history)
     pub fn log(&self) -> &LogReader {

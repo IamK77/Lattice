@@ -8,6 +8,8 @@ use crate::kernel::host::{Component, Ctx};
 
 #[path = "minimal_loop_material.rs"]
 mod material_store;
+#[path = "minimal_loop_model.rs"]
+mod model_outcome;
 #[path = "minimal_loop_recovery.rs"]
 mod recovery;
 
@@ -96,7 +98,7 @@ pub struct MinimalLoop {
     /// A model call is out and its answer has not come back. Asking again now
     /// would put a second assistant turn on the record before the first was
     /// answered — the shape that makes a conversation unsendable.
-    awaiting_model: bool,
+    awaiting_model: Option<model_outcome::PendingModel>,
     /// Inputs not consumed by a model request yet. Keep their identities, not
     /// just a boolean: an interjection must become a cause of the next ask.
     unseen_inputs: Vec<String>,
@@ -135,7 +137,7 @@ impl MinimalLoop {
             pending_unnamed: 0,
             gathered: Vec::new(),
             only_wait_receipts: false,
-            awaiting_model: false,
+            awaiting_model: None,
             unseen_inputs: Vec::new(),
             work_inputs: Vec::new(),
             rebuilt: false,
@@ -151,6 +153,21 @@ impl MinimalLoop {
             parts.push(json!({"event": id}));
         })?;
         Ok(json!({"parts": parts, "fingerprint": format!("sha256:{:x}", hasher.finalize())}))
+    }
+
+    fn settle_model(
+        &mut self,
+        event: &EventEnvelope,
+        reader: &crate::LogReader,
+    ) -> std::io::Result<bool> {
+        let Some(pending) = &self.awaiting_model else {
+            return Ok(false);
+        };
+        if !pending.ends(reader, event)? {
+            return Ok(false);
+        }
+        self.awaiting_model = None;
+        Ok(true)
     }
 
     /// Whether this round is still waiting on any tool result.
@@ -171,7 +188,6 @@ impl MinimalLoop {
                 return;
             }
         };
-        self.awaiting_model = true;
         let new_inputs = std::mem::take(&mut self.unseen_inputs);
         let mut causes = causes.to_vec();
         for id in &new_inputs {
@@ -187,6 +203,11 @@ impl MinimalLoop {
         // install) plus any hand-written extras from this loop's config
         let mut tools = ctx.tool_decls();
         tools.extend(self.tools.iter().cloned());
+        self.awaiting_model = Some(model_outcome::PendingModel::new(
+            ctx.source(),
+            ctx.log().snapshot_end(),
+            &causes,
+        ));
         ctx.emit(
             "ask",
             EventDraft::new(
@@ -213,7 +234,49 @@ impl Component for MinimalLoop {
                 return;
             }
         }
-        if let Err(error) = self.accept_material(ctx.log(), event) {
+        let ended = if port == "faults" {
+            match event
+                .causes
+                .iter()
+                .map(|cause| ctx.log().get(cause))
+                .collect::<std::io::Result<Vec<_>>>()
+            {
+                Ok(events) => events.into_iter().flatten().collect::<Vec<_>>(),
+                Err(error) => {
+                    ctx.fail("resolve interrupted calls", error.to_string(), &[]);
+                    return;
+                }
+            }
+        } else {
+            Vec::new()
+        };
+        let model_ended = if matches!(port, "model" | "faults") {
+            match self.settle_model(event, ctx.log()) {
+                Ok(ended) => ended,
+                Err(error) => {
+                    ctx.fail("correlate model outcome", error.to_string(), &[]);
+                    return;
+                }
+            }
+        } else {
+            false
+        };
+        // Keep late records in the ledger, not in live material or execution.
+        // A mixed interruption can still settle tools even if its model target
+        // is stale. Extra non-request causes do not make it a tool outcome.
+        if (port == "model" && !model_ended)
+            || (port == "faults"
+                && !model_ended
+                && ended
+                    .iter()
+                    .any(|request| request.event_type == ce::MODEL_CALL_STARTED)
+                && !ended
+                    .iter()
+                    .any(|request| request.event_type == ce::TOOL_EXEC_STARTED))
+        {
+            return;
+        }
+        if let Err(error) = self.accept_material(ctx.log(), event, ctx.source()) {
             ctx.fail("restore conversation material", error.to_string(), &[]);
             return;
         }
@@ -224,7 +287,7 @@ impl Component for MinimalLoop {
             // wire formats reject outright. It is already in `parts`, so the
             // NEXT question this loop asks carries it, which is the earliest
             // moment it could be heard. Until then it is merely unseen.
-            "input" if self.awaiting_model || self.round_open() => {
+            "input" if self.awaiting_model.is_some() || self.round_open() => {
                 self.unseen_inputs.push(event.id.clone());
             }
             "input" => {
@@ -233,7 +296,6 @@ impl Component for MinimalLoop {
                 self.ask(&[&event.id], ctx);
             }
             "model" => {
-                self.awaiting_model = false;
                 match event.payload["toolCalls"].as_array() {
                     Some(calls) if !calls.is_empty() => {
                         self.pending_calls = calls
@@ -303,18 +365,6 @@ impl Component for MinimalLoop {
                 // The chain is closed, just not by a result. Stop waiting on
                 // it; the model learns what happened from the material, where
                 // the adapters render it as an outcome nobody knows.
-                let ended = match event
-                    .causes
-                    .iter()
-                    .map(|cause| ctx.log().get(cause))
-                    .collect::<std::io::Result<Vec<_>>>()
-                {
-                    Ok(events) => events.into_iter().flatten().collect::<Vec<_>>(),
-                    Err(error) => {
-                        ctx.fail("resolve interrupted calls", error.to_string(), &[]);
-                        return;
-                    }
-                };
                 // A MODEL call ending is the end of the round, not of one
                 // errand inside it: no answer is coming, so waiting for one
                 // is waiting forever. Say so outwardly and close the turn —
@@ -322,11 +372,7 @@ impl Component for MinimalLoop {
                 // its way back. Deliberately no re-ask: the usual reason the
                 // adapter did not answer is that it is gone, and asking again
                 // would be a loop with no way out of it.
-                if ended
-                    .iter()
-                    .any(|started| started.event_type == ce::MODEL_CALL_STARTED)
-                {
-                    self.awaiting_model = false;
+                if model_ended {
                     self.work_inputs.clear();
                     self.pending_calls.clear();
                     self.pending_unnamed = 0;

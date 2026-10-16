@@ -15,7 +15,8 @@ fn checkpoint_tail_matches_cold_material_and_never_restores_execution() {
         )
         .unwrap();
     let mut live = MinimalLoop::from_config(None);
-    live.sync_material(&log.reader(), typed.seq).unwrap();
+    live.sync_material(&log.reader(), typed.seq, "loop")
+        .unwrap();
     let forwarded = log
         .append(
             EventDraft::new(ce::USER_MESSAGE, &[&typed.id], json!({"text":"expanded"})),
@@ -70,25 +71,30 @@ fn checkpoint_tail_matches_cold_material_and_never_restores_execution() {
             "model",
         )
         .unwrap();
-    live.sync_material(&log.reader(), side_result.seq).unwrap();
+    live.sync_material(&log.reader(), side_result.seq, "loop")
+        .unwrap();
     let expected = vec![forwarded.id, completed.id, interrupted.id];
     assert_eq!(live.material.parts.collect(), expected);
     drop(log);
     let log = EventLog::open_segmented(ce::core_event_decls(), "loop", root, 1).unwrap();
     let before = log.reader().snapshot_end();
     let mut resumed = MinimalLoop::from_config(None);
-    resumed.sync_material(&log.reader(), before).unwrap();
+    resumed
+        .sync_material(&log.reader(), before, "loop")
+        .unwrap();
     assert_eq!(resumed.material.parts.collect(), expected);
     assert_eq!(
-        MinimalLoop::restore_parts(&log.reader(), before + 1).unwrap(),
+        MinimalLoop::restore_parts(&log.reader(), before + 1, "loop").unwrap(),
         expected
     );
     assert_eq!(log.reader().snapshot_end(), before);
-    assert!(!resumed.awaiting_model && !resumed.round_open());
+    assert!(resumed.awaiting_model.is_none() && !resumed.round_open());
     assert!(resumed.unseen_inputs.is_empty() && resumed.work_inputs.is_empty());
     assert!(resumed.gathered.is_empty());
     // Duplicate delivery is idempotent for the material projection.
-    resumed.sync_material(&log.reader(), before).unwrap();
+    resumed
+        .sync_material(&log.reader(), before, "loop")
+        .unwrap();
     assert_eq!(resumed.material.parts.collect(), expected);
 }
 
@@ -128,10 +134,12 @@ fn recovery_excludes_auxiliary_tool_results_and_interruptions() {
     .unwrap();
     let before = log.reader().snapshot_end();
     let mut resumed = MinimalLoop::from_config(None);
-    resumed.sync_material(&log.reader(), before).unwrap();
+    resumed
+        .sync_material(&log.reader(), before, "loop")
+        .unwrap();
     assert_eq!(resumed.material.parts.collect(), vec![input.id.clone()]);
     assert_eq!(
-        MinimalLoop::restore_parts(&log.reader(), before + 1).unwrap(),
+        MinimalLoop::restore_parts(&log.reader(), before + 1, "loop").unwrap(),
         vec![input.id]
     );
 }
@@ -146,7 +154,9 @@ fn online_material_does_not_admit_inputs_still_waiting_behind_a_gate() {
         )
         .unwrap();
     let mut loop_ = MinimalLoop::from_config(None);
-    loop_.accept_material(&log.reader(), &first).unwrap();
+    loop_
+        .accept_material(&log.reader(), &first, "loop")
+        .unwrap();
     let blocked = log
         .append(
             EventDraft::new(ce::USER_MESSAGE, &[], json!({"text":"not yet expanded"})),
@@ -175,7 +185,9 @@ fn online_material_does_not_admit_inputs_still_waiting_behind_a_gate() {
             "fixture",
         )
         .unwrap();
-    loop_.accept_material(&log.reader(), &delivered).unwrap();
+    loop_
+        .accept_material(&log.reader(), &delivered, "loop")
+        .unwrap();
     assert_eq!(loop_.parts.collect(), [first.id, delivered.id]);
     assert!(
         loop_.material.parts.collect().contains(&blocked.id),
@@ -187,7 +199,9 @@ fn online_material_does_not_admit_inputs_still_waiting_behind_a_gate() {
             "gate",
         )
         .unwrap();
-    loop_.accept_material(&log.reader(), &expanded).unwrap();
+    loop_
+        .accept_material(&log.reader(), &expanded, "loop")
+        .unwrap();
     assert_eq!(loop_.parts.collect().last(), Some(&expanded.id));
     assert!(!loop_.parts.collect().contains(&blocked.id));
 }
@@ -209,9 +223,9 @@ fn material_projection_cannot_mix_two_readers_with_the_same_stream_and_length() 
         )
         .unwrap();
     let mut loop_ = MinimalLoop::from_config(None);
-    loop_.sync_material(&a.reader(), 1).unwrap();
+    loop_.sync_material(&a.reader(), 1, "loop").unwrap();
     assert_eq!(loop_.material.parts.collect(), [first.id]);
-    loop_.sync_material(&b.reader(), 1).unwrap();
+    loop_.sync_material(&b.reader(), 1, "loop").unwrap();
     assert_eq!(loop_.material.parts.collect(), [second.id]);
 }
 
@@ -287,7 +301,7 @@ fn cold_long_history_restores_exact_material_without_reading_bodies() {
     file.as_file().set_len(0).unwrap();
     let reader = log.reader();
     assert_eq!(
-        MinimalLoop::restore_parts(&reader, delivery.seq).unwrap(),
+        MinimalLoop::restore_parts(&reader, delivery.seq, "fixture").unwrap(),
         expected
     );
     // Metadata restoration must not fabricate readable material after damage;
