@@ -11,6 +11,10 @@
       "type": "string",
       "description": "The model identifier this profile describes, e.g. deepseek-v4-flash"
     },
+    "systemPromptSupplement": {
+      "type": "string",
+      "description": "Locally authored system text for this selected entry, appended unchanged after common system sections and their template processing. Absent or empty adds nothing. Lattice ships no model-specific prompt supplements."
+    },
     "contextWindow": {
       "type": "integer",
       "minimum": 1,

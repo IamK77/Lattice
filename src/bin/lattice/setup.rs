@@ -265,6 +265,7 @@ fn target(cfg: &PresetConfig) -> Value {
 fn apply(cfg: &mut PresetConfig, entry: &Entry) {
     cfg.adapter = entry.adapter.clone();
     cfg.model = entry.model.clone();
+    cfg.entry_id = Some(entry.id.clone());
     cfg.base_url = entry.base_url.clone();
     cfg.key_env = entry.key_env.clone();
     cfg.profile = entry.profile.clone();

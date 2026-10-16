@@ -38,6 +38,7 @@ impl Settings {
     fn apply(&self, cfg: &mut PresetConfig) {
         cfg.adapter = self.entry.adapter.clone();
         cfg.model = self.entry.model.clone();
+        cfg.entry_id = Some(self.entry.id.clone());
         cfg.base_url = self.entry.base_url.clone();
         cfg.key_env = self.entry.key_env.clone();
         cfg.profile = self.entry.profile.clone();

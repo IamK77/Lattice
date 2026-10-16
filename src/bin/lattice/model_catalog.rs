@@ -17,9 +17,17 @@ pub(super) fn load(running: &models::Entry) -> ModelView {
 }
 
 fn from_entries(entries: Vec<models::Entry>, running: &models::Entry) -> ModelView {
-    // The delete guard protects this row: matching only a model name would
-    // protect a spare endpoint and leave the actual running target deletable.
-    let now = entries.iter().position(|entry| entry.same_target(running));
+    // Prefer the selected identity among aliases, and compare the effective
+    // profile as well as the connection. The deletion guard also checks the
+    // retained running id if the catalog was edited after selection.
+    let now = entries
+        .iter()
+        .position(|entry| entry.id == running.id && entry.same_configuration(running))
+        .or_else(|| {
+            entries
+                .iter()
+                .position(|entry| entry.same_configuration(running))
+        });
     let rows: Vec<ModelRow> = entries
         .into_iter()
         .map(|entry| ModelRow {

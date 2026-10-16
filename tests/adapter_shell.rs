@@ -34,6 +34,8 @@ mod chat_providers;
 mod compaction_history;
 #[path = "adapter_shell/partial_line.rs"]
 mod partial_line;
+#[path = "adapter_shell/profile_prompt.rs"]
+mod profile_prompt;
 #[path = "adapter_shell/sse_errors.rs"]
 mod sse_errors;
 

@@ -35,6 +35,10 @@ pub struct PresetConfig {
     /// "openai" | "anthropic" | "scripted"
     pub adapter: String,
     pub model: String,
+    /// Selected catalog identity, independent of the underlying model name.
+    /// Programmatic/legacy configurations may omit it and use the model name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry_id: Option<String>,
     pub base_url: String,
     pub key_env: String,
     /// Directory to confine the fs/search/shell tools to. `None` — the
@@ -89,6 +93,7 @@ impl PresetConfig {
             return Self {
                 adapter: "scripted".to_string(),
                 model: "scripted".to_string(),
+                entry_id: None,
                 base_url: String::new(),
                 key_env: String::new(),
                 profile: None,
@@ -161,6 +166,7 @@ impl PresetConfig {
             adapter: entry.adapter,
             system: default_system(),
             model: entry.model,
+            entry_id: Some(entry.id),
             base_url: entry.base_url,
             key_env: entry.key_env,
             profile: entry.profile,
@@ -385,8 +391,8 @@ fn workspace_dir() -> Option<String> {
     std::env::var("LATTICE_WORKSPACE").ok()
 }
 
-/// What the gate needs to know about the model it is budgeting for: how big
-/// its window is, and what its provider calls the usage numbers.
+/// What the gate needs from the effective selected-entry profile: its window,
+/// provider usage fields, and validated locally authored system supplement.
 ///
 /// The model's own profile is authoritative; the startup config stands in only
 /// where no profile ships. Both fields used to be written here as constants,
@@ -401,14 +407,18 @@ fn workspace_dir() -> Option<String> {
 /// waiting for a cold cache — promoting a newly installed tool, adopting a
 /// changed system prompt — therefore happened immediately, every time, which
 /// is precisely what deferring them was meant to avoid.
-pub fn model_profile(cfg: &PresetConfig) -> Value {
+pub fn model_profile(cfg: &PresetConfig) -> Result<Value, String> {
     let entry = running_entry(cfg);
     let window = entry.context_window().unwrap_or(cfg.context_window);
     let mut fields = entry.usage_fields();
     if fields.is_empty() {
         fields.insert("input".to_string(), json!(cfg.usage_input_field));
     }
-    json!({"contextWindow": window, "usageFields": fields})
+    let mut profile = json!({"contextWindow": window, "usageFields": fields});
+    if let Some(text) = entry.system_prompt_supplement()? {
+        profile["systemPromptSupplement"] = json!(text);
+    }
+    Ok(profile)
 }
 
 /// The catalog entry describing what this config actually runs.
@@ -419,10 +429,7 @@ pub fn model_profile(cfg: &PresetConfig) -> Value {
 /// go through the same code.
 pub fn running_entry(cfg: &PresetConfig) -> crate::models::Entry {
     crate::models::Entry {
-        // A name for the row it will occupy in the list. The model's own
-        // identifier is the only short name we have that is certainly about
-        // this model rather than about somebody's preferences.
-        id: cfg.model.clone(),
+        id: cfg.entry_id.clone().unwrap_or_else(|| cfg.model.clone()),
         adapter: cfg.adapter.clone(),
         model: cfg.model.clone(),
         base_url: cfg.base_url.clone(),
@@ -791,6 +798,7 @@ pub fn standard_at_depth(cfg: &PresetConfig, depth: u64) -> Result<StandardAssem
     let (registry, factories) = builtin_implementations();
     let scripted = cfg.adapter == "scripted";
     let entry = running_entry(cfg);
+    let supplement = entry.system_prompt_supplement()?;
     let model_config = if scripted {
         cfg.scripted
             .clone()
@@ -811,7 +819,7 @@ pub fn standard_at_depth(cfg: &PresetConfig, depth: u64) -> Result<StandardAssem
     // keyless smoke run has no real usage to weigh) — but it still carries the
     // system prompt, so a scripted run assembles the SAME prompt the product
     // does, and the smoke test covers it. Real mode adds the window + condense.
-    let gate_config = if scripted {
+    let mut gate_config = if scripted {
         Some(json!({
             "system": cfg.system,
             "modelName": cfg.model,
@@ -821,7 +829,7 @@ pub fn standard_at_depth(cfg: &PresetConfig, depth: u64) -> Result<StandardAssem
         }))
     } else {
         Some(json!({
-            "profile": model_profile(cfg),
+            "profile": model_profile(cfg)?,
             "modelName": cfg.model,
             "condense": true,
             "nativeCompaction": crate::components::model_compat::native_compaction(&cfg.adapter, &cfg.base_url),
@@ -832,6 +840,12 @@ pub fn standard_at_depth(cfg: &PresetConfig, depth: u64) -> Result<StandardAssem
             "deferTools": DEFERRED_TOOLS,
         }))
     };
+
+    if scripted {
+        if let (Some(config), Some(text)) = (gate_config.as_mut(), supplement) {
+            config["profile"] = json!({"systemPromptSupplement": text});
+        }
+    }
 
     // The resident skill listing is computed here, at assembly time, and
     // carried as the instance's prompt override; a restart re-scans. No

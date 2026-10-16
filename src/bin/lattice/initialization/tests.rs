@@ -14,6 +14,7 @@ fn config() -> PresetConfig {
         context_window: 64000,
         usage_input_field: "input_tokens".into(),
         profile: Some(json!({"contextWindow":12345})),
+        entry_id: None,
         catalog_problems: vec![],
         system: "Fixture".into(),
         thinking: Some(json!("low")),

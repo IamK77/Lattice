@@ -384,6 +384,7 @@ impl<'a> Tabs<'a> {
         let running = ui.domain.model.running();
         cfg.adapter = running.adapter.clone();
         cfg.model = running.model.clone();
+        cfg.entry_id = Some(running.id.clone());
         cfg.base_url = running.base_url.clone();
         cfg.key_env = running.key_env.clone();
         cfg.profile = running.profile.clone();
@@ -528,6 +529,7 @@ mod tests {
             context_window: 64_000,
             usage_input_field: "input_tokens".into(),
             profile: None,
+            entry_id: None,
             catalog_problems: Vec::new(),
             system: "You are a test model.".into(),
             thinking: None,

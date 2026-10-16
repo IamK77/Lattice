@@ -28,7 +28,7 @@ pub(super) struct Observations<P = ce::PendingCalls> {
     summaries: Vec<SummaryRef>,
     pub promoted: HashSet<String>,
     pending: P,
-    epoch: u64,
+    pub epoch: u64,
     pub condense_completion: Option<String>,
     #[serde(default)]
     pub condense_failure: Option<String>,

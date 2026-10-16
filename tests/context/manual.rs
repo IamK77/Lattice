@@ -71,6 +71,64 @@ fn main_script(tokens: u64) -> Value {
 }
 
 #[test]
+fn profile_text_is_not_a_summary_instruction_but_native_compaction_keeps_the_original_prompt() {
+    for native in [false, true] {
+        for automatic in [false, true] {
+            let mut cfg = config(native, automatic);
+            cfg["profile"]["systemPromptSupplement"] = json!("SYNTHETIC_A {model}");
+            let mut kernel = condensing_kernel_with(
+                json!({"script":[success(native)]}),
+                main_script(if automatic { 600 } else { 10 }),
+                cfg,
+                false,
+                None,
+            );
+            say(&mut kernel, "old material");
+            say(&mut kernel, "recent material");
+            if !automatic {
+                // Manual native compaction uses the last forwarded request,
+                // even if a profile is selected before another ordinary turn.
+                kernel.injector("ui").emit(
+                    "answer",
+                    EventDraft::new(
+                        ce::EXTERNAL_INPUT,
+                        &[],
+                        json!({
+                            "channel":context_gate::MODEL_CHANNEL,"model":"same-model",
+                            "systemPromptSupplement":"SYNTHETIC_B",
+                        }),
+                    ),
+                );
+                kernel.run_until_quiescent().unwrap();
+                manual(&mut kernel);
+            }
+            let request = kernel
+                .log()
+                .find_back(|event| {
+                    event.event_type == ce::MODEL_CALL_STARTED
+                        && event.payload["purpose"] == purpose(native)
+                })
+                .unwrap()
+                .expect("an internal compaction request");
+            if native {
+                let text = request.payload["system"].as_str().unwrap();
+                assert!(text.starts_with("keep these instructions"));
+                assert_eq!(text.matches("SYNTHETIC_A {model}").count(), 1);
+                assert!(!text.contains("SYNTHETIC_B"));
+            } else {
+                assert!(
+                    request.payload.get("system").is_none(),
+                    "text summaries use their own condenser configuration"
+                );
+                assert!(!request.payload.to_string().contains("SYNTHETIC_A"));
+                assert!(!request.payload.to_string().contains("SYNTHETIC_B"));
+            }
+            kernel.shutdown();
+        }
+    }
+}
+
+#[test]
 fn explicit_compaction_runs_while_idle_below_the_automatic_threshold() {
     for native in [false, true] {
         let mut kernel = condensing_kernel_with(

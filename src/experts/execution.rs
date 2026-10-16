@@ -48,6 +48,7 @@ impl Execution {
         let mut config = defaults.clone();
         config.adapter = model.adapter.clone();
         config.model = model.model.clone();
+        config.entry_id = Some(model.id.clone());
         config.base_url = model.base_url.clone();
         config.key_env = model.key_env.clone();
         config.profile = model.profile.clone();

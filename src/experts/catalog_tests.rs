@@ -40,6 +40,7 @@ pub(super) fn setup() -> (tempfile::TempDir, Catalog, Candidate, Activation) {
         context_window: 64000,
         usage_input_field: "input_tokens".into(),
         profile: None,
+        entry_id: None,
         catalog_problems: vec![],
         system: String::new(),
         thinking: None,

@@ -102,6 +102,21 @@ impl Entry {
         Some(merged)
     }
 
+    /// User-authored text from this effective entry, never a model-name lookup
+    /// alone. Reject malformed values before building or replacing an adapter.
+    pub fn system_prompt_supplement(&self) -> Result<Option<String>, String> {
+        let profile = self.profile();
+        match profile.as_ref().and_then(|p| p.get("systemPromptSupplement")) {
+            None => Ok(None),
+            Some(Value::String(text)) if text.is_empty() => Ok(None),
+            Some(Value::String(text)) => Ok(Some(text.clone())),
+            Some(_) => Err(format!(
+                "model entry \"{}\": profile.systemPromptSupplement must be a string (omit it or use an empty string for no supplement)",
+                self.id
+            )),
+        }
+    }
+
     /// This entry's context window — `None` when nothing describes it, which
     /// is not a failure: the gate keeps whatever it was using rather than
     /// budgeting against a guess.
@@ -522,7 +537,10 @@ pub fn listing(running: &Entry) -> Vec<Entry> {
 /// tested without a user directory: a test that called `load` would pass or
 /// fail depending on whose machine it ran on.
 fn listing_of(mut entries: Vec<Entry>, running: &Entry) -> Vec<Entry> {
-    if entries.iter().any(|entry| entry.same_target(running)) {
+    if entries
+        .iter()
+        .any(|entry| entry.same_configuration(running))
+    {
         return entries;
     }
     let mut running = running.clone();
@@ -536,14 +554,19 @@ fn listing_of(mut entries: Vec<Entry>, running: &Entry) -> Vec<Entry> {
 }
 
 impl Entry {
-    /// Do these two reach the same model the same way? The id is not part of
-    /// it: two names for one endpoint are one entry as far as the listing is
-    /// concerned.
+    /// Do these two reach the same model the same way? This compares only the
+    /// connection; use `same_configuration` when profile data matters.
     pub fn same_target(&self, other: &Entry) -> bool {
         self.adapter == other.adapter
             && self.model == other.model
             && self.base_url == other.base_url
             && self.key_env == other.key_env
+    }
+
+    /// One connection can have several locally configured profiles. Only an
+    /// equal effective profile is interchangeable for selection or display.
+    pub fn same_configuration(&self, other: &Entry) -> bool {
+        self.same_target(other) && self.profile() == other.profile()
     }
 }
 

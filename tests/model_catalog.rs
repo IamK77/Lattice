@@ -9,6 +9,9 @@ use serde_json::json;
 
 use lattice::preset::PresetConfig;
 
+#[path = "model_catalog/profile_prompt.rs"]
+mod profile_prompt;
+
 /// Environment variables belong to the PROCESS, and cargo runs the tests in
 /// one file on several threads — so two of these staging their own catalog at
 /// once would read each other's. Held for the whole body of each test, not
