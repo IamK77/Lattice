@@ -8,6 +8,8 @@ use std::{collections::BTreeMap, io::IsTerminal, path::Path};
 
 #[path = "setup/discovery.rs"]
 mod discovery;
+#[path = "setup/finish.rs"]
+mod finish;
 #[path = "setup/i18n.rs"]
 mod i18n;
 #[path = "setup/input.rs"]
@@ -213,17 +215,14 @@ pub(crate) fn prepare() -> std::io::Result<Option<PresetConfig>> {
     let result = guide(cfg, &path, preferences.as_deref(), &mut ui, &mut connection);
     // The main TUI gets its own terminal lifetime only after setup has restored
     // the primary buffer, including when configuration was already saved.
-    ui.close()?;
-    match result {
-        Ok(cfg) => Ok(Some(cfg)),
-        Err(Error::Back | Error::Cancelled) => {
-            eprintln!("{}", ui.label(M::Exited));
-            Ok(None)
-        }
-        Err(Error::Failed(message)) => {
-            Err(std::io::Error::other(ui.message(M::Failure, &[&message])))
-        }
-    }
+    let restored = ui.close();
+    finish::report(
+        result,
+        restored,
+        ui.pending_notes(),
+        ui.language(),
+        &mut std::io::stderr().lock(),
+    )
 }
 fn ready(cfg: &PresetConfig) -> bool {
     cfg.adapter == "scripted"
