@@ -29,8 +29,8 @@ mod tests;
 
 // Bump when State, its reducers, or initial-context interpretation changes,
 // not when an unrelated part of the executable is released.
-// v5 also rejects phantom background rows created from synchronous expert outcomes.
-const VERSION: u32 = 5;
+// v6 rebuilds background rows with their shared invocation references.
+const VERSION: u32 = 6;
 const EVERY: u64 = 256;
 
 #[derive(Clone, Serialize)]

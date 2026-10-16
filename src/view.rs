@@ -312,6 +312,8 @@ pub struct Live {
     pub kind: &'static str,
     /// The key the ledger names it by, e.g. "expert:1"
     pub key: String,
+    /// Shared display identity; never used as a replacement correlation key.
+    pub reference: Option<crate::background_aliases::Reference>,
     /// What it is, in the fewest words that identify it
     pub label: String,
     /// True for something that waits (a timer, a watch); false for something

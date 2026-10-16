@@ -443,6 +443,7 @@ fn push_tool_result(
     part: &Value,
     log: &LogReader,
     docs: Option<&std::path::Path>,
+    background_refs: &mut super::model_common::BackgroundReferences<'_>,
 ) -> Result<(), String> {
     let (id, note) = match (part["event"].as_str(), part["digest"]["of"].as_str()) {
         (Some(id), _) => (id, None),
@@ -478,6 +479,7 @@ fn push_tool_result(
         Some(text) => text.to_string(),
         None => crate::components::model_common::completion_text_at(&event.payload, &event.id),
     };
+    let content = background_refs.annotate(&event, content)?;
     let images = if note.is_none() && !is_error {
         super::media_document::tool_pngs(&event.payload["result"], docs)?
     } else {
@@ -542,6 +544,7 @@ fn materialize_inner(
     // order is causal, not conversational. A call with no answer at all is
     // dropped rather than replayed.
     let answers = crate::components::model_common::answer_index(parts, log)?;
+    let mut background_refs = super::model_common::BackgroundReferences::new(log);
     let mut placed: std::collections::HashSet<usize> = std::collections::HashSet::new();
     let mut messages: Vec<Value> = Vec::new();
     for (at, part) in parts.iter().enumerate() {
@@ -555,22 +558,25 @@ fn materialize_inner(
         // A digest part: present the note instead of the original (contract
         // 02, third part kind). The note carries the recall id in its text.
         if let Some(digest) = part.get("digest") {
-            if digest["of"]
+            let original = digest["of"]
                 .as_str()
                 .map(|id| log.get(id))
                 .transpose()
                 .map_err(|e| e.to_string())?
-                .flatten()
-                .is_some_and(|event| {
-                    event
-                        .payload
-                        .get("nativeCompaction")
-                        .is_some_and(|v| !v.is_null())
-                })
-            {
+                .flatten();
+            if original.as_ref().is_some_and(|event| {
+                event
+                    .payload
+                    .get("nativeCompaction")
+                    .is_some_and(|v| !v.is_null())
+            }) {
                 return Err("native Responses compaction requires its originating dialect".into());
             }
-            let text = digest["text"].as_str().unwrap_or_default();
+            let text = digest["text"].as_str().unwrap_or_default().to_string();
+            let text = match original {
+                Some(event) => background_refs.annotate(&event, text)?,
+                None => text,
+            };
             messages.push(json!({
                 "role": "user",
                 "content": [{"type": "text", "text": format!("[digested] {text}")}],
@@ -602,7 +608,7 @@ fn materialize_inner(
             ce::WAKE => messages.push(json!({
                 "role": "user",
                 "content": [{"type": "text",
-                    "text": crate::components::model_common::wake_text(&event.payload)}],
+                    "text": background_refs.wake(&event)?}],
             })),
             ce::MODEL_CALL_COMPLETED => {
                 let mut content = Vec::new();
@@ -656,7 +662,13 @@ fn materialize_inner(
                 // below, which is what this wire wants for parallel calls.
                 for id in ids {
                     if let Some(&answer_at) = answers.get(&id) {
-                        push_tool_result(&mut messages, &parts[answer_at], log, docs)?;
+                        push_tool_result(
+                            &mut messages,
+                            &parts[answer_at],
+                            log,
+                            docs,
+                            &mut background_refs,
+                        )?;
                         placed.insert(answer_at);
                     }
                 }
@@ -668,7 +680,7 @@ fn materialize_inner(
             ce::INTERRUPTED | ce::TOOL_EXEC_COMPLETED
                 if crate::components::model_common::is_chosen_answer(&answers, parts, at, log)? =>
             {
-                push_tool_result(&mut messages, part, log, docs)?
+                push_tool_result(&mut messages, part, log, docs, &mut background_refs)?
             }
             // Started events and control events carry no message content
             _ => {}

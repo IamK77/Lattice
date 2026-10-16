@@ -16,6 +16,9 @@ pub(super) struct EventInputs {
     sizes: HashMap<String, (&'static str, u64)>,
     calls: HashMap<String, (String, Value)>,
     started: HashMap<String, (String, i64)>,
+    pub background_reference: Option<lattice::background_aliases::Reference>,
+    pub scoped_background_operation: bool,
+    pub background_superseded: bool,
 }
 
 /// RFC 3339 (what the ledger writes) to epoch milliseconds.
@@ -134,6 +137,10 @@ impl EventInputs {
             facts.catch_up(event.seq)?;
         }
         let mut inputs = Self::default();
+        if let Some(background) = facts.background_reference(event)? {
+            inputs.background_reference = Some(background.reference);
+            inputs.background_superseded = background.superseded;
+        }
         if event.event_type == ce::MODEL_CALL_STARTED && event.payload.get("purpose").is_none() {
             let parts = event.payload["input"]["parts"]
                 .as_array()
@@ -162,6 +169,10 @@ impl EventInputs {
             }
         } else if event.event_type == ce::TOOL_EXEC_COMPLETED {
             if let Some(request) = facts.related_event(&event.id)? {
+                inputs.scoped_background_operation = request
+                    .payload
+                    .get(lattice::background_aliases::operations::REFERENCE)
+                    .is_some();
                 if request.event_type != ce::TOOL_EXEC_STARTED {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidData,

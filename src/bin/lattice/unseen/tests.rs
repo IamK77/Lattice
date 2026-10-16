@@ -31,7 +31,7 @@ fn only_original_user_text_and_wakes_add_lines_in_recorded_order() {
         (ce::TURN_COMPLETED, vec![], json!({})),
         (ce::INTERRUPTED, vec![], json!({})),
     ] {
-        unseen.observe(&event(kind, &causes, payload));
+        unseen.observe(&event(kind, &causes, payload), None);
     }
     assert_eq!(
         unseen.lines(),
@@ -48,9 +48,9 @@ fn every_model_request_carries_the_list_regardless_of_purpose() {
     ] {
         let mut unseen = Unseen::default();
         unseen.restore(vec!["waiting".into()]);
-        unseen.observe(&event(ce::MODEL_CALL_STARTED, &[], payload));
+        unseen.observe(&event(ce::MODEL_CALL_STARTED, &[], payload), None);
         assert!(unseen.lines().is_empty());
-        unseen.observe(&event(ce::USER_MESSAGE, &[], json!({"text":"next"})));
+        unseen.observe(&event(ce::USER_MESSAGE, &[], json!({"text":"next"})), None);
         assert_eq!(unseen.lines(), ["next"]);
     }
 }

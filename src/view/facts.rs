@@ -49,6 +49,14 @@ pub struct MaterialSize {
     pub thinking: u64,
 }
 
+/// Presentation identity plus supersession at the event's own prefix, not
+/// the full facts snapshot. Superseded does not mean cancelled or finished.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BackgroundFact {
+    pub reference: crate::background_aliases::Reference,
+    pub superseded: bool,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ModelStart {
     pub model: String,
@@ -106,6 +114,7 @@ pub struct EventFacts {
     failed: bool,
     cold_reason: Option<String>,
     sizes: RefCell<SizeCache>,
+    background: Option<crate::background_aliases::Projection>,
 }
 
 impl EventFacts {
@@ -185,10 +194,41 @@ impl EventFacts {
             failed: false,
             cold_reason,
             sizes: RefCell::default(),
+            background: None,
         };
         facts.catch_up(through)?;
         facts.save()?;
         Ok(facts)
+    }
+
+    /// Resolve against the shared committed-order projection, not UI row order.
+    /// Retain the projection across events, including when completed rows vanish.
+    pub fn background_reference(
+        &mut self,
+        event: &EventEnvelope,
+    ) -> io::Result<Option<BackgroundFact>> {
+        self.healthy()?;
+        if event.seq > self.through {
+            return Err(invalid("background event is outside this facts view"));
+        }
+        let Some(reference) = crate::background_aliases::reference_for_event(
+            &mut self.background,
+            &self.reader,
+            event,
+            event.seq,
+        )?
+        else {
+            return Ok(None);
+        };
+        let projection = self
+            .background
+            .as_ref()
+            .ok_or_else(|| invalid("background reference lacks its projection"))?;
+        let superseded = !projection.is_current(&self.reader, &reference.identity)?;
+        Ok(Some(BackgroundFact {
+            reference,
+            superseded,
+        }))
     }
 
     pub fn cold_reason(&self) -> Option<&str> {
@@ -400,6 +440,9 @@ impl EventFacts {
 
     pub fn save(&mut self) -> io::Result<()> {
         self.healthy()?;
+        if let Some(background) = &self.background {
+            background.save(&self.reader)?;
+        }
         let state = State {
             pages: self.pages.directory()?,
             count: self.pages.len(),

@@ -1,6 +1,7 @@
 //! Exact transcript recovery, separate from current usage and authorization
 //! state. Historical reads materialize cards; they never replay UI actions.
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::io;
 use std::ops::Range;
@@ -13,13 +14,14 @@ use super::pages::{Pages, Slot};
 use super::{command_job, ingest, Entry, ToolStatus};
 use record::{Kind, Record};
 
+mod correlation;
 pub(super) mod record;
 
 #[cfg(test)]
 mod tests;
 
 const CONSUMER: &str = "view-cards";
-const VERSION: u32 = 3;
+const VERSION: u32 = 4;
 const CHECKPOINT_EVERY: u64 = 256;
 
 #[derive(Default, Serialize, Deserialize)]
@@ -47,6 +49,7 @@ pub struct History {
     saved_through: u64,
     failed: bool,
     cold_reason: Option<String>,
+    background: RefCell<Option<crate::background_aliases::Projection>>,
 }
 
 impl History {
@@ -150,6 +153,7 @@ impl History {
             saved_through: boundary,
             failed: false,
             cold_reason,
+            background: RefCell::default(),
         };
         history.catch_up(through)?;
         history.save()?;
@@ -262,24 +266,38 @@ impl History {
     fn fold(&mut self, event: &EventEnvelope) -> io::Result<bool> {
         if event.event_type == ce::TOOL_EXEC_STARTED {
             if let Some(call) = event.payload["call"].as_str() {
-                if self
-                    .running
-                    .values()
-                    .any(|candidate| candidate.as_deref() == Some(call))
-                {
-                    return Ok(false);
+                let chain = if event.causes.is_empty() {
+                    None
+                } else {
+                    Some(correlation::request_chain(&self.reader, &event.id)?)
+                };
+                for (index, candidate) in &self.running {
+                    if candidate.as_deref() == Some(call) {
+                        let source = self.pages.get(*index)?.source;
+                        if chain.as_ref().is_none_or(|chain| chain.contains(&source)) {
+                            return Ok(false);
+                        }
+                    }
                 }
             }
         }
         if event.event_type == ce::TOOL_EXEC_COMPLETED {
             let call = event.payload["call"].as_str();
-            let target = self.running.iter().rev().find_map(|(index, candidate)| {
+            let chain = correlation::update_chain(&self.reader, event)?;
+            let mut target = None;
+            for (index, candidate) in self.running.iter().rev() {
                 let matches = match (call, candidate.as_deref()) {
                     (Some(a), Some(b)) => a == b,
                     _ => true,
                 };
-                matches.then_some(*index)
-            });
+                if matches {
+                    let source = self.pages.get(*index)?.source;
+                    if chain.as_ref().is_none_or(|chain| chain.contains(&source)) {
+                        target = Some(*index);
+                        break;
+                    }
+                }
+            }
             let Some(index) = target else {
                 return Ok(false);
             };
@@ -295,7 +313,12 @@ impl History {
         }
         if event.event_type == ce::WAKE {
             if let Some(job) = command_job(&event.payload) {
-                if let Some(index) = self.pages.find_last(job)? {
+                let chain = correlation::update_chain(&self.reader, event)?;
+                if let Some(index) = self.pages.find_last_where(job, |record| {
+                    chain
+                        .as_ref()
+                        .is_none_or(|chain| chain.contains(&record.source))
+                })? {
                     let mut record = self.pages.get(index)?;
                     let entry = self.materialize(&record)?;
                     let Entry::Tool(card) = &entry else {
@@ -333,7 +356,8 @@ impl History {
     }
 
     fn materialize(&self, record: &Record) -> io::Result<Entry> {
-        record.materialize(|id| {
+        let mut reference = None;
+        let mut entry = record.materialize(|id| {
             let event = self
                 .reader
                 .get(id)?
@@ -341,8 +365,38 @@ impl History {
             if event.seq > self.through {
                 return Err(invalid("card source lies beyond the recovered prefix"));
             }
+            if event.id != record.source {
+                if let Some(chain) = correlation::update_chain(&self.reader, &event)? {
+                    if !chain.contains(&record.source) {
+                        return Err(invalid(
+                            "card update belongs to another request incarnation",
+                        ));
+                    }
+                }
+            }
+            if let Some(found) = crate::background_aliases::reference_for_event(
+                &mut self.background.borrow_mut(),
+                &self.reader,
+                &event,
+                self.through,
+            )? {
+                reference = Some(found);
+            }
             Ok(event)
-        })
+        })?;
+        // Correlate and validate with original sources/call IDs first. Decoration
+        // is not part of the persisted recipe or command identity, and happens
+        // after completion/wake output replacement and its existing bounds.
+        if let Some(reference) = reference {
+            match &mut entry {
+                Entry::Tool(card) => card
+                    .output
+                    .push(format!("[background reference: {reference}]")),
+                Entry::Wake(text) => *text = format!("{reference} · {text}"),
+                _ => {}
+            }
+        }
+        Ok(entry)
     }
 
     pub fn get(&self, index: usize) -> io::Result<Entry> {
@@ -380,6 +434,9 @@ impl History {
 
     pub fn save(&mut self) -> io::Result<()> {
         self.healthy()?;
+        if let Some(projection) = self.background.borrow().as_ref() {
+            projection.save(&self.reader)?;
+        }
         if self.base.is_some() {
             self.saved_through = self.through;
             return Ok(());

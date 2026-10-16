@@ -124,6 +124,7 @@ fn activity(standing: bool) -> Live {
     Live {
         kind: if standing { "timer" } else { "command" },
         key: "job".into(),
+        reference: None,
         label: "work".into(),
         standing,
         fires: 0,

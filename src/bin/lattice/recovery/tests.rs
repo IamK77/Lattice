@@ -2,6 +2,9 @@ use super::*;
 use lattice::{core_events as ce, EventDraft, EventLog, View};
 use serde_json::{json, Value};
 
+#[path = "background_aliases.rs"]
+mod background_aliases;
+
 fn append(log: &mut EventLog, kind: &str, causes: &[&str], payload: Value) -> EventEnvelope {
     log.append(EventDraft::new(kind, causes, payload), "fixture")
         .unwrap()
