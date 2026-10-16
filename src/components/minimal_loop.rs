@@ -276,7 +276,7 @@ impl Component for MinimalLoop {
         {
             return;
         }
-        if let Err(error) = self.accept_material(ctx.log(), event) {
+        if let Err(error) = self.accept_material(ctx.log(), event, ctx.source()) {
             ctx.fail("restore conversation material", error.to_string(), &[]);
             return;
         }

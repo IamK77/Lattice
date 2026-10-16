@@ -30,7 +30,7 @@ fn warm_material_is_paged_cow_exact_and_repair_never_admits_new_history() {
     let reader = log.reader();
     let through = reader.snapshot_end();
     let mut projection = MinimalLoop::from_config(None);
-    projection.sync_material(&reader, through).unwrap();
+    projection.sync_material(&reader, through, "loop").unwrap();
     assert_eq!(projection.material.parts.collect(), expected);
     assert!(projection.material.parts.stats().0 <= 128);
     let saved = projection.material.parts.snapshot().unwrap();
@@ -39,7 +39,7 @@ fn warm_material_is_paged_cow_exact_and_repair_never_admits_new_history() {
     assert_eq!(old.stats(), (0, 0));
 
     let mut resumed = MinimalLoop::from_config(None);
-    resumed.sync_material(&reader, through).unwrap();
+    resumed.sync_material(&reader, through, "loop").unwrap();
     assert_eq!(resumed.material_through, through);
     assert_eq!(
         resumed.material.parts.stats(),
@@ -53,7 +53,7 @@ fn warm_material_is_paged_cow_exact_and_repair_never_admits_new_history() {
             "gate",
         )
         .unwrap();
-    resumed.accept_material(&reader, &event).unwrap();
+    resumed.accept_material(&reader, &event, "loop").unwrap();
     assert_eq!(
         old.collect(),
         expected,

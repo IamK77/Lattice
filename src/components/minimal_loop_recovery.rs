@@ -8,9 +8,19 @@ use crate::kernel::log::Header;
 use crate::LogReader;
 
 const KEY: &str = "minimal-loop-material";
-const VERSION: u32 = 4;
+const VERSION: u32 = 5;
 const CHECKPOINT_INTERVAL: u64 = 256;
 
+fn checkpoint_key(owner: &str) -> String {
+    use sha2::{Digest, Sha256};
+    // Instance names are data, not filesystem paths. Separate projections
+    // without letting unusual names select directories or alias another key.
+    format!("{KEY}-{:x}", Sha256::digest(owner.as_bytes()))
+}
+
+#[cfg(test)]
+#[path = "minimal_loop_recovery_ownership_tests.rs"]
+mod ownership_tests;
 #[cfg(test)]
 #[path = "minimal_loop_recovery_tests.rs"]
 mod tests;
@@ -73,9 +83,10 @@ impl MinimalLoop {
         &mut self,
         reader: &LogReader,
         event: &crate::EventEnvelope,
+        owner: &str,
     ) -> io::Result<()> {
         if !self.rebuilt {
-            self.sync_material(reader, event.seq.saturating_sub(1))?;
+            self.sync_material(reader, event.seq.saturating_sub(1), owner)?;
             self.parts = self.material.parts.fork()?;
             if event.event_type == ce::USER_MESSAGE {
                 self.parts.supersede(&event.causes)?;
@@ -86,34 +97,55 @@ impl MinimalLoop {
             .material_source
             .as_ref()
             .is_none_or(|source| !source.matches(reader))
+            || self.material.models.owner() != owner
         {
             return Err(io::Error::other(
-                "a running loop cannot change its history source",
+                "a running loop cannot change its history source or owner",
             ));
         }
         // This projection is only a recovery acceleration. Committed input
         // may still be waiting behind a gate; it must not leak into live parts.
         if event.seq.saturating_sub(self.material_saved) >= CHECKPOINT_INTERVAL {
-            self.sync_material(reader, event.seq)?;
+            self.sync_material(reader, event.seq, owner)?;
         }
         self.parts
             .push(event.id.clone(), event.event_type == ce::USER_MESSAGE)?;
         Ok(())
     }
 
-    pub(super) fn sync_material(&mut self, reader: &LogReader, through: u64) -> io::Result<()> {
+    pub(super) fn sync_material(
+        &mut self,
+        reader: &LogReader,
+        through: u64,
+        owner: &str,
+    ) -> io::Result<()> {
+        let key = checkpoint_key(owner);
         let cold_start = self
             .material_source
             .as_ref()
-            .is_none_or(|source| !source.matches(reader));
+            .is_none_or(|source| !source.matches(reader))
+            || self.material.models.owner() != owner;
         if cold_start {
-            let checkpoint = reader.load_checkpoint::<Checkpoint>(KEY, VERSION, through)?;
+            let mut checkpoint = reader.load_checkpoint::<Checkpoint>(&key, VERSION, through)?;
+            if checkpoint
+                .state
+                .as_ref()
+                .is_some_and(|state| state.models.owner() != owner)
+            {
+                // A cache is an acceleration, never authority over ownership.
+                checkpoint.state = None;
+                checkpoint.through = 0;
+                eprintln!("slow recovery for {key}: checkpoint owner mismatch");
+            }
             if let Some(reason) = checkpoint.cold_reason {
                 if reader.path().is_some() {
                     eprintln!("slow recovery for {KEY}: {reason}");
                 }
             }
-            let state = checkpoint.state.unwrap_or_default();
+            let state = checkpoint.state.unwrap_or_else(|| Checkpoint {
+                parts: Default::default(),
+                models: ModelOutcomes::new(owner),
+            });
             match material_store::Store::open(reader, state.parts) {
                 Ok(parts) => {
                     self.material = Material {
@@ -127,7 +159,7 @@ impl MinimalLoop {
                     eprintln!("slow recovery for {KEY}: {error}");
                     self.material = Material {
                         parts: material_store::Store::open(reader, Default::default())?,
-                        models: ModelOutcomes::default(),
+                        models: ModelOutcomes::new(owner),
                     };
                     self.material_through = 0;
                     self.material_saved = 0;
@@ -148,7 +180,7 @@ impl MinimalLoop {
             eprintln!("slow recovery for {KEY}: {error}");
             self.material = Material {
                 parts: material_store::Store::open(reader, Default::default())?,
-                models: ModelOutcomes::default(),
+                models: ModelOutcomes::new(owner),
             };
             self.material_through = 0;
             self.material_saved = 0;
@@ -161,7 +193,7 @@ impl MinimalLoop {
         {
             match self.material.parts.snapshot().and_then(|parts| {
                 reader.save_checkpoint(
-                    KEY,
+                    &key,
                     VERSION,
                     through,
                     &Checkpoint {
@@ -196,7 +228,7 @@ impl MinimalLoop {
             .ok_or_else(|| io::Error::other("material has no recovery seed"))?;
         let mut seed = Material {
             parts: material_store::Store::open(reader, Default::default())?,
-            models: ModelOutcomes::default(),
+            models: ModelOutcomes::new(self.material.models.owner()),
         };
         seed.advance(reader, 1, base)?;
         // Forking published this exact prefix before adding the first delivery.
@@ -212,8 +244,15 @@ impl MinimalLoop {
     }
 
     #[cfg(test)]
-    pub(super) fn restore_parts(reader: &LogReader, before: u64) -> io::Result<Vec<String>> {
-        let mut state = Material::default();
+    pub(super) fn restore_parts(
+        reader: &LogReader,
+        before: u64,
+        owner: &str,
+    ) -> io::Result<Vec<String>> {
+        let mut state = Material {
+            models: ModelOutcomes::new(owner),
+            ..Default::default()
+        };
         state.advance(reader, 1, before.saturating_sub(1))?;
         // The current forwarded input replaces its source before it is added
         // by the caller. It is not part of this checkpoint's committed prefix.

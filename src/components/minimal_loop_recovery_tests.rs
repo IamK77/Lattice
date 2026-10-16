@@ -52,7 +52,7 @@ fn checkpoint_boundaries_and_page_repair_keep_only_the_first_model_outcome() {
             let mut original = MinimalLoop::from_config(None);
             if checkpoint_before_outcome {
                 original
-                    .sync_material(&log.reader(), forwarded.seq)
+                    .sync_material(&log.reader(), forwarded.seq, "loop")
                     .unwrap();
             }
             let first = if interrupted_first {
@@ -74,11 +74,13 @@ fn checkpoint_boundaries_and_page_repair_keep_only_the_first_model_outcome() {
             };
             expected.push(first.id.clone());
             if !checkpoint_before_outcome {
-                original.sync_material(&log.reader(), first.seq).unwrap();
+                original
+                    .sync_material(&log.reader(), first.seq, "loop")
+                    .unwrap();
             }
             let checkpoint = log
                 .reader()
-                .load_checkpoint::<Checkpoint>(KEY, VERSION, first.seq)
+                .load_checkpoint::<Checkpoint>(&checkpoint_key("loop"), VERSION, first.seq)
                 .unwrap();
             assert!(
                 checkpoint.state.is_some(),
@@ -101,9 +103,12 @@ fn checkpoint_boundaries_and_page_repair_keep_only_the_first_model_outcome() {
             expected.push(input.id.clone());
             let reader = log.reader();
             let mut resumed = MinimalLoop::from_config(None);
-            resumed.accept_material(&reader, &input).unwrap();
+            resumed.accept_material(&reader, &input, "loop").unwrap();
             assert_eq!(resumed.parts.collect(), expected);
-            let mut cold = Material::default();
+            let mut cold = Material {
+                models: ModelOutcomes::new("loop"),
+                ..Default::default()
+            };
             cold.advance(&reader, 1, input.seq).unwrap();
             assert_eq!(cold.parts.collect(), expected);
             assert!(resumed.awaiting_model.is_none() && !resumed.round_open());
@@ -141,55 +146,64 @@ fn checkpoint_boundaries_and_page_repair_keep_only_the_first_model_outcome() {
 }
 
 #[test]
-fn old_pointer_only_checkpoint_is_rebuilt_instead_of_losing_settlement_state() {
-    let temp = tempfile::tempdir().unwrap();
-    let root = temp.path().join("history.ledger");
-    let mut log = EventLog::open_segmented(ce::core_event_decls(), "migration", root, 1).unwrap();
-    let input = log
-        .append(
-            EventDraft::new(ce::USER_MESSAGE, &[], json!({"text":"first"})),
-            "ui",
-        )
-        .unwrap();
-    let request = log
-        .append(
-            EventDraft::new(
-                ce::MODEL_CALL_STARTED,
-                &[&input.id],
-                json!({"model":"fixture","input":{"parts":[],"fingerprint":"sha256:test"}}),
-            ),
-            "loop",
-        )
-        .unwrap();
-    let first = log
-        .append(
-            EventDraft::new(ce::INTERRUPTED, &[&request.id], json!({"by":"deadline"})),
-            "core",
-        )
-        .unwrap();
-    let late = log
-        .append(
-            EventDraft::new(
-                ce::MODEL_CALL_COMPLETED,
-                &[&request.id],
-                json!({"status":"ok","text":"duplicate"}),
-            ),
-            "model",
-        )
-        .unwrap();
-    let reader = log.reader();
-    let mut legacy = material_store::Store::open(&reader, Default::default()).unwrap();
-    for event in [&input, &first, &late] {
-        legacy
-            .push(event.id.clone(), event.event_type == ce::USER_MESSAGE)
+fn old_unscoped_checkpoints_are_rebuilt_with_original_call_ownership() {
+    for version in [3, 4] {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("history.ledger");
+        let mut log =
+            EventLog::open_segmented(ce::core_event_decls(), "migration", root, 1).unwrap();
+        let input = log
+            .append(
+                EventDraft::new(ce::USER_MESSAGE, &[], json!({"text":"first"})),
+                "ui",
+            )
             .unwrap();
+        let request = log
+            .append(
+                EventDraft::new(
+                    ce::MODEL_CALL_STARTED,
+                    &[&input.id],
+                    json!({"model":"fixture","input":{"parts":[],"fingerprint":"sha256:test"}}),
+                ),
+                "loop",
+            )
+            .unwrap();
+        let first = log
+            .append(
+                EventDraft::new(ce::INTERRUPTED, &[&request.id], json!({"by":"deadline"})),
+                "core",
+            )
+            .unwrap();
+        let late = log
+            .append(
+                EventDraft::new(
+                    ce::MODEL_CALL_COMPLETED,
+                    &[&request.id],
+                    json!({"status":"ok","text":"duplicate"}),
+                ),
+                "model",
+            )
+            .unwrap();
+        let reader = log.reader();
+        let mut legacy = material_store::Store::open(&reader, Default::default()).unwrap();
+        for event in [&input, &first, &late] {
+            legacy
+                .push(event.id.clone(), event.event_type == ce::USER_MESSAGE)
+                .unwrap();
+        }
+        let parts = legacy.snapshot().unwrap();
+        let old_state = if version == 3 {
+            serde_json::to_value(parts).unwrap()
+        } else {
+            json!({"parts":parts,"models":{"calls":ce::PendingCalls::new(ce::MODEL_CALL_STARTED)}})
+        };
+        reader
+            .save_checkpoint(KEY, version, late.seq, &old_state)
+            .unwrap();
+        let mut resumed = MinimalLoop::from_config(None);
+        resumed.sync_material(&reader, late.seq, "loop").unwrap();
+        assert_eq!(resumed.material.parts.collect(), vec![input.id, first.id]);
+        assert!(reader.get(&late.id).unwrap().is_some());
+        assert!(resumed.awaiting_model.is_none());
     }
-    reader
-        .save_checkpoint(KEY, 3, late.seq, &legacy.snapshot().unwrap())
-        .unwrap();
-    let mut resumed = MinimalLoop::from_config(None);
-    resumed.sync_material(&reader, late.seq).unwrap();
-    assert_eq!(resumed.material.parts.collect(), vec![input.id, first.id]);
-    assert!(reader.get(&late.id).unwrap().is_some());
-    assert!(resumed.awaiting_model.is_none());
 }

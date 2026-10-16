@@ -12,6 +12,8 @@ use std::collections::HashMap;
 mod mixed;
 #[path = "model_settlement/recovery.rs"]
 mod recovery;
+#[path = "model_settlement/review_findings.rs"]
+mod review_findings;
 
 struct Passive;
 impl Component for Passive {

@@ -92,18 +92,30 @@ fn observe(calls: &mut ce::PendingCalls, header: &crate::kernel::log::Header) {
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct ModelOutcomes {
+    owner: String,
     calls: ce::PendingCalls,
+    owned: std::collections::BTreeSet<String>,
 }
 
 impl Default for ModelOutcomes {
     fn default() -> Self {
-        Self {
-            calls: ce::PendingCalls::new(ce::MODEL_CALL_STARTED),
-        }
+        Self::new("")
     }
 }
 
 impl ModelOutcomes {
+    pub(super) fn new(owner: &str) -> Self {
+        Self {
+            owner: owner.into(),
+            calls: ce::PendingCalls::new(ce::MODEL_CALL_STARTED),
+            owned: Default::default(),
+        }
+    }
+
+    pub(super) fn owner(&self) -> &str {
+        &self.owner
+    }
+
     pub(super) fn accept(
         &mut self,
         reader: &LogReader,
@@ -127,18 +139,24 @@ impl ModelOutcomes {
                 }
             }
         }
-        let first = model_target
-            && self.calls.requests().iter().any(|id| {
-                ce::relation_ends_call(
-                    ce::EventRelations {
-                        id: &header.id,
-                        event_type: &header.event_type,
-                        causes: &header.causes,
-                    },
-                    id,
-                )
-            });
+        if header.event_type == ce::MODEL_CALL_STARTED
+            && !header.has_purpose
+            && header.source == self.owner
+        {
+            self.owned.insert(header.id.clone());
+        }
         observe(&mut self.calls, header);
+        // A sibling copy can remain pending after the owned original ended.
+        // Keep the shared settlement graph intact, but admit material only
+        // when this outcome actually settles one of THIS loop's originals.
+        let first = if ce::is_outcome(&header.event_type) {
+            let pending: HashSet<_> = self.calls.requests().into_iter().collect();
+            let before = self.owned.len();
+            self.owned.retain(|id| pending.contains(id));
+            self.owned.len() < before
+        } else {
+            false
+        };
         // Preserve legacy uncorrelated material and the tool portion of mixed
         // interruptions. Pure duplicate model outcomes cannot reenter history.
         Ok(!model_target || other_target || first)
