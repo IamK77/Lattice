@@ -80,7 +80,9 @@ impl Resolver {
                 "stale background reference '{alias}': its original identifier has been reused"
             ));
         }
-        projection.save(reader).map_err(|e| e.to_string())?;
+        projection
+            .save_best_effort(reader)
+            .map_err(|e| e.to_string())?;
         Ok(Reference {
             alias: alias.to_owned(),
             identity,

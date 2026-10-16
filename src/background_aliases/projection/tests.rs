@@ -269,6 +269,7 @@ fn a_projection_cannot_be_advanced_or_saved_against_another_opened_history() {
         .advance(&b.reader(), b.reader().snapshot_end())
         .is_err());
     assert!(view.save(&b.reader()).is_err());
+    assert!(view.save_best_effort(&b.reader()).is_err());
     assert!(Projection::recover(&reader, reader.snapshot_end() + 1).is_err());
 }
 

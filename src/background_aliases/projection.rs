@@ -170,6 +170,13 @@ impl Projection {
         self.check_source(reader)?;
         reader.save_checkpoint(CONSUMER, VERSION, self.through, &self.state)
     }
+
+    /// Retain usable derived identities when only cache publication fails.
+    /// Ownership, source reads and serialization errors still propagate.
+    pub(crate) fn save_best_effort(&self, reader: &LogReader) -> io::Result<bool> {
+        self.check_source(reader)?;
+        reader.save_checkpoint_best_effort(CONSUMER, VERSION, self.through, &self.state)
+    }
 }
 
 fn eligible_event(event_type: &str) -> bool {

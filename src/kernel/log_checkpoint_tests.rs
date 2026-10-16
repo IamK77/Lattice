@@ -7,6 +7,68 @@ fn open(root: &Path) -> EventLog {
 }
 
 #[test]
+fn best_effort_publication_keeps_strict_save_and_source_validation() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("state.ledger");
+    let mut log = open(&root);
+    input(&mut log, "one");
+    let reader = log.reader();
+    let temporary = path(&root, "fixture").with_extension("next");
+    fs::create_dir(&temporary).unwrap();
+    assert!(reader.save_checkpoint("fixture", 1, 1, &"state").is_err());
+    assert!(!reader
+        .save_checkpoint_best_effort("fixture", 1, 1, &"state")
+        .unwrap());
+    assert!(reader
+        .save_checkpoint_best_effort("fixture", 1, 2, &"future")
+        .is_err());
+    fs::remove_dir(&temporary).unwrap();
+    assert!(reader
+        .save_checkpoint_best_effort("fixture", 1, 1, &"state")
+        .unwrap());
+    assert_eq!(
+        reader
+            .load_checkpoint::<String>("fixture", 1, 1)
+            .unwrap()
+            .state
+            .as_deref(),
+        Some("state")
+    );
+}
+
+#[test]
+fn best_effort_publication_does_not_swallow_source_prefix_read_failure() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("state.ledger");
+    let mut log = open(&root);
+    for text in ["one", "two", "three"] {
+        input(&mut log, text);
+    }
+    drop(log);
+    let log = open(&root);
+    // Reopen leaves sealed index pages cold. Make only these source metadata
+    // files unavailable, after successful startup and before prefix validation.
+    let mut moved = 0;
+    for entry in fs::read_dir(&root).unwrap() {
+        let source = entry.unwrap().path();
+        if source
+            .extension()
+            .is_some_and(|extension| extension == "pages")
+        {
+            fs::rename(&source, source.with_extension("unavailable")).unwrap();
+            moved += 1;
+        }
+    }
+    assert!(moved > 0);
+    let reader = log.reader();
+    let error = reader
+        .save_checkpoint_best_effort("fixture", 1, 1, &"state")
+        .unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::NotFound);
+    assert!(!path(&root, "fixture").exists());
+}
+
+#[test]
 fn checkpoint_binds_middle_records_not_only_count_or_last_identity() {
     use crate::kernel::segmented::Ledger;
     let temp = tempfile::tempdir().unwrap();
