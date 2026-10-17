@@ -74,112 +74,163 @@ impl Span {
 /// One rendered line: a sequence of styled spans.
 pub type Line = Vec<Span>;
 
+/// Width-independent content coordinates for a rendered line. Table byte
+/// ranges address a canonical sequence of labels and cell text, not padding.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LineLayout {
+    pub source_line: usize,
+    pub byte: usize,
+    pub ranges: Vec<std::ops::Range<usize>>,
+    pub prewrapped: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LayoutLine {
+    pub line: Line,
+    pub layout: LineLayout,
+}
+
+impl LayoutLine {
+    fn paragraph(line: Line, source_line: usize) -> Self {
+        Self {
+            line,
+            layout: LineLayout {
+                source_line,
+                byte: 0,
+                ranges: Vec::new(),
+                prewrapped: false,
+            },
+        }
+    }
+}
+
 /// Render Markdown into styled lines.
 pub fn render(markdown: &str) -> Vec<Line> {
-    render_with_width(markdown, None)
+    render_with_width(markdown, None, unicode_width::UnicodeWidthStr::width)
+        .into_iter()
+        .map(|row| row.line)
+        .collect()
 }
 
 /// Lay out tables within the available terminal columns. Other Markdown
 /// remains logically unwrapped, for the frontend's ordinary paragraph layout.
 /// The width must account for the frontend's own gutter and indentation.
 pub fn render_width(markdown: &str, width: usize) -> Vec<Line> {
-    render_with_width(markdown, Some(width.max(1)))
+    render_layout(markdown, width, unicode_width::UnicodeWidthStr::width)
+        .into_iter()
+        .map(|row| row.line)
+        .collect()
 }
 
-fn render_with_width(markdown: &str, width: Option<usize>) -> Vec<Line> {
+/// Retain source coordinates through width-dependent table expansion. The
+/// frontend supplies its actual grapheme metric so allocation, padding and
+/// drawing agree without coupling neutral richtext to a terminal dependency.
+pub fn render_layout(markdown: &str, width: usize, measure: fn(&str) -> usize) -> Vec<LayoutLine> {
+    render_with_width(markdown, Some(width.max(1)), measure)
+}
+
+fn render_with_width(
+    markdown: &str,
+    width: Option<usize>,
+    measure: fn(&str) -> usize,
+) -> Vec<LayoutLine> {
     let raws: Vec<&str> = markdown.split('\n').collect();
-    let mut lines: Vec<Line> = Vec::new();
+    let mut lines = Vec::new();
     let mut in_code = false;
     let mut i = 0;
 
     while i < raws.len() {
+        let source = i;
         let raw = raws[i];
         let trimmed = raw.trim_start();
         i += 1;
 
-        // Fenced code block toggling on ``` (kept verbatim inside)
         if trimmed.starts_with("```") {
             in_code = !in_code;
             continue;
         }
         if in_code {
-            lines.push(vec![Span::new(raw.to_string(), Style::CodeBlock)]);
+            lines.push(LayoutLine::paragraph(
+                vec![Span::new(raw, Style::CodeBlock)],
+                source,
+            ));
             continue;
         }
 
-        // Display mathematics: `$$ … $$` or `\[ … \]`, on one line or
-        // spanning several. Each source line becomes one rendered line.
+        // Display mathematics may consume several original source lines.
         if let Some((open, close)) = display_fence(trimmed) {
             if let Some(body) = trimmed
                 .strip_prefix(open)
                 .and_then(|r| r.strip_suffix(close))
                 .filter(|_| trimmed.len() > open.len() + close.len())
             {
-                lines.push(vec![Span::new(math(body), Style::Math)]);
+                lines.push(LayoutLine::paragraph(
+                    vec![Span::new(math(body), Style::Math)],
+                    source,
+                ));
                 continue;
             }
-            // An opening fence alone: gather until the closing one
             while i < raws.len() {
                 let body = raws[i].trim();
                 i += 1;
                 if body == close || body.ends_with(close) {
                     let last = body.strip_suffix(close).unwrap_or("").trim();
                     if !last.is_empty() {
-                        lines.push(vec![Span::new(math(last), Style::Math)]);
+                        lines.push(LayoutLine::paragraph(
+                            vec![Span::new(math(last), Style::Math)],
+                            i - 1,
+                        ));
                     }
                     break;
                 }
-                lines.push(vec![Span::new(math(body), Style::Math)]);
+                lines.push(LayoutLine::paragraph(
+                    vec![Span::new(math(body), Style::Math)],
+                    i - 1,
+                ));
             }
             continue;
         }
 
-        // GFM table: a pipe row followed by a separator row. A lone pipe
-        // line without the separator stays an ordinary paragraph.
         if is_table_row(trimmed) && raws.get(i).is_some_and(|n| is_table_separator(n.trim())) {
             let mut rows = vec![split_cells(trimmed)];
-            i += 1; // past the separator row (it is drawn, not parsed)
+            i += 1;
             while i < raws.len() && is_table_row(raws[i].trim_start()) {
                 rows.push(split_cells(raws[i].trim_start()));
                 i += 1;
             }
-            lines.extend(table_lines(&rows, width));
+            if let Some(width) = width {
+                lines.extend(table::layout(&parse_cells(&rows), width, source, measure));
+            } else {
+                lines.extend(
+                    table_lines(&rows)
+                        .into_iter()
+                        .enumerate()
+                        .map(|(at, line)| LayoutLine::paragraph(line, source + at)),
+                );
+            }
             continue;
         }
 
-        // ATX heading: one or more '#', a space, then text
-        if let Some(rest) = heading_text(trimmed) {
-            lines.push(emphasized(rest, Style::Heading));
-            continue;
-        }
-
-        // Blockquote
-        if let Some(rest) = trimmed
+        let line = if let Some(rest) = heading_text(trimmed) {
+            emphasized(rest, Style::Heading)
+        } else if let Some(rest) = trimmed
             .strip_prefix("> ")
             .or_else(|| trimmed.strip_prefix(">"))
         {
             let mut line = vec![Span::new("│ ", Style::Quote)];
             line.extend(inline(rest));
-            lines.push(line);
-            continue;
-        }
-
-        // List item (unordered - * +, or ordered "N.")
-        if let Some((marker, rest)) = list_item(trimmed) {
+            line
+        } else if let Some((marker, rest)) = list_item(trimmed) {
             let mut line = vec![Span::new(marker, Style::Marker)];
             line.extend(inline(rest));
-            lines.push(line);
-            continue;
-        }
-
-        // Ordinary paragraph line (blank lines stay blank)
-        if raw.trim().is_empty() {
-            lines.push(Vec::new());
+            line
+        } else if raw.trim().is_empty() {
+            Vec::new()
         } else {
-            lines.push(inline(raw));
-        }
+            inline(raw)
+        };
+        lines.push(LayoutLine::paragraph(line, source));
     }
-
     lines
 }
 
@@ -223,24 +274,22 @@ fn split_cells(row: &str) -> Vec<String> {
     inner.split('|').map(|c| c.trim().to_string()).collect()
 }
 
-/// Lay out parsed table rows: each column padded to its widest cell by
-/// DISPLAY width, header bolded, a dim rule under the header. Cells keep
-/// their inline styling; widths are measured on the rendered text, so
-/// `**bold**` counts 4 columns, not 8.
-fn table_lines(rows: &[Vec<String>], width: Option<usize>) -> Vec<Line> {
-    use unicode_width::UnicodeWidthStr;
+/// Parse and pad ragged rows before either natural or viewport layout.
+fn parse_cells(rows: &[Vec<String>]) -> Vec<Vec<Line>> {
     let cols = rows.iter().map(|r| r.len()).max().unwrap_or(0);
-    let parsed: Vec<Vec<Vec<Span>>> = rows
-        .iter()
+    rows.iter()
         .map(|r| {
             (0..cols)
                 .map(|j| inline(r.get(j).map(String::as_str).unwrap_or("")))
                 .collect()
         })
-        .collect();
-    if let Some(width) = width {
-        return table::layout(&parsed, width);
-    }
+        .collect()
+}
+
+fn table_lines(rows: &[Vec<String>]) -> Vec<Line> {
+    use unicode_width::UnicodeWidthStr;
+    let parsed = parse_cells(rows);
+    let cols = parsed.first().map_or(0, Vec::len);
     let cell_width =
         |cell: &[Span]| -> usize { cell.iter().map(|s| s.text.as_str().width()).sum() };
     let mut widths = vec![0usize; cols];

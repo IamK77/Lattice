@@ -1,6 +1,91 @@
 use super::*;
 use std::borrow::Cow;
 
+#[test]
+fn table_buffer_alignment_and_links_match_the_renderer_width() {
+    let md = format!("| first | second | third |\n|---|---|---|\n| {} | [LINK](https://example.com/table) | end |\n| `×·e\u{301}👩‍💻🇺🇸ｶﾞلا` | next | done |", "→".repeat(30));
+    let view = Fixture {
+        entries: vec![Entry::Agent(md)],
+        ..Default::default()
+    };
+    for width in [40, 80] {
+        let screen = rows(&view, width);
+        let lines: Vec<_> = screen.iter().map(|row| row.line.clone()).collect();
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(width as u16, 40)).unwrap();
+        terminal
+            .draw(|frame| {
+                frame.render_widget(
+                    ratatui::widgets::Paragraph::new(lines.clone()),
+                    frame.area(),
+                )
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let borders = |y| {
+            (0..width as u16)
+                .filter(|&x| buffer[(x, y)].symbol() == "│")
+                .collect::<Vec<_>>()
+        };
+        let expected = borders(0);
+        assert_eq!(expected.len(), 4);
+        let mut linked = String::new();
+        for (y, row) in screen.iter().enumerate() {
+            if row.line.to_string().contains('│') {
+                assert_eq!(
+                    borders(y as u16),
+                    expected,
+                    "misaligned buffer row {y} at width {width}"
+                );
+            }
+            assert!(row.line.width() <= width);
+            for (x, columns, url) in &row.links {
+                assert_eq!(url, "https://example.com/table");
+                for column in *x..x + columns {
+                    linked.push_str(buffer[(column as u16, y as u16)].symbol());
+                }
+            }
+        }
+        assert_eq!(
+            linked, "LINK",
+            "click geometry must address the drawn label, not padding"
+        );
+    }
+}
+
+#[test]
+fn review_table_borders_align_in_the_actual_terminal_buffer() {
+    let view = Fixture {
+        entries: vec![Entry::Agent(
+            "| h | n |\n|---|---|\n| → | x |\n| ab | y |".into(),
+        )],
+        ..Fixture::default()
+    };
+    let lines: Vec<_> = rows(&view, 40).into_iter().map(|r| r.line).collect();
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(40, 6)).unwrap();
+    terminal
+        .draw(|frame| {
+            frame.render_widget(
+                ratatui::widgets::Paragraph::new(lines.clone()),
+                frame.area(),
+            )
+        })
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+    let column = |y, label| {
+        (0..40u16)
+            .find(|&x| buffer[(x, y)].symbol() == label)
+            .unwrap()
+    };
+    let expected = column(0, "n");
+    assert_eq!(column(3, "y"), expected, "ASCII control row aligns");
+    assert_eq!(
+        column(2, "x"),
+        expected,
+        "arrow cell shifts the next column in the actual renderer"
+    );
+}
+
 const MD: &str = "| 任务类型与适用场景 | Validation conditions | Expected outcome |\n|---|---|---|\n| 1. first 中文混排 **bold** text | `tests/fixtures/a_very_long_unbroken_identifier.json` | [linked-label-that-must-remain-clickable](https://example.com/table) |\n| B2end | second | last |\n\nOutside paragraph.";
 
 #[derive(Default)]

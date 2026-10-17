@@ -22,6 +22,7 @@ pub(crate) struct TLine {
     pub entry: Option<usize>,
     pub line: Line<'static>,
     pub links: Vec<Option<String>>,
+    pub layout: Option<lattice::richtext::LineLayout>,
     pub owner: Option<String>,
     pub indent: u16,
     pub hl: bool,
@@ -53,6 +54,7 @@ fn blank_line() -> TLine {
         indent: 0,
         hl: false,
         links: Vec::new(),
+        layout: None,
     }
 }
 
@@ -146,6 +148,7 @@ pub(super) fn render_transcript_group(
                         indent: INDENT_AGENT,
                         hl: false,
                         links: Vec::new(),
+                        layout: None,
                     });
                 }
                 for (relative, e) in entries[i..group].iter().enumerate() {
@@ -161,6 +164,7 @@ pub(super) fn render_transcript_group(
                             indent,
                             hl: false,
                             links: Vec::new(),
+                            layout: None,
                         });
                     }
                 }
@@ -172,6 +176,7 @@ pub(super) fn render_transcript_group(
                     indent: INDENT_AGENT,
                     hl: false,
                     links: Vec::new(),
+                    layout: None,
                 });
             }
             i = group;
@@ -204,6 +209,7 @@ pub(super) fn render_transcript_group(
                         indent,
                         hl: true,
                         links: Vec::new(),
+                        layout: None,
                     });
                 }
                 i = group;
@@ -227,6 +233,7 @@ pub(super) fn render_transcript_group(
                         entry: Some(base + i - 1),
                         line: row.line,
                         links: row.links,
+                        layout: row.layout,
                         owner: None,
                         indent: INDENT_AGENT,
                         hl: false,
@@ -242,6 +249,7 @@ pub(super) fn render_transcript_group(
                 indent,
                 hl,
                 links: Vec::new(),
+                layout: None,
             });
         }
     }
@@ -265,6 +273,7 @@ pub(super) fn render_transcript_group(
             indent: INDENT_AGENT,
             hl: false,
             links: Vec::new(),
+            layout: None,
         });
         let all: Vec<&str> = view.thinking().lines().collect();
         let tail = all.len().saturating_sub(LIVE_THINKING_TAIL);
@@ -276,6 +285,7 @@ pub(super) fn render_transcript_group(
                 indent: INDENT_TOOL_OUT,
                 hl: false,
                 links: Vec::new(),
+                layout: None,
             });
         }
         prev_kind = Some(KIND_TOOL);
@@ -290,13 +300,22 @@ pub(super) fn render_transcript_group(
         let mut streamed = markdown_rows_uncached(view.streaming(), reply_width);
         // A fully occupied table row must not be reflowed as prose merely to
         // fit the streaming cursor. Put that cursor on its own row instead.
-        if streamed
-            .last()
-            .is_some_and(|row| wrap::str_cols(&row.line.to_string()) == reply_width)
-        {
+        if streamed.last().is_some_and(|row| {
+            let width = if row.layout.as_ref().is_some_and(|layout| layout.prewrapped) {
+                row.line
+                    .spans
+                    .iter()
+                    .map(|span| crate::terminal_host::linked_line::display_width(&span.content))
+                    .sum()
+            } else {
+                wrap::str_cols(&row.line.to_string())
+            };
+            width == reply_width
+        }) {
             streamed.push(crate::terminal_host::linked_line::LinkedLine {
                 line: Line::default(),
                 links: Vec::new(),
+                layout: None,
             });
         }
         if let Some(last) = streamed.last_mut() {
@@ -308,6 +327,7 @@ pub(super) fn render_transcript_group(
             entry: None,
             line: row.line,
             links: row.links,
+            layout: row.layout,
             owner: None,
             indent: INDENT_AGENT,
             hl: false,

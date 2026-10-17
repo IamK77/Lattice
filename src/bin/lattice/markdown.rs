@@ -150,13 +150,13 @@ fn markdown_lines_uncached(md: &str) -> Vec<Line<'static>> {
 
 /// Used for live streaming buffers: no lookup or insertion, and no cursor.
 pub(super) fn markdown_rows_uncached(md: &str, width: usize) -> Vec<LinkedLine> {
-    let rendered = lattice::richtext::render_width(md, width);
+    let rendered = lattice::richtext::render_layout(md, width, super::linked_line::grapheme_width);
     let langs = fence_languages(md);
     let mut out = Vec::new();
     let mut i = 0;
     let mut block = 0usize;
     while i < rendered.len() {
-        if is_code_line(&rendered[i]) {
+        if is_code_line(&rendered[i].line) {
             let lang = langs.get(block).map(String::as_str).unwrap_or("");
             block += 1;
             let syntax = (!lang.is_empty())
@@ -168,17 +168,19 @@ pub(super) fn markdown_rows_uncached(md: &str, width: usize) -> Vec<LinkedLine> 
                 .flatten();
             let mut highlighter =
                 syntax.map(|s| syntect::easy::HighlightLines::new(s, code_theme()));
-            while i < rendered.len() && is_code_line(&rendered[i]) {
+            while i < rendered.len() && is_code_line(&rendered[i].line) {
                 out.push(LinkedLine {
-                    line: code_line(&rendered[i][0].text, &mut highlighter),
+                    line: code_line(&rendered[i].line[0].text, &mut highlighter),
                     links: Vec::new(),
+                    layout: Some(rendered[i].layout.clone()),
                 });
                 i += 1;
             }
         } else {
             out.push(LinkedLine {
-                line: map_line(&rendered[i]),
-                links: rendered[i].iter().map(|s| s.link.clone()).collect(),
+                line: map_line(&rendered[i].line),
+                links: rendered[i].line.iter().map(|s| s.link.clone()).collect(),
+                layout: Some(rendered[i].layout.clone()),
             });
             i += 1;
         }
