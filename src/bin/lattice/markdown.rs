@@ -1,4 +1,4 @@
-//! Terminal Markdown presentation and content-keyed caching. Neutral parsing
+//! Terminal Markdown presentation and content/width-keyed caching. Neutral parsing
 //! lives in lattice::richtext; link-aware wrapping is a sibling responsibility.
 
 use super::linked_line::LinkedLine;
@@ -92,14 +92,15 @@ fn code_line(
 const RENDER_CACHE_MAX: usize = 512;
 
 thread_local! {
-    /// Rendered markdown, keyed by the text it came from.
+    /// Rendered markdown, keyed by its text and available table width.
     ///
     /// Highlighting is the most expensive thing the frontend does — 88% of a
     /// frame, measured — and every bit of it re-derives a result that cannot
     /// have changed, because the text of an entry is fixed the moment it is in
     /// the transcript. Keyed by content rather than by position so that
-    /// folding, scrolling and reordering cannot serve a stale line.
-    static RENDERED: std::cell::RefCell<std::collections::HashMap<String, Vec<LinkedLine>>> =
+    /// folding, scrolling and reordering cannot serve a stale line. Width is
+    /// also part of the key because table columns are laid out before wrapping.
+    static RENDERED: std::cell::RefCell<std::collections::HashMap<(String, usize), Vec<LinkedLine>>> =
         std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
@@ -115,44 +116,47 @@ pub(super) fn render_cache_len() -> usize {
 
 /// Render Markdown to styled terminal lines using the neutral richtext model.
 /// Code blocks use syntax colors when known and a flat code color otherwise.
-/// Memoised by content, before viewport wrapping.
-pub(super) fn markdown_lines(md: &str) -> Vec<Line<'static>> {
-    markdown_rows(md).into_iter().map(|row| row.line).collect()
+/// Memoised by content and table width, before ordinary paragraph wrapping.
+pub(super) fn markdown_lines(md: &str, width: usize) -> Vec<Line<'static>> {
+    markdown_rows(md, width)
+        .into_iter()
+        .map(|row| row.line)
+        .collect()
 }
 
-pub(super) fn markdown_rows(md: &str) -> Vec<LinkedLine> {
+pub(super) fn markdown_rows(md: &str, width: usize) -> Vec<LinkedLine> {
+    let key = (md.to_string(), width);
     RENDERED.with(|cache| {
-        if let Some(done) = cache.borrow().get(md) {
+        if let Some(done) = cache.borrow().get(&key) {
             return done.clone();
         }
-        let built = markdown_rows_uncached(md);
+        let built = markdown_rows_uncached(md, width);
         let mut cache = cache.borrow_mut();
         if cache.len() >= RENDER_CACHE_MAX {
             cache.clear();
         }
-        cache.insert(md.to_string(), built.clone());
+        cache.insert(key, built.clone());
         built
     })
 }
 
 #[cfg(test)]
 fn markdown_lines_uncached(md: &str) -> Vec<Line<'static>> {
-    markdown_rows_uncached(md)
+    markdown_rows_uncached(md, 80)
         .into_iter()
         .map(|row| row.line)
         .collect()
 }
 
 /// Used for live streaming buffers: no lookup or insertion, and no cursor.
-pub(super) fn markdown_rows_uncached(md: &str) -> Vec<LinkedLine> {
-    use lattice::richtext::render;
-    let rendered = render(md);
+pub(super) fn markdown_rows_uncached(md: &str, width: usize) -> Vec<LinkedLine> {
+    let rendered = lattice::richtext::render_layout(md, width, super::linked_line::grapheme_width);
     let langs = fence_languages(md);
     let mut out = Vec::new();
     let mut i = 0;
     let mut block = 0usize;
     while i < rendered.len() {
-        if is_code_line(&rendered[i]) {
+        if is_code_line(&rendered[i].line) {
             let lang = langs.get(block).map(String::as_str).unwrap_or("");
             block += 1;
             let syntax = (!lang.is_empty())
@@ -164,17 +168,19 @@ pub(super) fn markdown_rows_uncached(md: &str) -> Vec<LinkedLine> {
                 .flatten();
             let mut highlighter =
                 syntax.map(|s| syntect::easy::HighlightLines::new(s, code_theme()));
-            while i < rendered.len() && is_code_line(&rendered[i]) {
+            while i < rendered.len() && is_code_line(&rendered[i].line) {
                 out.push(LinkedLine {
-                    line: code_line(&rendered[i][0].text, &mut highlighter),
+                    line: code_line(&rendered[i].line[0].text, &mut highlighter),
                     links: Vec::new(),
+                    layout: Some(rendered[i].layout.clone()),
                 });
                 i += 1;
             }
         } else {
             out.push(LinkedLine {
-                line: map_line(&rendered[i]),
-                links: rendered[i].iter().map(|s| s.link.clone()).collect(),
+                line: map_line(&rendered[i].line),
+                links: rendered[i].line.iter().map(|s| s.link.clone()).collect(),
+                layout: Some(rendered[i].layout.clone()),
             });
             i += 1;
         }

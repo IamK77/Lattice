@@ -1,5 +1,25 @@
 use crate::terminal_host::*;
-use ratatui::{backend::TestBackend, crossterm::event::KeyEvent};
+use ratatui::{backend::TestBackend, crossterm::event::KeyEvent, layout::Rect};
+
+#[test]
+fn table_viewport_cache_reflows_after_resize_and_stream_commit() {
+    let mut ui = Ui::replayed(&[]);
+    let md = "| Long first header | Long second header | Third column |\n|---|---|---|\n| 中文内容需要独立换行 | `an_unbroken_identifier_long_enough_to_wrap` | [linked text](https://example.com/table) |\n| last | row | done |";
+    let mut terminal = Terminal::new(TestBackend::new(80, 30)).unwrap();
+    ui.live_output.seed_reply(md.into());
+    for width in [80, 24, 40, 80] {
+        terminal.backend_mut().resize(width, 30);
+        terminal.resize(Rect::new(0, 0, width, 30)).unwrap();
+        assert_matches_uncached(&mut ui, &mut terminal);
+    }
+    ui.live_output.seed_reply(String::new());
+    ui.push_local_card(Entry::Agent(md.into()));
+    for width in [80, 24, 40, 80] {
+        terminal.backend_mut().resize(width, 30);
+        terminal.resize(Rect::new(0, 0, width, 30)).unwrap();
+        assert_matches_uncached(&mut ui, &mut terminal);
+    }
+}
 
 fn assert_matches_uncached(ui: &mut Ui, terminal: &mut Terminal<TestBackend>) {
     draw_ui(terminal, ui).unwrap();

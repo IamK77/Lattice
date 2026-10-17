@@ -53,18 +53,27 @@ struct Positioned {
     entry: Option<usize>,
     line: usize,
     byte: usize,
+    ranges: Vec<std::ops::Range<usize>>,
 }
 
 fn wrap_positioned(lines: Vec<TLine>, width: usize) -> Vec<Positioned> {
     let mut rows = Vec::new();
     let mut entry = lines.iter().find_map(|line| line.entry);
     let mut logical = 0;
+    let mut source_base = None;
     for tl in lines {
         let next = tl.entry.or(entry);
         if next != entry {
             entry = next;
             logical = 0;
+            source_base = None;
         }
+        if let Some(layout) = &tl.layout {
+            logical = *source_base.get_or_insert(logical) + layout.source_line;
+        } else {
+            source_base = None;
+        }
+        let prewrapped = tl.layout.as_ref().is_some_and(|layout| layout.prewrapped);
         let text: String = tl
             .line
             .spans
@@ -73,13 +82,22 @@ fn wrap_positioned(lines: Vec<TLine>, width: usize) -> Vec<Positioned> {
             .collect();
         let mut consumed = 0;
         let indent = tl.indent as usize;
-        let hang = hanging_indent(&tl.line);
+        let hang = if prewrapped {
+            0
+        } else {
+            hanging_indent(&tl.line)
+        };
         let content_width = width.saturating_sub(indent + hang).max(1);
-        for (at, wrapped) in
+        let wrapped = if prewrapped {
+            vec![crate::terminal_host::linked_line::LinkedLine {
+                line: tl.line.clone(),
+                links: tl.links.clone(),
+                layout: None,
+            }]
+        } else {
             crate::terminal_host::linked_line::wrap_linked_line(&tl.line, &tl.links, content_width)
-                .into_iter()
-                .enumerate()
-        {
+        };
+        for (at, wrapped) in wrapped.into_iter().enumerate() {
             let rendered: String = wrapped
                 .line
                 .spans
@@ -95,13 +113,18 @@ fn wrap_positioned(lines: Vec<TLine>, width: usize) -> Vec<Positioned> {
             let mut x = lead;
             let mut links = Vec::new();
             for (i, span) in wrapped.line.spans.iter().enumerate() {
-                let columns = span.width().min(width.saturating_sub(x));
+                let span_width = if prewrapped {
+                    crate::terminal_host::linked_line::display_width(&span.content)
+                } else {
+                    span.width()
+                };
+                let columns = span_width.min(width.saturating_sub(x));
                 if columns > 0 {
                     if let Some(url) = wrapped.links.get(i).and_then(Option::as_ref) {
                         links.push((x, columns, url.clone()));
                     }
                 }
-                x += span.width();
+                x += span_width;
             }
             let mut spans = Vec::with_capacity(wrapped.line.spans.len() + 2);
             if lead > 0 {
@@ -131,7 +154,16 @@ fn wrap_positioned(lines: Vec<TLine>, width: usize) -> Vec<Positioned> {
                 },
                 entry,
                 line: logical,
-                byte: begin,
+                byte: tl
+                    .layout
+                    .as_ref()
+                    .filter(|layout| layout.prewrapped)
+                    .map_or(begin, |layout| layout.byte),
+                ranges: tl
+                    .layout
+                    .as_ref()
+                    .filter(|layout| layout.prewrapped)
+                    .map_or_else(Vec::new, |layout| layout.ranges.clone()),
             });
         }
         logical += 1;

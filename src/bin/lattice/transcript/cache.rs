@@ -56,9 +56,23 @@ mod tests {
                 byte: 0,
             },
             spinner_span: None,
+            source_ranges: Vec::new(),
         }]
         .into()
     }
+    #[test]
+    fn group_cache_counts_table_source_ranges() {
+        let mut cache = Groups::default();
+        let mut group = rows(0);
+        std::sync::Arc::make_mut(&mut group)[0].source_ranges =
+            vec![0..1; GROUP_BUDGET / std::mem::size_of::<std::ops::Range<usize>>()];
+        cache.insert(0, 1, group);
+        assert!(
+            cache.get(0).is_none(),
+            "source intervals alone exceed the group budget"
+        );
+    }
+
     #[test]
     fn group_cache_bounds_bytes_and_empty_group_count() {
         let mut cache = Groups::default();
@@ -120,7 +134,9 @@ impl Groups {
                 .iter()
                 .map(|located| {
                     let row = &located.row;
-                    row.line.spans.capacity() * std::mem::size_of::<ratatui::text::Span<'static>>()
+                    located.source_ranges.capacity() * std::mem::size_of::<std::ops::Range<usize>>()
+                        + row.line.spans.capacity()
+                            * std::mem::size_of::<ratatui::text::Span<'static>>()
                         + row
                             .line
                             .spans
