@@ -22,11 +22,13 @@
 //! an agent's replies are full of `$PATH`, `$HOME` and `$ARGUMENTS`, and
 //! treating those as mathematics would corrupt far more than it rendered.
 //!
-//! Tables are laid out here (not in the frontend) because alignment is a
-//! text property: columns are padded to their widest cell measured in
-//! DISPLAY width (CJK characters occupy two terminal cells), the header is
-//! bolded, and a rule is drawn beneath it. All alignments are rendered
-//! flush-left; escaped pipes and pipes inside inline code are not special.
+//! Tables are laid out here as neutral styled text. `render` preserves the
+//! natural-width representation; `render_width` budgets table columns for a
+//! viewport and stacks labeled fields when columns would become unreadable.
+//! All alignments are rendered flush-left; escaped pipes and pipes inside
+//! inline code are not special.
+
+mod table;
 
 /// How one run of text should look. The frontend chooses actual colors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,6 +76,17 @@ pub type Line = Vec<Span>;
 
 /// Render Markdown into styled lines.
 pub fn render(markdown: &str) -> Vec<Line> {
+    render_with_width(markdown, None)
+}
+
+/// Lay out tables within the available terminal columns. Other Markdown
+/// remains logically unwrapped, for the frontend's ordinary paragraph layout.
+/// The width must account for the frontend's own gutter and indentation.
+pub fn render_width(markdown: &str, width: usize) -> Vec<Line> {
+    render_with_width(markdown, Some(width.max(1)))
+}
+
+fn render_with_width(markdown: &str, width: Option<usize>) -> Vec<Line> {
     let raws: Vec<&str> = markdown.split('\n').collect();
     let mut lines: Vec<Line> = Vec::new();
     let mut in_code = false;
@@ -130,7 +143,7 @@ pub fn render(markdown: &str) -> Vec<Line> {
                 rows.push(split_cells(raws[i].trim_start()));
                 i += 1;
             }
-            lines.extend(table_lines(&rows));
+            lines.extend(table_lines(&rows, width));
             continue;
         }
 
@@ -214,7 +227,7 @@ fn split_cells(row: &str) -> Vec<String> {
 /// DISPLAY width, header bolded, a dim rule under the header. Cells keep
 /// their inline styling; widths are measured on the rendered text, so
 /// `**bold**` counts 4 columns, not 8.
-fn table_lines(rows: &[Vec<String>]) -> Vec<Line> {
+fn table_lines(rows: &[Vec<String>], width: Option<usize>) -> Vec<Line> {
     use unicode_width::UnicodeWidthStr;
     let cols = rows.iter().map(|r| r.len()).max().unwrap_or(0);
     let parsed: Vec<Vec<Vec<Span>>> = rows
@@ -225,6 +238,9 @@ fn table_lines(rows: &[Vec<String>]) -> Vec<Line> {
                 .collect()
         })
         .collect();
+    if let Some(width) = width {
+        return table::layout(&parsed, width);
+    }
     let cell_width =
         |cell: &[Span]| -> usize { cell.iter().map(|s| s.text.as_str().width()).sum() };
     let mut widths = vec![0usize; cols];

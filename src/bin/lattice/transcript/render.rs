@@ -1,6 +1,9 @@
 //! Logical transcript rendering. Stable entry identities, link destinations,
 //! click owners and indentation travel with text; viewport navigation wraps it.
 #[cfg(test)]
+#[path = "render/table_tests.rs"]
+mod table_tests;
+#[cfg(test)]
 #[path = "render/tests.rs"]
 mod tests;
 use super::work::{entry_key, folded_work, group_key, tool_count, work_group, FOLD_FROM};
@@ -110,6 +113,7 @@ pub(super) fn render_transcript_group(
     include_stream: bool,
 ) -> Vec<TLine> {
     let mut out: Vec<TLine> = Vec::new();
+    let reply_width = room.saturating_sub(INDENT_AGENT as usize).max(1);
     let base = loaded.first;
     let mut prev_kind = loaded.previous.map(transcript_kind);
     let entries = &loaded.entries;
@@ -216,14 +220,18 @@ pub(super) fn render_transcript_group(
         let hl = matches!(e, Entry::User(_));
         // Replies must retain their link destinations, not just styled text.
         if let Entry::Agent(text) = e {
-            out.extend(markdown_rows(text).into_iter().map(|row| TLine {
-                entry: Some(base + i - 1),
-                line: row.line,
-                links: row.links,
-                owner: None,
-                indent: INDENT_AGENT,
-                hl: false,
-            }));
+            out.extend(
+                markdown_rows(text, reply_width)
+                    .into_iter()
+                    .map(|row| TLine {
+                        entry: Some(base + i - 1),
+                        line: row.line,
+                        links: row.links,
+                        owner: None,
+                        indent: INDENT_AGENT,
+                        hl: false,
+                    }),
+            );
             continue;
         }
         for (line, indent) in entry_lines(e, spinner, false, room) {
@@ -279,7 +287,18 @@ pub(super) fn render_transcript_group(
         }
         // Never cache growing stream prefixes: they cannot hit on the next
         // frame and would retain quadratically many copies of a long reply.
-        let mut streamed = markdown_rows_uncached(view.streaming());
+        let mut streamed = markdown_rows_uncached(view.streaming(), reply_width);
+        // A fully occupied table row must not be reflowed as prose merely to
+        // fit the streaming cursor. Put that cursor on its own row instead.
+        if streamed
+            .last()
+            .is_some_and(|row| wrap::str_cols(&row.line.to_string()) == reply_width)
+        {
+            streamed.push(crate::terminal_host::linked_line::LinkedLine {
+                line: Line::default(),
+                links: Vec::new(),
+            });
+        }
         if let Some(last) = streamed.last_mut() {
             last.line
                 .spans
@@ -334,10 +353,12 @@ pub(crate) fn entry_lines(
             ]),
             0,
         )],
-        Entry::Agent(text) => markdown_lines(text)
-            .into_iter()
-            .map(|l| (l, INDENT_AGENT))
-            .collect(),
+        Entry::Agent(text) => {
+            markdown_lines(text, room.saturating_sub(INDENT_AGENT as usize).max(1))
+                .into_iter()
+                .map(|l| (l, INDENT_AGENT))
+                .collect()
+        }
         Entry::Error(text) => vec![(
             Line::from(Span::styled(format!("✗ {text}"), Style::default().fg(ERR))),
             INDENT_AGENT,
