@@ -9,13 +9,6 @@ pub(crate) fn rows(view: &dyn View, width: usize) -> Vec<(String, String)> {
         return vec![(String::new(), "nothing running, nothing armed".to_string())];
     }
     let mut rows = Vec::new();
-    let owners: std::collections::BTreeSet<_> = live
-        .iter()
-        .filter_map(|row| row.reference.as_ref().map(|r| r.identity.stream.as_str()))
-        .collect();
-    for owner in owners {
-        rows.push((String::new(), format!("stream: {owner}")));
-    }
     let (working, waiting): (Vec<_>, Vec<_>) = live.iter().partition(|l| !l.standing);
     for (heading, group) in [("running", working), ("armed", waiting)] {
         if group.is_empty() {
@@ -45,7 +38,10 @@ pub(crate) fn rows(view: &dyn View, width: usize) -> Vec<(String, String)> {
                     lattice::background_aliases::Kind::Timer => "Timer",
                     lattice::background_aliases::Kind::Watch => "Watch",
                 };
-                rows.push((reference.alias.clone(), format!("{kind:<7} {note}")));
+                rows.push((
+                    reference.alias.clone(),
+                    format!("{kind:<7} {note} · stream: {}", reference.identity.stream),
+                ));
             } else {
                 rows.push((l.key.clone(), fit(&note, width.saturating_sub(24))));
             }

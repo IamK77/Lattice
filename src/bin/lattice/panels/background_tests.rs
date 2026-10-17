@@ -1,9 +1,57 @@
 use super::*;
 use lattice::background_aliases::{Identity, Kind, OriginalId, Reference, Registry};
 
+// Retained from the independent post-merge review of #129.
+#[test]
+fn review_multi_stream_rows_preserve_the_owner_to_task_mapping() {
+    let mut view = Fixture::default();
+    for (tab, stream) in [(1, "stream-z"), (2, "stream-a")] {
+        view.live.push(Live {
+            kind: "timer",
+            key: format!("tab-{tab}:timer:1"),
+            reference: Some(Reference {
+                // Equal aliases in different streams are permitted, not global IDs.
+                alias: "deadbeef".into(),
+                identity: Identity {
+                    stream: stream.into(),
+                    kind: Kind::Timer,
+                    original_id: OriginalId::Number(1),
+                    created_by: format!("creation-{tab}"),
+                },
+            }),
+            label: format!("tab {tab}: repeating reminder"),
+            standing: true,
+            fires: 0,
+            since: 0,
+            ledger: None,
+            tools: 0,
+            tokens: 0,
+            read_len: 0,
+        });
+    }
+    let render = |view: &Fixture| {
+        background::lines(view, 80)
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let before = render(&view);
+    view.live[0].reference.as_mut().unwrap().identity.stream = "stream-a".into();
+    view.live[1].reference.as_mut().unwrap().identity.stream = "stream-z".into();
+    let after = render(&view);
+    assert_ne!(
+        before, after,
+        "swapping each task's owning stream is invisible in the background panel:\n{before}"
+    );
+}
+
 #[test]
 fn background_aliases_show_kind_owner_and_whole_extended_ids_at_narrow_widths() {
-    let mut registry = Registry::new("owner-stream");
+    let mut registries = [
+        Registry::new("owner-stream"),
+        Registry::new("second-stream"),
+    ];
     let mut view = Fixture::default();
     for (index, (kind, name)) in [
         (Kind::Expert, "expert"),
@@ -15,12 +63,12 @@ fn background_aliases_show_kind_owner_and_whole_extended_ids_at_narrow_widths() 
     .enumerate()
     {
         let identity = Identity {
-            stream: "owner-stream".into(),
+            stream: ["owner-stream", "second-stream"][index % 2].into(),
             kind,
             original_id: OriginalId::Number(1),
             created_by: format!("creation-{index}"),
         };
-        let alias = registry.assign(identity.clone()).unwrap();
+        let alias = registries[index % 2].assign(identity.clone()).unwrap();
         view.live.push(Live {
             kind: name,
             key: format!("internal-{name}:1"),
@@ -77,7 +125,20 @@ fn background_aliases_show_kind_owner_and_whole_extended_ids_at_narrow_widths() 
         for kind in ["Expert", "Run", "Timer", "Watch"] {
             assert!(text.contains(kind));
         }
+        assert!(text.contains("running"));
+        assert!(text.contains("armed"));
         assert!(text.contains("owner-stream"));
+        assert!(text.contains("second-stream"));
+        for live in &view.live {
+            let reference = live.reference.as_ref().unwrap();
+            let rows = background::rows(&view, width);
+            let (_, note) = rows
+                .iter()
+                .find(|(alias, _)| alias == &reference.alias)
+                .unwrap();
+            assert!(note.contains(&live.label));
+            assert!(note.contains(&format!("stream: {}", reference.identity.stream)));
+        }
     }
     view.live.reverse();
     let keys: Vec<_> = background::rows(&view, 80)
