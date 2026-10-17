@@ -29,7 +29,9 @@ impl<'a> BackgroundReferences<'a> {
         .map_err(|e| e.to_string())?;
         if initial {
             if let Some(projection) = &self.projection {
-                projection.save(self.reader).map_err(|e| e.to_string())?;
+                projection
+                    .save_best_effort(self.reader)
+                    .map_err(|e| e.to_string())?;
             }
         }
         Ok(reference.map(|reference| reference.to_string()))

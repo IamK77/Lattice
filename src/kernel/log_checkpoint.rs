@@ -215,6 +215,29 @@ impl LogReader {
         through: u64,
         state: &T,
     ) -> io::Result<bool> {
+        self.save_checkpoint_inner(consumer, version, through, state, false)
+    }
+
+    /// Only cache-file publication is optional. Source validation and state
+    /// serialization still fail normally; never hide an unreadable ledger.
+    pub(crate) fn save_checkpoint_best_effort<T: Serialize>(
+        &self,
+        consumer: &str,
+        version: u32,
+        through: u64,
+        state: &T,
+    ) -> io::Result<bool> {
+        self.save_checkpoint_inner(consumer, version, through, state, true)
+    }
+
+    fn save_checkpoint_inner<T: Serialize>(
+        &self,
+        consumer: &str,
+        version: u32,
+        through: u64,
+        state: &T,
+        best_effort: bool,
+    ) -> io::Result<bool> {
         // Serializes competing publishers sharing this reader and prevents a
         // late worker from replacing a newer checkpoint with an older one.
         let history = self
@@ -258,22 +281,33 @@ impl LogReader {
                 "recovery checkpoint exceeds its write budget",
             ));
         }
-        let temporary = target.with_extension("next");
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-            .open(&temporary)?;
-        if !file.metadata()?.is_file() {
-            return Err(io::Error::other(
-                "recovery checkpoint temporary is not a file",
-            ));
+        // Everything above this boundary can inspect authoritative source
+        // metadata. Only this publication step is allowed to fail softly.
+        let published = (|| -> io::Result<bool> {
+            let temporary = target.with_extension("next");
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+                .open(&temporary)?;
+            if !file.metadata()?.is_file() {
+                return Err(io::Error::other(
+                    "recovery checkpoint temporary is not a file",
+                ));
+            }
+            file.write_all(&bytes)?;
+            file.sync_all()?;
+            fs::rename(&temporary, &target)?;
+            File::open(root)?.sync_all()?;
+            Ok(true)
+        })();
+        match published {
+            Err(error) if best_effort => {
+                eprintln!("cannot publish derived recovery state for {consumer}: {error}");
+                Ok(false)
+            }
+            result => result,
         }
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        fs::rename(&temporary, &target)?;
-        File::open(root)?.sync_all()?;
-        Ok(true)
     }
 }
