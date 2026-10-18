@@ -1,6 +1,18 @@
 use super::*;
 use crate::terminal_host::linked_line::wrap_linked_line;
 
+// Existing non-table fixtures use a fixed viewport. Table resize tests pass
+// explicit widths through the production transcript path.
+fn markdown_lines(md: &str) -> Vec<Line<'static>> {
+    super::markdown_lines(md, 80)
+}
+fn markdown_rows(md: &str) -> Vec<LinkedLine> {
+    super::markdown_rows(md, 80)
+}
+fn markdown_rows_uncached(md: &str) -> Vec<LinkedLine> {
+    super::markdown_rows_uncached(md, 80)
+}
+
 /// The cache changes how often a block is derived, never what it derives.
 /// A wrong key could silently serve another entry's colours.
 #[test]

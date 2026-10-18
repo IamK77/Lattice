@@ -4,11 +4,22 @@
 use lattice::wrap;
 use ratatui::text::{Line, Span};
 
+pub(super) fn grapheme_width(text: &str) -> usize {
+    use ratatui::buffer::CellWidth;
+    usize::from(text.cell_width())
+}
+
+pub(super) fn display_width(text: &str) -> usize {
+    use unicode_segmentation::UnicodeSegmentation;
+    text.graphemes(true).map(grapheme_width).sum()
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct LinkedLine {
     pub(super) line: Line<'static>,
     /// Destination per span; absent trailing entries mean plain text.
     pub(super) links: Vec<Option<String>>,
+    pub(super) layout: Option<lattice::richtext::LineLayout>,
 }
 
 /// Wrap via opaque ids so both styles and link destinations survive.
@@ -42,7 +53,11 @@ pub(super) fn wrap_linked_line(
                     .map(|r| Span::styled(r.text, styles[r.style].0))
                     .collect::<Vec<_>>(),
             );
-            LinkedLine { line, links }
+            LinkedLine {
+                line,
+                links,
+                layout: None,
+            }
         })
         .collect()
 }

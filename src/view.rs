@@ -347,7 +347,11 @@ pub enum TranscriptBlock {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TranscriptPosition {
     pub block: TranscriptBlock,
+    /// Width-independent logical content line, never an expanded screen row.
     pub line: usize,
+    /// Byte position in that line's canonical rendered content. This is not
+    /// necessarily an offset into raw Markdown: table labels and cell values
+    /// have stable coordinates that exclude width-dependent padding.
     pub byte: usize,
 }
 
