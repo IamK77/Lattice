@@ -424,9 +424,65 @@ fn actual_submit_path_starts_the_clock_before_the_ledger_echo() {
     assert_eq!(summary.input, TokenCount::default());
 }
 
+fn mid_call_input_events() -> Vec<EventEnvelope> {
+    vec![
+        input(1),
+        start(2, &["e1"]),
+        input(3),
+        done(4, "e2", json!({"prompt_tokens":100,"completion_tokens":20})),
+        event(5, ce::OUTPUT_REPLY, &["e4"], json!({"text":"old answer"})),
+        event(6, ce::TURN_COMPLETED, &["e4"], json!({})),
+        start(7, &["e4"]),
+        done(8, "e7", json!({"prompt_tokens":12,"completion_tokens":4})),
+        event(9, ce::OUTPUT_REPLY, &["e8"], json!({"text":"new answer"})),
+        event(10, ce::TURN_COMPLETED, &["e8"], json!({})),
+    ]
+}
+
+#[test]
+fn mid_call_input_retains_its_origin_and_usage_after_the_old_boundary() {
+    let events = mid_call_input_events();
+    let mut ui = Ui::replayed(&[]);
+    let mut clock = Clock::default();
+    let base = Instant::now();
+    for e in &events {
+        let now = base + Duration::from_secs(e.seq);
+        if e.event_type == ce::USER_MESSAGE {
+            clock.submitted(now);
+        }
+        ui.absorb(e, e.seq as usize);
+        clock.observe(&ui.domain.turn_summary, e, now);
+    }
+    let summary = view(&ui.domain.turn_summary);
+    assert_eq!(
+        (
+            summary.running,
+            summary.elapsed_ms,
+            summary.input,
+            summary.output
+        ),
+        (false, Some(7_000), measured(12, true), measured(4, true)),
+        "the old boundary must not discard the newer input's time or usage"
+    );
+    assert_eq!(
+        clock.snapshot(&ui.domain.turn_summary, base + Duration::from_secs(100), 0),
+        Some(summary),
+        "the live clock resumes from the original submission and freezes at its own ending"
+    );
+}
+
+#[test]
+fn mid_call_input_survives_recovery_before_and_after_the_old_boundary() {
+    assert_summary_recovery(
+        &mid_call_input_events(),
+        measured(12, true),
+        measured(4, true),
+        "Done",
+    );
+}
+
 #[test]
 fn summary_survives_real_cold_warm_and_incremental_recovery() {
-    use lattice::{EventDraft, EventLog};
     let originals = [
         input(1),
         start(2, &["e1"]),
@@ -436,6 +492,21 @@ fn summary_survives_real_cold_warm_and_incremental_recovery() {
         event(6, ce::INTERRUPTED, &["e5"], json!({"by":"deadline"})),
         event(7, ce::TURN_COMPLETED, &["e6"], json!({})),
     ];
+    assert_summary_recovery(
+        &originals,
+        measured(12, false),
+        measured(3, false),
+        "Timed out",
+    );
+}
+
+fn assert_summary_recovery(
+    originals: &[EventEnvelope],
+    expected_input: TokenCount,
+    expected_output: TokenCount,
+    expected_status: &str,
+) {
+    use lattice::{EventDraft, EventLog};
     for cut in 0..=originals.len() {
         let temp = tempfile::tempdir().unwrap();
         let mut log = EventLog::open_segmented(
@@ -447,7 +518,7 @@ fn summary_survives_real_cold_warm_and_incremental_recovery() {
         .unwrap();
         let mut ids = BTreeMap::new();
         let mut events = Vec::new();
-        for original in &originals {
+        for original in originals {
             let causes: Vec<&str> = original
                 .causes
                 .iter()
@@ -482,9 +553,9 @@ fn summary_survives_real_cold_warm_and_incremental_recovery() {
             .unwrap();
         let summary = restored.turn_summary().unwrap();
         assert_eq!(Some(summary), reference.turn_summary());
-        assert_eq!(summary.input, measured(12, false));
-        assert_eq!(summary.output, measured(3, false));
-        assert_eq!(restored.turn_status(), "Timed out");
+        assert_eq!(summary.input, expected_input);
+        assert_eq!(summary.output, expected_output);
+        assert_eq!(restored.turn_status(), expected_status);
         assert!(!summary.running);
         assert_eq!(
             reader.snapshot_end(),

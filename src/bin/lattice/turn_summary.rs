@@ -111,7 +111,12 @@ impl Summary {
                     .find_map(|cause| self.aliases.get(cause))
                     .cloned();
                 let root = root.unwrap_or_else(|| {
-                    if self.running {
+                    // The loop may end an older call before asking about queued
+                    // input. Resume that input's summary without moving its origin
+                    // or reassigning any earlier call. Forwarding skips this branch.
+                    if self.id.is_some() {
+                        self.running = true;
+                        self.ended_ms = None;
                         self.calls += 1;
                     }
                     self.roots.insert(
@@ -223,6 +228,11 @@ impl Clock {
                 .is_none_or(|(previous, _)| previous != id)
         {
             self.anchor = Some((id.clone(), echoed.unwrap_or(now)));
+            self.frozen_ms = None;
+        }
+        // A queued input can resume after the preceding call's turn boundary.
+        // Keep its submission anchor, but discard the provisional frozen value.
+        if summary.running {
             self.frozen_ms = None;
         }
         if !summary.running && self.frozen_ms.is_none() {
