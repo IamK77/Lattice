@@ -10,6 +10,7 @@ use lattice::view::{TranscriptBlock as Block, TranscriptPosition as Position};
 pub(crate) struct Located {
     pub row: Row,
     pub position: Position,
+    pub source_ranges: Vec<std::ops::Range<usize>>,
     // Only an actual running tool's heading can animate, never matching text
     // in a user's message or in tool arguments/output.
     pub spinner_span: Option<usize>,
@@ -88,6 +89,7 @@ impl<'a> Cursor<'a> {
                         byte: 0,
                     },
                     spinner_span: None,
+                    source_ranges: Vec::new(),
                 })
                 .collect::<Vec<_>>()
                 .into();
@@ -170,6 +172,7 @@ impl<'a> Cursor<'a> {
                         byte: located.byte,
                     },
                     spinner_span,
+                    source_ranges: located.ranges,
                 }
             })
             .collect::<Vec<_>>()
@@ -262,14 +265,40 @@ impl<'a> Cursor<'a> {
             }
             return Ok(());
         }
-        self.at = self
+        // A grid row covers several cells. Its first cell alone cannot locate
+        // an anchor saved in a later column while the table was stacked.
+        let table_match = self
             .rows
             .iter()
-            .rposition(|row| {
-                row.position.block == position.block
-                    && (row.position.line, row.position.byte) <= (position.line, position.byte)
+            .enumerate()
+            .filter(|(_, row)| {
+                row.position.block == position.block && row.position.line == position.line
             })
-            .unwrap_or_else(|| self.rows.len().saturating_sub(1));
+            .flat_map(|(at, row)| {
+                row.source_ranges.iter().map(move |range| {
+                    let distance = if position.byte < range.start {
+                        range.start - position.byte
+                    } else if position.byte >= range.end {
+                        position
+                            .byte
+                            .saturating_sub(range.end.saturating_sub(1).max(range.start))
+                    } else {
+                        0
+                    };
+                    (distance, at)
+                })
+            })
+            .min_by_key(|&(distance, at)| (distance, at))
+            .map(|(_, at)| at);
+        self.at = table_match.unwrap_or_else(|| {
+            self.rows
+                .iter()
+                .rposition(|row| {
+                    row.position.block == position.block
+                        && (row.position.line, row.position.byte) <= (position.line, position.byte)
+                })
+                .unwrap_or(0)
+        });
         Ok(())
     }
 
@@ -331,9 +360,21 @@ pub(super) fn page_cached(
     if let Some((position, shift)) = view.transcript_position().filter(|_| view.scroll() > 0) {
         cursor.seek(position)?;
         cursor.shift(shift.unsigned_abs(), shift >= 0)?;
-        let page = cursor.collect()?;
+        let mut page = cursor.collect()?;
         // Near the end, fill upwards just as bottom-following does.
         if page.rows.len() == height {
+            // Reflow is not a user scroll. Keep the addressed cell rather than
+            // replacing it with the first column's representative position.
+            // Only mutate this page copy, never the shared group cache.
+            if shift == 0 {
+                if let Some(top) = page.rows.first_mut().filter(|top| {
+                    !top.source_ranges.is_empty()
+                        && top.position.block == position.block
+                        && top.position.line == position.line
+                }) {
+                    top.position = position;
+                }
+            }
             return Ok(page);
         }
         let mut cursor = Cursor::new(view, spinner, width, height, cache);
