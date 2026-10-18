@@ -81,7 +81,7 @@ fn initial_projection_keeps_all_model_and_path_interpretation_fields() {
 #[test]
 fn v4_model_fields_restore_from_the_pre_refactor_document() {
     let old = include_bytes!("../../../../tests/fixtures/terminal-model-state-v4/state.json");
-    let saved: State = serde_json::from_slice(old).unwrap();
+    let saved = super::tests::decode_legacy_state(old);
     let mut restored = Ui::replayed(&[]);
     saved.apply(&mut restored.domain, SETTLED_TICK).unwrap();
     let expected = initial_ui();
@@ -100,7 +100,7 @@ fn v4_model_fields_restore_from_the_pre_refactor_document() {
     );
     assert_eq!(restored.domain.model.effective_window(), Some(99999));
     assert_eq!(restored.domain.model.catalog().now, Some(1));
-    assert_eq!(VERSION, 6);
+    assert_eq!(VERSION, 7);
 }
 
 #[test]
@@ -113,8 +113,7 @@ fn restoring_model_facts_preserves_local_controls_but_does_not_recreate_them() {
     live.controls.form_problem("keep this problem".into());
     live.controls.ask_delete("local-confirmation".into());
     let dial = live.controls.dial();
-    serde_json::from_slice::<State>(old)
-        .unwrap()
+    super::tests::decode_legacy_state(old)
         .apply(&mut live.domain, SETTLED_TICK)
         .unwrap();
     assert_eq!(live.controls.dial(), dial);
@@ -125,8 +124,7 @@ fn restoring_model_facts_preserves_local_controls_but_does_not_recreate_them() {
     );
     assert_eq!(live.controls.deletion(), Some("local-confirmation"));
     let mut fresh = Ui::replayed(&[]);
-    serde_json::from_slice::<State>(old)
-        .unwrap()
+    super::tests::decode_legacy_state(old)
         .apply(&mut fresh.domain, SETTLED_TICK)
         .unwrap();
     assert_eq!(fresh.controls.dial(), None);

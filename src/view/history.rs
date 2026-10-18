@@ -21,7 +21,8 @@ pub(super) mod record;
 mod tests;
 
 const CONSUMER: &str = "view-cards";
-const VERSION: u32 = 4;
+// Cancellation no longer contributes a synthetic assistant card.
+const VERSION: u32 = 5;
 const CHECKPOINT_EVERY: u64 = 256;
 
 #[derive(Default, Serialize, Deserialize)]

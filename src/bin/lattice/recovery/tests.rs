@@ -450,6 +450,21 @@ fn pre_accounting_v4_checkpoint_rebuilds_once_then_restores_without_replaying() 
     assert_eq!(ui.domain.event_inputs.counts(), [0; 3]);
 }
 
+// Old checkpoints are rebuilt in production. Install-focused tests explicitly
+// supply the new projection so they can keep testing their original fields.
+pub(super) fn decode_legacy_state(bytes: &[u8]) -> State {
+    serde_json::from_value(with_completion_projection(
+        serde_json::from_slice(bytes).unwrap(),
+    ))
+    .unwrap()
+}
+
+fn with_completion_projection(mut value: Value) -> Value {
+    value["completion"] =
+        serde_json::to_value(crate::terminal_host::turns::Completion::default()).unwrap();
+    value
+}
+
 #[test]
 fn v4_authorization_tuples_restore_unsettled_questions_without_local_answers() {
     let temp = tempfile::tempdir().unwrap();
@@ -459,7 +474,7 @@ fn v4_authorization_tuples_restore_unsettled_questions_without_local_answers() {
         .unwrap()
         .state
         .unwrap();
-    let mut state = saved["state"].clone();
+    let mut state = with_completion_projection(saved["state"].clone());
     // Extend the fixed old document using its public flat tuple format, not a
     // new owner's serializer. Applying history intentionally drops local marks.
     state["pending_auth"] = json!([["one", "a"], ["two", "b"]]);
@@ -484,6 +499,7 @@ fn historical_install_is_atomic_and_round_trips_the_pre_refactor_document() {
         "../../../../tests/fixtures/terminal-background-state-v4/state.json"
     ))
     .unwrap();
+    let old = with_completion_projection(old);
     for field in ["background", "models"] {
         let mut value = old.clone();
         if field == "background" {
@@ -539,7 +555,7 @@ fn invalid_v4_state_never_partially_applies_usage_or_other_facts() {
         "background",
         "models",
     ] {
-        let mut value = saved["state"].clone();
+        let mut value = with_completion_projection(saved["state"].clone());
         value[field] = match field {
             "composition" => json!([["unknown material", 1]]),
             "background" => {

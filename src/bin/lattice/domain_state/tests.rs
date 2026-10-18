@@ -277,9 +277,13 @@ fn both_domain_modes_match_the_original_ui_fold_after_every_event() {
             reference.completed_usage(event)
         );
         reference.absorb_state(event, 20, None);
+        // The fixed pre-coordinator fixture predates the terminal-outcome
+        // projection. Compare its original fields; both current modes below
+        // must still agree on the complete state, including that projection.
+        let mut legacy_fields = crate::terminal_host::recovery::reference_snapshot(&reference);
+        legacy_fields.as_object_mut().unwrap().remove("completion");
         assert_eq!(
-            crate::terminal_host::recovery::reference_snapshot(&reference),
-            expected[at],
+            legacy_fields, expected[at],
             "pre-coordinator snapshot after event {}",
             event.seq
         );

@@ -43,7 +43,7 @@ impl TurnState for turns::History {
         self.observe(event).unwrap_or(false)
     }
     fn history(&self) -> turns::History {
-        *self
+        self.clone()
     }
     fn install(&mut self, history: turns::History, _: ()) {
         *self = history;

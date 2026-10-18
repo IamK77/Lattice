@@ -40,28 +40,28 @@ fn notices_route_only_foreground_chunks_and_preserve_receipt_precedence() {
 }
 
 #[test]
-fn cards_replace_only_their_channel_and_submission_only_the_reply() {
+fn cards_replace_exactly_the_channels_they_commit() {
+    for thinking in [false, true] {
+        for reply in [false, true] {
+            let mut live = populated();
+            live.card_landed(lattice::view::CommittedText { thinking, reply });
+            assert_eq!(live.reply(), if reply { "" } else { "reply" });
+            assert_eq!(live.thinking(), if thinking { "" } else { "thought" });
+        }
+    }
     let mut live = populated();
-    live.card_landed(true);
-    assert_eq!(live.reply(), "reply");
-    assert!(live.thinking().is_empty());
-    let mut live = populated();
-    live.card_landed(false);
-    assert!(live.reply().is_empty());
-    assert_eq!(live.thinking(), "thought");
-    let mut live = populated();
-    live.submitted();
-    assert!(live.reply().is_empty());
-    assert_eq!(live.thinking(), "thought");
+    assert_eq!(live.take_interrupted(), ("thought".into(), "reply".into()));
+    assert_eq!(live.take_interrupted(), (String::new(), String::new()));
 }
 
 #[test]
-fn only_round_end_interruption_and_waiting_clear_both_channels() {
+fn only_accepted_round_end_and_waiting_clear_both_channels() {
     for event in [
         ce::MODEL_CALL_STARTED,
         ce::MODEL_CALL_COMPLETED,
         ce::USER_MESSAGE,
         ce::WAKE,
+        ce::INTERRUPTED,
     ] {
         let mut live = populated();
         live.round_event(event);
@@ -70,7 +70,6 @@ fn only_round_end_interruption_and_waiting_clear_both_channels() {
     }
     for event in [
         ce::TURN_COMPLETED,
-        ce::INTERRUPTED,
         lattice::components::minimal_loop::WAITING,
     ] {
         let mut live = populated();

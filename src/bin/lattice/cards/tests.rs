@@ -158,6 +158,14 @@ fn live_output_lands_one_channel_at_a_time_on_both_card_paths() {
     }
     let event = append(&mut log, ce::INTERRUPTED, json!({}));
     fold(&mut ui, &mut reference, &event);
+    assert_eq!(
+        ui.thinking(),
+        "unfinished",
+        "an uncorrelated interruption is not a turn end"
+    );
+    assert_eq!(ui.streaming(), "unfinished");
+    let event = append(&mut log, ce::TURN_COMPLETED, json!({}));
+    fold(&mut ui, &mut reference, &event);
     assert!(ui.thinking().is_empty());
     assert!(ui.streaming().is_empty());
 }

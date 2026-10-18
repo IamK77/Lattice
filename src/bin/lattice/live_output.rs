@@ -40,29 +40,33 @@ impl LiveOutput {
         }
     }
 
-    /// Both indexed cards and the readerless fold report the last landed card's
-    /// channel. A thought can land before its reply; do not blank that reply.
-    pub fn card_landed(&mut self, thinking: bool) {
-        if thinking {
+    /// A completion can commit both channels, or only one. Never use the last
+    /// card's kind to infer what happened to the other channel.
+    pub fn card_landed(&mut self, channels: lattice::view::CommittedText) {
+        if channels.thinking {
             self.thinking.clear();
-        } else {
+        }
+        if channels.reply {
             self.reply.clear();
         }
+    }
+
+    /// Retire actual uncommitted text into local display cards, never the ledger.
+    pub fn take_interrupted(&mut self) -> (String, String) {
+        (
+            std::mem::take(&mut self.thinking),
+            std::mem::take(&mut self.reply),
+        )
     }
 
     pub fn round_event(&mut self, event_type: &str) {
         if matches!(
             event_type,
-            ce::TURN_COMPLETED | ce::INTERRUPTED | lattice::components::minimal_loop::WAITING
+            ce::TURN_COMPLETED | lattice::components::minimal_loop::WAITING
         ) {
             self.thinking.clear();
             self.reply.clear();
         }
-    }
-
-    /// Optimistic input submission has historically cleared only the reply.
-    pub fn submitted(&mut self) {
-        self.reply.clear();
     }
 
     #[cfg(test)]

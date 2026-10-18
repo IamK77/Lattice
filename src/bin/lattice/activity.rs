@@ -19,6 +19,8 @@ pub(super) fn line(view: &dyn View) -> Line<'static> {
     } else if view.busy() {
         let g = THINK_SPIN[(view.tick() / THINK_DIV) % THINK_SPIN.len()];
         (g, phrase.to_string())
+    } else if view.turn_status() != "Done" {
+        ('·', view.turn_status().to_string())
     } else {
         let end_phrase = state_phrase(view.turn(), true);
         let since = view.tick().wrapping_sub(view.done_at().unwrap_or(0));
