@@ -5,13 +5,24 @@ use lattice::view::View;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
+#[path = "activity/summary.rs"]
+mod summary;
+
+/// Only the displayed second can require a new frame during a quiet wait.
+pub(super) fn clock_second(view: &dyn View) -> Option<u64> {
+    view.turn_summary()
+        .filter(|s| s.running)
+        .and_then(|s| s.elapsed_ms)
+        .map(|ms| ms / 1_000)
+}
+
 pub(super) fn spinner(tick: usize) -> char {
     SPINNER[(tick / SPIN_DIV) % SPINNER.len()]
 }
 
 /// Select and style the activity text, without allocating screen space or
 /// changing the turn. Waiting text takes precedence over the working phrase.
-pub(super) fn line(view: &dyn View) -> Line<'static> {
+pub(super) fn line(view: &dyn View, width: usize) -> Line<'static> {
     let working = !view.streaming().is_empty() || view.last_tool_running();
     let phrase = state_phrase(view.turn(), working);
     let (g, word) = if view.waiting() {
@@ -26,16 +37,50 @@ pub(super) fn line(view: &dyn View) -> Line<'static> {
         let since = view.tick().wrapping_sub(view.done_at().unwrap_or(0));
         done_line(since / TYPE_DIV, end_phrase)
     };
-    if view.busy() {
-        let mut spans = vec![Span::styled(format!(" {g} "), Style::default().fg(ACCENT))];
-        spans.extend(sweep_arc(&word, view.tick(), RULE, DIM));
-        Line::from(spans)
+    let prefix = if width >= 3 {
+        format!(" {g} ")
     } else {
-        Line::from(vec![
-            Span::styled(format!(" {g} "), Style::default().fg(ACCENT)),
-            Span::styled(word, Style::default().fg(RULE).add_modifier(Modifier::BOLD)),
-        ])
+        String::new()
+    };
+    let budget = width.saturating_sub(summary::cells(&prefix));
+    let (word, suffix) = if let Some(measured) = view.turn_summary() {
+        let state = if measured.running {
+            Some(if view.pending_auth().is_some() {
+                "approval"
+            } else if view.waiting() {
+                "waiting"
+            } else if view.last_tool_running() {
+                "tools"
+            } else if measured.model_pending {
+                "model"
+            } else {
+                "working"
+            })
+        } else {
+            None
+        };
+        let word = if measured.running { phrase } else { &word };
+        summary::fit(word, view.turn_status(), measured, state, budget)
+    } else {
+        (summary::clip(&word, budget), String::new())
+    };
+    let mut spans = vec![Span::styled(prefix, Style::default().fg(ACCENT))];
+    if view.busy() {
+        spans.extend(sweep_arc(&word, view.tick(), RULE, DIM));
+    } else {
+        spans.push(Span::styled(
+            word.clone(),
+            Style::default().fg(RULE).add_modifier(Modifier::BOLD),
+        ));
     }
+    if !suffix.is_empty() {
+        let gap = if word.is_empty() { "" } else { " " };
+        spans.push(Span::styled(
+            format!("{gap}{suffix}"),
+            Style::default().fg(DIM),
+        ));
+    }
+    Line::from(spans)
 }
 
 pub(super) const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];

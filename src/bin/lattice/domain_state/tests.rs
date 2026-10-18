@@ -48,6 +48,10 @@ fn same<T: TurnState, B: BackgroundState<T::Clock>>(
     assert_eq!(domain.skills, reference.skills);
     assert_eq!(domain.turns.history(), reference.turns.history());
     assert_eq!(
+        serde_json::to_value(&domain.turn_summary).unwrap(),
+        serde_json::to_value(&reference.turn_summary).unwrap()
+    );
+    assert_eq!(
         domain.authorizations.history(),
         reference.authorizations.history()
     );
@@ -282,6 +286,10 @@ fn both_domain_modes_match_the_original_ui_fold_after_every_event() {
         // must still agree on the complete state, including that projection.
         let mut legacy_fields = crate::terminal_host::recovery::reference_snapshot(&reference);
         legacy_fields.as_object_mut().unwrap().remove("completion");
+        legacy_fields
+            .as_object_mut()
+            .unwrap()
+            .remove("turn_summary");
         assert_eq!(
             legacy_fields, expected[at],
             "pre-coordinator snapshot after event {}",

@@ -462,6 +462,8 @@ pub(super) fn decode_legacy_state(bytes: &[u8]) -> State {
 fn with_completion_projection(mut value: Value) -> Value {
     value["completion"] =
         serde_json::to_value(crate::terminal_host::turns::Completion::default()).unwrap();
+    value["turn_summary"] =
+        serde_json::to_value(crate::terminal_host::turn_summary::Summary::default()).unwrap();
     value
 }
 

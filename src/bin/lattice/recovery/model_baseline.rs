@@ -100,7 +100,7 @@ fn v4_model_fields_restore_from_the_pre_refactor_document() {
     );
     assert_eq!(restored.domain.model.effective_window(), Some(99999));
     assert_eq!(restored.domain.model.catalog().now, Some(1));
-    assert_eq!(VERSION, 7);
+    assert_eq!(VERSION, 8);
 }
 
 #[test]

@@ -18,6 +18,7 @@ pub(super) struct State {
     done: bool,
     turn: usize,
     completion: crate::terminal_host::turns::Completion,
+    turn_summary: crate::terminal_host::turn_summary::Summary,
     pending_auth: Vec<(String, String)>,
     unseen: Vec<String>,
     skills: Vec<(String, String)>,
@@ -109,6 +110,7 @@ impl State {
             done: turn.done,
             turn: turn.number,
             completion: turn.completion,
+            turn_summary: pure.turn_summary.clone(),
             pending_auth: pure.authorizations.history(),
             unseen: pure.unseen.lines().to_vec(),
             skills: pure.skills.clone(),
@@ -211,6 +213,7 @@ impl State {
             },
             clock,
         );
+        ui.turn_summary = self.turn_summary;
         ui.authorizations.restore(self.pending_auth);
         ui.unseen.restore(self.unseen);
         ui.skills = self.skills;

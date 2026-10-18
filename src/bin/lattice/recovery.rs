@@ -29,8 +29,8 @@ mod tests;
 
 // Bump when State, its reducers, or initial-context interpretation changes,
 // not when an unrelated part of the executable is released.
-// v7 retains call correlation and the accepted terminal outcome.
-const VERSION: u32 = 7;
+// v8 retains per-turn activity measurements and pending-call attribution.
+const VERSION: u32 = 8;
 const EVERY: u64 = 256;
 
 #[derive(Clone, Serialize)]

@@ -29,6 +29,7 @@ use crate::components::trust_policy;
 use crate::contracts::core_events as ce;
 use crate::contracts::event::EventEnvelope;
 
+pub mod activity;
 pub mod expert_panel;
 pub mod facts;
 pub mod history;
@@ -649,6 +650,10 @@ pub trait View {
     }
 
     fn done_at(&self) -> Option<usize> {
+        None
+    }
+    /// Current turn measurements, distinct from the conversation usage totals.
+    fn turn_summary(&self) -> Option<activity::TurnSummary> {
         None
     }
     /// Outcome shown in the terminal's existing end-of-turn status position.
