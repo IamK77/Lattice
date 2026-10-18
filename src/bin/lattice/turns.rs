@@ -127,10 +127,11 @@ impl Turns {
             return false;
         };
         self.ended = event.event_type == ce::TURN_COMPLETED;
-        if self.optimistic && !new_turn {
-            // The audited old call may retire its text, but cannot settle an
-            // input that has not yet returned through the ledger.
-            return false;
+        let input_echo = event.event_type == ce::USER_MESSAGE && event.causes.is_empty();
+        if self.optimistic && !input_echo {
+            // A queued wake is a recorded boundary, not a chat-input echo.
+            // Keep its bookkeeping without letting old events settle the input.
+            return new_turn;
         }
         self.optimistic = false;
         self.busy = self.history.busy;

@@ -2,6 +2,98 @@ use super::*;
 use ratatui::crossterm::event::KeyEvent;
 
 #[test]
+fn review_interruption_status_queued_wake_does_not_acknowledge_local_input() {
+    for queued_wake in [false, true] {
+        let mut ui = Ui::replayed(&interrupted("deadline")[..2]);
+        ui.domain.turns.submitted_input();
+        ui.domain.accounting.seed_turn_total(lattice::Usage {
+            prompt: 7,
+            ..Default::default()
+        });
+        // These events were queued before Enter; the local input has not echoed.
+        let third = if queued_wake {
+            event(
+                3,
+                core_events::WAKE,
+                None,
+                json!({"summary":"background work finished"}),
+            )
+        } else {
+            event(
+                3,
+                core_events::TOOL_EXEC_COMPLETED,
+                None,
+                json!({"call":"unrelated"}),
+            )
+        };
+        for next in [
+            third,
+            event(
+                4,
+                core_events::INTERRUPTED,
+                Some(2),
+                json!({"by":"deadline"}),
+            ),
+            event(
+                5,
+                core_events::OUTPUT_REPLY,
+                Some(4),
+                json!({"cancelled":true}),
+            ),
+            event(6, core_events::TURN_COMPLETED, Some(4), json!({})),
+        ] {
+            ui.absorb(&next, next.seq as usize);
+        }
+        assert!(ui.busy(), "queued_wake={queued_wake}: unrelated event acknowledged local input: status={}, done_at={:?}", ui.turn_status(), ui.done_at());
+        assert!(ui.done_at().is_none());
+        assert_eq!(
+            ui.domain.accounting.turn_total().prompt,
+            if queued_wake { 0 } else { 7 },
+            "wake bookkeeping still follows the recorded boundary"
+        );
+        ui.domain.turns.quiescent(7);
+        ui.absorb(
+            &event(
+                7,
+                core_events::USER_MESSAGE,
+                Some(1),
+                json!({"text":"old forwarded input"}),
+            ),
+            7,
+        );
+        assert!(ui.busy() && ui.done_at().is_none());
+        // The real echo releases local protection; its next round can finish.
+        for next in [
+            event(
+                8,
+                core_events::USER_MESSAGE,
+                None,
+                json!({"text":"new question"}),
+            ),
+            event(9, core_events::MODEL_CALL_STARTED, Some(8), json!({})),
+            event(
+                10,
+                core_events::MODEL_CALL_COMPLETED,
+                Some(9),
+                json!({"status":"ok","text":"answer"}),
+            ),
+            event(
+                11,
+                core_events::OUTPUT_REPLY,
+                Some(10),
+                json!({"text":"answer"}),
+            ),
+            event(12, core_events::TURN_COMPLETED, Some(10), json!({})),
+        ] {
+            ui.absorb(&next, next.seq as usize);
+        }
+        assert!(!ui.busy());
+        assert_eq!(ui.turn_status(), "Done");
+        assert!(ui.done_at().is_some());
+    }
+}
+
+#[test]
 fn interruption_status_non_chat_operations_can_finish_on_quiet() {
     let mut ui = Ui::replayed(&[]);
     // Model switching and component removal have this local activity path;
