@@ -265,7 +265,7 @@ mod pending_calls_tests;
 /// disappear, while an unfinished sibling keeps its own identity and parents.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct PendingCalls {
+pub struct PendingCalls {
     kind: String,
     next_position: u64,
     pending: std::collections::BTreeMap<String, PendingCall>,

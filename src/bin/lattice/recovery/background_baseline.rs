@@ -4,8 +4,7 @@ use super::*;
 fn pre_background_v4_rows_preserve_history_and_reset_live_progress() {
     let old = include_bytes!("../../../../tests/fixtures/terminal-background-state-v4/state.json");
     let mut ui = Ui::replayed(&[]);
-    serde_json::from_slice::<State>(old)
-        .unwrap()
+    super::tests::decode_legacy_state(old)
         .apply(&mut ui.domain, SETTLED_TICK)
         .unwrap();
     assert_eq!(ui.domain.background.rows().len(), 4);
@@ -38,5 +37,5 @@ fn pre_background_v4_rows_preserve_history_and_reset_live_progress() {
     let old: serde_json::Value = serde_json::from_slice(old).unwrap();
     let captured = serde_json::to_value(State::reference_capture(&ui.domain)).unwrap();
     assert_eq!(captured["background"], old["background"]);
-    assert_eq!(VERSION, 6);
+    assert_eq!(VERSION, 7);
 }

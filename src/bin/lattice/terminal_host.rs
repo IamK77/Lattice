@@ -430,6 +430,9 @@ impl View for Ui {
     fn done_at(&self) -> Option<usize> {
         self.domain.turns.done_at()
     }
+    fn turn_status(&self) -> &str {
+        self.domain.turns.status()
+    }
     fn turn(&self) -> usize {
         self.domain.turns.number()
     }
@@ -665,8 +668,10 @@ impl Ui {
             self.domain.compaction = recovered.compaction_status().cloned();
         }
         self.absorb_profiled(event, tick, trace);
-        if let Some((true, thinking)) = card_change.unwrap() {
-            self.live_output.card_landed(thinking);
+        if let Some((true, _)) = card_change.unwrap() {
+            if self.domain.turns.lands_live_text(event) {
+                self.live_output.card_landed(view::committed_text(event));
+            }
         }
         if self.event_facts.is_some() {
             self.domain.event_inputs.release();
@@ -749,11 +754,27 @@ impl Ui {
         }
         self.transcript_cache.get_mut().invalidate();
         self.absorb_state(event, tick, trace.as_deref_mut());
-        if self.cards.is_none() && measure!(Stage::Cards, view::ingest(&mut self.entries, event)) {
-            self.live_output
-                .card_landed(matches!(self.entries.last(), Some(Entry::Thinking(_))));
+        if self.cards.is_none()
+            && measure!(Stage::Cards, view::ingest(&mut self.entries, event))
+            && self.domain.turns.lands_live_text(event)
+        {
+            self.live_output.card_landed(view::committed_text(event));
         }
-        self.live_output.round_event(&event.event_type);
+        if self.domain.turns.ended() && self.domain.turns.interrupted() {
+            let (thinking, reply) = self.live_output.take_interrupted();
+            if !thinking.is_empty() {
+                self.push_local_card(Entry::Thinking(view::ThinkingCard {
+                    call: event.id.clone(),
+                    lines: thinking.lines().map(str::to_string).collect(),
+                }));
+            }
+            if !reply.is_empty() {
+                self.push_local_card(Entry::Agent(reply));
+            }
+        }
+        if event.event_type != core_events::TURN_COMPLETED || self.domain.turns.ended() {
+            self.live_output.round_event(&event.event_type);
+        }
     }
 
     #[cfg(test)]
@@ -1408,12 +1429,12 @@ fn on_key(
             // Don't echo locally: the USER_MESSAGE we inject comes straight back
             // from the ledger and `ingest` renders it — one source of truth.
             ui.transcript_cache.get_mut().invalidate();
-            ui.live_output.submitted();
+            // Mid-call input is not a replacement for already streamed text.
             ui.browsing.pin(); // jump back to the latest to watch the reply
                                // Optimistic: light up immediately. The USER_MESSAGE event coming
                                // back from the ledger is authoritative — it advances the turn (via
                                // note_turn_boundary), the same path a background wake takes.
-            ui.domain.turns.optimistic_activity();
+            ui.domain.turns.submitted_input();
             if let Some(session) = session {
                 // Only the ones whose placeholder is STILL in the line, in the
                 // order they appear there. Deleting a placeholder is how a
@@ -2385,6 +2406,10 @@ mod background_baseline;
 mod compact_tests;
 
 #[cfg(test)]
+#[path = "interruption_tests.rs"]
+mod interruption_tests;
+
+#[cfg(test)]
 mod tests {
     // Exercise the same entry dispatch and indentation as the real transcript.
     fn tool_lines(
@@ -2428,6 +2453,7 @@ mod tests {
             core_events::USER_MESSAGE,
             lattice::components::minimal_loop::WAITING,
             core_events::MODEL_CALL_STARTED,
+            core_events::MODEL_CALL_COMPLETED,
             core_events::TURN_COMPLETED,
         ]
         .into_iter()
@@ -2436,6 +2462,9 @@ mod tests {
             let mut event = test_event(kind, &[]);
             event.seq = index as u64 + 1;
             event.id = format!("ev_{}_waiting", event.seq);
+            if index >= 3 {
+                event.causes = vec![format!("ev_{}_waiting", event.seq - 1)];
+            }
             event
         })
         .collect();
@@ -2444,7 +2473,8 @@ mod tests {
         u.absorb(&events[2], 30);
         assert!(!u.waiting());
         assert!(u.busy());
-        u.absorb(&events[3], 40);
+        u.absorb(&events[3], 39);
+        u.absorb(&events[4], 40);
         assert!(!u.waiting());
         assert!(!u.busy());
         assert_eq!(u.domain.turns.done_at(), Some(40));
@@ -4738,8 +4768,11 @@ mod tests {
         assert!(u.domain.turns.busy() && u.domain.turns.waiting());
         u.tick = 10;
         fold_render(&mut u, RenderEvent::Quiescent).unwrap();
-        assert!(!u.domain.turns.busy() && u.domain.turns.waiting());
-        assert_eq!(u.domain.turns.done_at(), Some(10));
+        assert!(u.domain.turns.busy() && u.domain.turns.waiting());
+        assert!(
+            u.domain.turns.done_at().is_none(),
+            "a late quiet notice cannot settle optimistic input"
+        );
         fold_render(
             &mut u,
             RenderEvent::Appended(Box::new(test_event(
@@ -4749,8 +4782,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(u.domain.turns.history(), history);
-        assert!(!u.domain.turns.busy() && u.domain.turns.waiting());
-        assert_eq!(u.domain.turns.done_at(), Some(10));
+        assert!(u.domain.turns.busy() && u.domain.turns.waiting());
+        assert!(u.domain.turns.done_at().is_none());
         for purpose in [serde_json::Value::Null, json!("condense")] {
             let mut background = test_event(core_events::MODEL_CALL_STARTED, &[]);
             background.payload = json!({"purpose":purpose});
@@ -4761,11 +4794,11 @@ mod tests {
                 "background requests still clear the unseen list"
             );
             assert_eq!(u.domain.turns.history(), history);
-            assert!(!u.domain.turns.busy() && u.domain.turns.waiting());
-            assert_eq!(u.domain.turns.done_at(), Some(10));
+            assert!(u.domain.turns.busy() && u.domain.turns.waiting());
+            assert!(u.domain.turns.done_at().is_none());
         }
         u.note_turn_boundary(&test_event(core_events::INTERRUPTED, &[]), 13);
-        assert_eq!(u.domain.turns.done_at(), Some(10));
+        assert!(u.domain.turns.done_at().is_none());
         u.note_turn_boundary(&test_event(core_events::USER_MESSAGE, &[]), 14);
         assert!(
             u.domain.turns.busy()

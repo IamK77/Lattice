@@ -17,6 +17,7 @@ pub(super) struct State {
     waiting: bool,
     done: bool,
     turn: usize,
+    completion: crate::terminal_host::turns::Completion,
     pending_auth: Vec<(String, String)>,
     unseen: Vec<String>,
     skills: Vec<(String, String)>,
@@ -107,6 +108,7 @@ impl State {
             waiting: turn.waiting,
             done: turn.done,
             turn: turn.number,
+            completion: turn.completion,
             pending_auth: pure.authorizations.history(),
             unseen: pure.unseen.lines().to_vec(),
             skills: pure.skills.clone(),
@@ -205,6 +207,7 @@ impl State {
                 waiting: self.waiting,
                 done: self.done,
                 number: self.turn,
+                completion: self.completion,
             },
             clock,
         );

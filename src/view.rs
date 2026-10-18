@@ -651,6 +651,10 @@ pub trait View {
     fn done_at(&self) -> Option<usize> {
         None
     }
+    /// Outcome shown in the terminal's existing end-of-turn status position.
+    fn turn_status(&self) -> &str {
+        "Done"
+    }
     /// How many turns have started — indexes the thinking/working phrase cast so
     /// each turn keeps one phrase for its duration. Defaults to 0.
     fn turn(&self) -> usize {
@@ -658,9 +662,38 @@ pub trait View {
     }
 }
 
+/// The live text channels replaced by actual assistant-authored cards.
+/// Other cards, including user input and tool updates, replace neither.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CommittedText {
+    pub thinking: bool,
+    pub reply: bool,
+}
+
+pub fn committed_text(event: &EventEnvelope) -> CommittedText {
+    match event.event_type.as_str() {
+        ce::OUTPUT_REPLY => CommittedText {
+            thinking: false,
+            reply: event.payload["text"]
+                .as_str()
+                .is_some_and(|text| !text.is_empty() || event.payload["cancelled"] != true),
+        },
+        ce::MODEL_CALL_COMPLETED if event.payload.get("purpose").is_none() => CommittedText {
+            thinking: !ce::reasoning_text(&event.payload).trim().is_empty(),
+            reply: event.payload["toolCalls"]
+                .as_array()
+                .is_some_and(|calls| !calls.is_empty())
+                && event.payload["text"]
+                    .as_str()
+                    .is_some_and(|text| !text.trim().is_empty()),
+        },
+        _ => CommittedText::default(),
+    }
+}
+
 /// Fold one ledger event into the transcript, returning true when it changed
-/// the view (so the caller can clear its live-streaming buffer). Pure: the only
-/// effect is on the `entries` it is handed.
+/// the view. `committed_text` identifies which live channels it replaces; a
+/// changed tool or user card replaces neither. Only `entries` is mutated.
 pub fn ingest(entries: &mut Vec<Entry>, event: &EventEnvelope) -> bool {
     match event.event_type.as_str() {
         ce::USER_MESSAGE => {
@@ -699,11 +732,14 @@ pub fn ingest(entries: &mut Vec<Entry>, event: &EventEnvelope) -> bool {
         }
         ce::OUTPUT_REPLY => {
             if let Some(text) = event.payload["text"].as_str() {
+                if !committed_text(event).reply {
+                    return false;
+                }
                 entries.push(Entry::Agent(text.to_string()));
                 return true;
             } else if event.payload["cancelled"] == true {
-                entries.push(Entry::Agent("[interrupted]".to_string()));
-                return true;
+                // Cancellation is a turn outcome, not assistant-authored text.
+                return false;
             } else if let Some(msg) = event.payload["error"]["message"].as_str() {
                 entries.push(Entry::Error(msg.to_string()));
                 return true;
@@ -715,32 +751,25 @@ pub fn ingest(entries: &mut Vec<Entry>, event: &EventEnvelope) -> bool {
             if event.payload.get("purpose").is_some() {
                 return false;
             }
-            let mut shown = false;
+            let channels = committed_text(event);
             let thinking = ce::reasoning_text(&event.payload);
-            if !thinking.trim().is_empty() {
+            if channels.thinking {
                 entries.push(Entry::Thinking(ThinkingCard {
                     call: event.id.clone(),
                     lines: thinking.lines().map(str::to_string).collect(),
                 }));
-                shown = true;
             }
             // What the agent SAID on the way to calling a tool. It is already
             // on the ledger and the model already reads it back — but only the
             // final answer of a turn becomes a reply event, so everything said
             // in between never reached the screen. The reader watched it
             // stream in and then watched it vanish when the tool card landed.
-            let mid_turn = event.payload["toolCalls"]
-                .as_array()
-                .is_some_and(|calls| !calls.is_empty());
-            if mid_turn {
-                if let Some(text) = event.payload["text"].as_str() {
-                    if !text.trim().is_empty() {
-                        entries.push(Entry::Agent(text.to_string()));
-                        shown = true;
-                    }
-                }
+            if channels.reply {
+                entries.push(Entry::Agent(
+                    event.payload["text"].as_str().unwrap().to_string(),
+                ));
             }
-            return shown;
+            return channels.thinking || channels.reply;
         }
         ce::TOOL_EXEC_STARTED => {
             // A gated assembly records one request twice — the loop's
