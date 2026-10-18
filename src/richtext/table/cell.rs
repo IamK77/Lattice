@@ -65,7 +65,11 @@ pub(super) fn wrap(cell: &[Span], width: usize, measure: fn(&str) -> usize) -> V
             end += 1;
         }
         let next = if end < tokens.len() {
-            if let Some(at) = space {
+            if tokens[end].1 == " " {
+                // The line already fits through this word. Consume its
+                // separator without moving the next fragment's source bytes.
+                end + 1
+            } else if let Some(at) = space {
                 end = at;
                 at + 1
             } else {

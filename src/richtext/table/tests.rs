@@ -14,6 +14,42 @@ fn plain(lines: &[Line]) -> String {
 }
 
 #[test]
+fn review_table_wrap_consumes_separator_after_a_full_width_word() {
+    for (text, first) in [
+        ("abcdefgh ijklmnop", "abcdefgh"),
+        ("ab cdefg ijklmnop", "ab cdefg"),
+    ] {
+        let md = format!("| h |\n|---|\n| {text} |");
+        let lines = render_width(&md, 12);
+        assert_eq!(plain(&lines[2..]), format!("│ {first} │\n│ ijklmnop │"));
+    }
+}
+
+#[test]
+fn table_wrap_separator_preserves_source_bytes_and_styled_fragments() {
+    let first = Span::new("éééé", Style::Bold);
+    let last = Span {
+        text: "wxyz".into(),
+        style: Style::Code,
+        link: Some("https://example.com/target".into()),
+    };
+    let pieces = cell::wrap(
+        &[first.clone(), Span::new(" ", Style::Plain), last.clone()],
+        4,
+        |s| s.chars().count(),
+    );
+    assert_eq!(pieces.len(), 2);
+    assert_eq!(pieces[0].line, vec![first]);
+    assert_eq!(pieces[0].bytes, 0..8);
+    assert_eq!(pieces[1].line, vec![last]);
+    assert_eq!(
+        pieces[1].bytes,
+        9..13,
+        "consuming a separator must not renumber source bytes"
+    );
+}
+
+#[test]
 fn table_width_boundary_uses_natural_short_columns_and_a_readable_minimum() {
     let md = "| a | b |\n|---|---|\n| 0123456789012345 | abcdefghijklmnop |";
     // Two long columns: 8 + 8 content columns and seven frame columns.
