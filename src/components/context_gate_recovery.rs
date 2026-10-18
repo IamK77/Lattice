@@ -387,9 +387,10 @@ impl Recovery {
                     checkpoint.state = Some(state.upgrade(reader, legacy.through)?);
                     checkpoint.through = legacy.through;
                     checkpoint.cold_reason = legacy.cold_reason;
+                    checkpoint.cold_expected = legacy.cold_expected;
                 }
             }
-            if let Some(reason) = checkpoint.cold_reason {
+            if let Some(reason) = checkpoint.cold_reason.filter(|_| !checkpoint.cold_expected) {
                 if persist && reader.path().is_some() {
                     eprintln!("slow recovery for {KEY}: {reason}");
                 }

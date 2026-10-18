@@ -128,7 +128,7 @@ impl Projection {
             .state
             .filter(|state| state.through == checkpoint.through)
             .unwrap_or_default();
-        if let Some(reason) = checkpoint.cold_reason {
+        if let Some(reason) = checkpoint.cold_reason.filter(|_| !checkpoint.cold_expected) {
             eprintln!("slow recovery for daemon current state: {reason}");
         }
         reader.visit_range(projection.through + 1, end, |events| {

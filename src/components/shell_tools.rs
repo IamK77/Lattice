@@ -462,7 +462,7 @@ impl Component for ShellTools {
                 return;
             }
         };
-        if let Some(reason) = restored.cold_reason {
+        if let Some(reason) = restored.cold_reason.filter(|_| !restored.cold_expected) {
             eprintln!("slow recovery for background commands: {reason}");
         }
         for recovery::Job {

@@ -77,7 +77,7 @@ impl Settings {
             if let Some(state) = saved.state.filter(|state| state.initial == initial_key) {
                 settings = Some(state.settings);
                 through = saved.through;
-            } else {
+            } else if !saved.cold_expected {
                 eprintln!(
                     "warning: {} cold-restoring side settings: {}",
                     path.display(),

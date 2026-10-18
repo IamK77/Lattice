@@ -130,6 +130,7 @@ fn checkpoints_survive_rotation_and_reopen_and_cannot_move_backwards_or_ahead() 
         .load_checkpoint::<Vec<String>>("fixture", 1, 1)
         .unwrap();
     assert!(cold.state.is_none());
+    assert!(cold.cold_expected);
     assert_eq!(
         cold.cold_reason.as_deref(),
         Some("recovery checkpoint has not been created yet; rebuilding from the ledger")
@@ -204,6 +205,7 @@ fn corrupt_or_unpublished_derived_state_falls_back_without_mutating_the_ledger()
         .load_checkpoint::<Vec<String>>("fixture", 1, 1)
         .unwrap();
     assert!(cold.state.is_none());
+    assert!(!cold.cold_expected);
     assert!(cold.cold_reason.unwrap().contains("checksum"));
     assert_eq!(reader.snapshot_end(), 1);
     assert_eq!(

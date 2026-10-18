@@ -32,6 +32,8 @@ pub struct Checkpoint<T> {
     pub state: Option<T>,
     /// A cold recovery is explicit, even when the cache simply does not exist.
     pub cold_reason: Option<String>,
+    /// Expected absence stays available as recovery metadata, not a warning.
+    pub cold_expected: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -153,15 +155,17 @@ impl LogReader {
             through: 0,
             state: None,
             cold_reason: Some(reason),
+            cold_expected: false,
         };
         let history = self
             .history
             .read()
             .map_err(|_| io::Error::other("log history lock poisoned"))?;
         if history.checkpoint_digest(0)?.is_none() {
-            return Ok(cold(
-                "legacy or memory history has no segmented recovery cache".into(),
-            ));
+            return Ok(Checkpoint {
+                cold_expected: true,
+                ..cold("legacy or memory history has no segmented recovery cache".into())
+            });
         }
         let root = self
             .path
@@ -170,10 +174,13 @@ impl LogReader {
         let stored = match read(&path(root, consumer)) {
             Ok(stored) => stored,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                return Ok(cold(
-                    "recovery checkpoint has not been created yet; rebuilding from the ledger"
-                        .into(),
-                ));
+                return Ok(Checkpoint {
+                    cold_expected: true,
+                    ..cold(
+                        "recovery checkpoint has not been created yet; rebuilding from the ledger"
+                            .into(),
+                    )
+                });
             }
             Err(error) => return Ok(cold(error.to_string())),
         };
@@ -201,6 +208,7 @@ impl LogReader {
                 through: data.through,
                 state: Some(state),
                 cold_reason: None,
+                cold_expected: false,
             }),
             Err(error) => Ok(cold(format!("incompatible recovery state: {error}"))),
         }
