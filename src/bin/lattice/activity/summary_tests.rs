@@ -141,6 +141,13 @@ fn turn_summary_observed_states_and_terminal_labels_remain_in_the_same_row() {
         f.tool = tool;
         let line = activity::line(&f, 100).to_string();
         assert!(line.contains(expected), "{line}");
+        if waiting {
+            assert!(
+                line.contains("Waiting for results — you can still type"),
+                "{line}"
+            );
+            assert!(line.contains("18s · ↑12.4k ↓860"), "{line}");
+        }
         assert!(!line.contains("reasoning"));
     }
     f.summary.running = false;

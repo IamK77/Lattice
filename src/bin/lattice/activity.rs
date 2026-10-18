@@ -59,8 +59,7 @@ pub(super) fn line(view: &dyn View, width: usize) -> Line<'static> {
         } else {
             None
         };
-        let word = if measured.running { phrase } else { &word };
-        summary::fit(word, view.turn_status(), measured, state, budget)
+        summary::fit(&word, view.turn_status(), measured, state, budget)
     } else {
         (summary::clip(&word, budget), String::new())
     };

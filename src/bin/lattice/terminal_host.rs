@@ -2458,6 +2458,9 @@ mod tests {
         assert!(!super::animating(&u));
         assert!(u.thinking().is_empty());
         assert!(u.streaming().is_empty());
+        // This fixture has no real timestamps. Keep the animation comparison
+        // independent of live elapsed time; the summary clock has controlled tests.
+        u.turn_clock = Default::default();
         let frame = snapshot(&u, 100, 30).rows.join("\n");
         assert!(frame.contains("Waiting for results"), "{frame}");
         assert!(!frame.contains("Done"));
