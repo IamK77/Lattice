@@ -8,13 +8,15 @@ pub(super) fn fit(
     word: &str,
     status: &str,
     summary: TurnSummary,
-    state: Option<&str>,
     width: usize,
 ) -> (String, String) {
     let time = elapsed(summary.elapsed_ms);
-    let tokens = format!("↑{} ↓{}", count(summary.input), count(summary.output));
-    let phase = state.map(|s| format!(" · {s}")).unwrap_or_default();
-    let suffix = format!("({time} · {tokens}{phase})");
+    let output = summary
+        .output_estimate
+        .map(|value| format!("~{}", compact(value)))
+        .unwrap_or_else(|| count(summary.output));
+    let tokens = format!("↑{} ↓{output}", count(summary.input));
+    let suffix = format!("({time} · {tokens})");
     let minimum = if summary.running {
         0
     } else {
@@ -30,12 +32,8 @@ pub(super) fn fit(
         return (clip(word, room), suffix);
     }
 
-    // The quotation has gone; the observed state becomes the compact label.
-    let label = if summary.running {
-        state.unwrap_or("working")
-    } else {
-        status
-    };
+    // Running work needs no extra phase label; keep terminal outcomes visible.
+    let label = if summary.running { "" } else { status };
     let suffix = format!("({time} {tokens})");
     if cells(label) + 1 + cells(&suffix) <= width {
         return (label.to_owned(), suffix);

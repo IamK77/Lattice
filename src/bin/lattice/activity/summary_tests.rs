@@ -60,6 +60,7 @@ fn fixture() -> Fixture {
                 known: Some(860),
                 complete: true,
             },
+            output_estimate: None,
             running: true,
             model_pending: true,
         },
@@ -75,7 +76,7 @@ fn turn_summary_preserves_counts_before_the_quote_at_narrow_widths() {
     let f = fixture();
     let wide = activity::line(&f, 100).to_string();
     assert!(
-        wide.contains("Nothing is good or bad") && wide.contains("(18s · ↑12.4k ↓860 · model)"),
+        wide.contains("Nothing is good or bad") && wide.contains("(18s · ↑12.4k ↓860)"),
         "{wide}"
     );
     let narrow = activity::line(&f, 34).to_string();
@@ -128,7 +129,7 @@ fn turn_summary_distinguishes_unknown_partial_and_zero_without_estimates() {
 }
 
 #[test]
-fn turn_summary_observed_states_and_terminal_labels_remain_in_the_same_row() {
+fn turn_summary_omits_phase_labels_but_preserves_waiting_and_terminal_guidance() {
     let mut f = fixture();
     for (approval, waiting, tool, expected) in [
         (false, false, false, "model"),
@@ -140,7 +141,7 @@ fn turn_summary_observed_states_and_terminal_labels_remain_in_the_same_row() {
         f.waiting = waiting;
         f.tool = tool;
         let line = activity::line(&f, 100).to_string();
-        assert!(line.contains(expected), "{line}");
+        assert!(!line.contains(&format!(" · {expected}")), "{line}");
         if waiting {
             assert!(
                 line.contains("Waiting for results — you can still type"),

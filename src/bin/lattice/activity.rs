@@ -44,22 +44,7 @@ pub(super) fn line(view: &dyn View, width: usize) -> Line<'static> {
     };
     let budget = width.saturating_sub(summary::cells(&prefix));
     let (word, suffix) = if let Some(measured) = view.turn_summary() {
-        let state = if measured.running {
-            Some(if view.pending_auth().is_some() {
-                "approval"
-            } else if view.waiting() {
-                "waiting"
-            } else if view.last_tool_running() {
-                "tools"
-            } else if measured.model_pending {
-                "model"
-            } else {
-                "working"
-            })
-        } else {
-            None
-        };
-        summary::fit(&word, view.turn_status(), measured, state, budget)
+        summary::fit(&word, view.turn_status(), measured, budget)
     } else {
         (summary::clip(&word, budget), String::new())
     };

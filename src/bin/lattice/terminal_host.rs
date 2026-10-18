@@ -1249,6 +1249,7 @@ fn fold_render(ui: &mut Ui, render: RenderEvent) -> std::io::Result<()> {
             }
         }
         RenderEvent::Notice { source: _, payload } => {
+            ui.domain.turn_summary.notice(&payload);
             if let Some(note) = ui.live_output.notice(&payload) {
                 // A runtime receipt belongs beside the input, not in the ledger.
                 ui.flash = Some(note.to_string());

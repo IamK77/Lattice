@@ -4,6 +4,9 @@ use lattice::view::View;
 use serde_json::{json, Value};
 use std::time::Duration;
 
+#[path = "streaming_tests.rs"]
+mod streaming_tests;
+
 fn event(seq: u64, kind: &str, causes: &[&str], payload: Value) -> EventEnvelope {
     serde_json::from_value(json!({"v":1,"id":format!("e{seq}"),"seq":seq,
         "stream":"summary-test","time":format!("2026-10-18T00:00:{seq:02}Z"),

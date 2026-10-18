@@ -40,6 +40,26 @@ impl Total {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+struct LiveCount {
+    input: TokenCount,
+    output: TokenCount,
+    units: u64,
+    measured_at: u64,
+}
+
+impl LiveCount {
+    fn estimate(&self) -> Option<u64> {
+        let units = self.units.saturating_sub(self.measured_at);
+        (units > 0).then(|| {
+            self.output
+                .known
+                .unwrap_or(0)
+                .saturating_add(units.div_ceil(4))
+        })
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Call {
@@ -63,6 +83,9 @@ pub(super) struct Summary {
     /// Forwarding copies reference one logical call; only pending copies live here.
     aliases: BTreeMap<String, String>,
     roots: BTreeMap<String, Call>,
+    /// Transient notifications never become historical measurements.
+    #[serde(skip)]
+    live: BTreeMap<String, LiveCount>,
 }
 
 impl Default for Summary {
@@ -78,6 +101,7 @@ impl Default for Summary {
             pending: ce::PendingCalls::new(ce::MODEL_CALL_STARTED),
             aliases: BTreeMap::new(),
             roots: BTreeMap::new(),
+            live: BTreeMap::new(),
         }
     }
 }
@@ -99,6 +123,7 @@ impl Summary {
             self.calls = 0;
             self.input = Total::default();
             self.output = Total::default();
+            self.live.clear();
         }
         match event.event_type.as_str() {
             ce::MODEL_CALL_STARTED if event.payload.get("purpose").is_none() => {
@@ -147,6 +172,7 @@ impl Summary {
                 for (root, call) in &mut self.roots {
                     if !call.counted && !pending.contains(root) {
                         call.counted = true;
+                        self.live.remove(root);
                         if call.turn.is_some() && call.turn == self.id {
                             let (input, output) = if event.event_type == ce::MODEL_CALL_COMPLETED {
                                 accounting::token_counts(&event.payload, &call.model, &call.dialect)
@@ -174,6 +200,43 @@ impl Summary {
         }
     }
 
+    pub fn notice(&mut self, payload: &serde_json::Value) {
+        if payload.get("purpose").is_some() {
+            return;
+        }
+        let Some(root) = payload["call"].as_str().and_then(|id| self.aliases.get(id)) else {
+            // Untagged third-party notices cannot safely be assigned to a turn.
+            return;
+        };
+        let Some(call) = self.roots.get(root) else {
+            return;
+        };
+        if call.counted || call.turn.is_none() || call.turn != self.id {
+            return;
+        }
+        let live = self.live.entry(root.clone()).or_default();
+        if let Some(chunk) = payload["chunk"].as_str() {
+            if payload.get("phase").is_none() || payload["phase"] == "reasoning" {
+                // A deliberately rough, chunk-boundary-independent estimate:
+                // four ASCII characters or one non-ASCII scalar per token.
+                // Hidden reasoning and tool arguments are not guessed.
+                for ch in chunk.chars() {
+                    live.units = live.units.saturating_add(if ch.is_ascii() { 1 } else { 4 });
+                }
+            }
+        }
+        if payload.get("usage").is_some() {
+            let (input, output) = accounting::token_counts(payload, &call.model, &call.dialect);
+            if input.known.is_some() {
+                live.input = input;
+            }
+            if output.known.is_some() {
+                live.output = output;
+                live.measured_at = live.units;
+            }
+        }
+    }
+
     pub fn snapshot(&self, now_ms: i64) -> Option<TurnSummary> {
         self.id.as_ref()?;
         let end = if self.running {
@@ -185,10 +248,25 @@ impl Summary {
             .started_ms
             .zip(end)
             .map(|(start, end)| end.saturating_sub(start).max(0) as u64);
+        let mut input = self.input.clone();
+        let mut output = self.output.clone();
+        let mut estimate = self.output.known.unwrap_or(0);
+        let mut estimated = false;
+        for live in self.live.values() {
+            input.add(live.input.known, false);
+            output.add(live.output.known, false);
+            if let Some(value) = live.estimate() {
+                estimated = true;
+                estimate = estimate.saturating_add(value);
+            } else {
+                estimate = estimate.saturating_add(live.output.known.unwrap_or(0));
+            }
+        }
         Some(TurnSummary {
             elapsed_ms,
-            input: self.input.count(self.calls),
-            output: self.output.count(self.calls),
+            input: input.count(self.calls),
+            output: output.count(self.calls),
+            output_estimate: estimated.then_some(estimate),
             running: self.running,
             model_pending: self
                 .roots

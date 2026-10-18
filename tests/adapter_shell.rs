@@ -38,6 +38,13 @@ mod partial_line;
 mod profile_prompt;
 #[path = "adapter_shell/sse_errors.rs"]
 mod sse_errors;
+#[path = "adapter_shell/streaming_usage.rs"]
+mod streaming_usage;
+
+struct NoticeProbe {
+    notes: Arc<Mutex<Vec<Value>>>,
+    chunk_received: mpsc::Sender<()>,
+}
 
 /// One canned exchange the fake provider performs per incoming request.
 enum Canned {
@@ -323,6 +330,26 @@ fn run_call_with_options(
     purpose: Option<&str>,
     options: KernelOptions,
 ) -> Value {
+    run_call_recorded(
+        candidate,
+        base_url,
+        interrupt_when,
+        ask_system,
+        purpose,
+        options,
+        None,
+    )
+}
+
+fn run_call_recorded(
+    candidate: Candidate,
+    base_url: &str,
+    interrupt_when: Option<mpsc::Receiver<()>>,
+    ask_system: Option<&str>,
+    purpose: Option<&str>,
+    options: KernelOptions,
+    probe: Option<NoticeProbe>,
+) -> Value {
     let name = candidate.manifest.name.clone();
     let registry: HashMap<String, ComponentManifest> = [
         ("shell-driver".to_string(), driver_manifest()),
@@ -365,6 +392,15 @@ fn run_call_with_options(
         ],
     };
     let mut kernel = Kernel::start(&assembly, &registry, &mut factories, options).unwrap();
+    let captured = probe.as_ref().map(|probe| Arc::clone(&probe.notes));
+    if let Some(probe) = probe {
+        kernel.set_notice_handler(move |_, note| {
+            probe.notes.lock().unwrap().push(note.clone());
+            if note["chunk"].is_string() {
+                let _ = probe.chunk_received.send(());
+            }
+        });
+    }
 
     // Material must be real: a recorded user message, pointed at and fingerprinted
     let injector = kernel.injector("driver");
@@ -410,6 +446,28 @@ fn run_call_with_options(
     kernel.run_until_quiescent().unwrap();
 
     let events = kernel.log().replay(1).unwrap();
+    if let Some(captured) = captured {
+        let request = events
+            .iter()
+            .find(|event| event.event_type == ce::MODEL_CALL_STARTED)
+            .unwrap();
+        for note in captured
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|note| note.get("chunk").is_some() || note.get("usage").is_some())
+        {
+            assert_eq!(note["call"], request.id);
+            assert_eq!(note.get("purpose"), request.payload.get("purpose"));
+        }
+        assert!(events
+            .iter()
+            .all(|event| event.payload.get("chunk").is_none()));
+        assert!(events
+            .iter()
+            .filter(|event| event.event_type != ce::MODEL_CALL_COMPLETED)
+            .all(|event| event.payload.get("usage").is_none()));
+    }
     // Blanket security invariant, enforced on every shell case: the API key
     // lives in the environment and the request header — if it ever shows up
     // in ANY recorded event, the audit trail becomes a secret store
