@@ -37,5 +37,5 @@ fn pre_background_v4_rows_preserve_history_and_reset_live_progress() {
     let old: serde_json::Value = serde_json::from_slice(old).unwrap();
     let captured = serde_json::to_value(State::reference_capture(&ui.domain)).unwrap();
     assert_eq!(captured["background"], old["background"]);
-    assert_eq!(VERSION, 7);
+    assert_eq!(VERSION, 8);
 }

@@ -201,9 +201,18 @@ pub(super) fn render_transcript_group(
                     out.push(blank_line());
                 }
                 prev_kind = Some(KIND_ANCHOR);
-                for (line, indent) in entry_lines(&merged, spinner, false, room) {
+                // Keep each original message's identity inside the visual
+                // group. Otherwise revealing an earlier message changes the
+                // reading address of every later line in the merged block.
+                let sources = joined.iter().enumerate().flat_map(|(offset, text)| {
+                    std::iter::repeat_n(base + i + offset, text.split('\n').count())
+                });
+                for ((line, indent), source) in entry_lines(&merged, spinner, false, room)
+                    .into_iter()
+                    .zip(sources)
+                {
                     out.push(TLine {
-                        entry: Some(base + i),
+                        entry: Some(source),
                         line,
                         owner: None,
                         indent,

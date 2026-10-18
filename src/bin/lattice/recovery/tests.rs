@@ -532,10 +532,12 @@ fn historical_install_is_atomic_and_round_trips_the_pre_refactor_document() {
         .unwrap()
         .apply(&mut historical, ())
         .unwrap();
+    let mut upgraded = serde_json::to_value(State::capture(&historical)).unwrap();
     assert_eq!(
-        serde_json::to_value(State::capture(&historical)).unwrap(),
-        old
+        upgraded.as_object_mut().unwrap().remove("pending_inputs"),
+        Some(json!({"inputs":[]}))
     );
+    assert_eq!(upgraded, old);
 }
 
 #[test]

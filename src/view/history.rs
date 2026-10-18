@@ -16,13 +16,14 @@ use record::{Kind, Record};
 
 mod correlation;
 pub(super) mod record;
+mod visibility;
 
 #[cfg(test)]
 mod tests;
 
 const CONSUMER: &str = "view-cards";
-// Cancellation no longer contributes a synthetic assistant card.
-const VERSION: u32 = 5;
+// Pending input identities and source-card ranges survive recovery.
+const VERSION: u32 = 6;
 const CHECKPOINT_EVERY: u64 = 256;
 
 #[derive(Default, Serialize, Deserialize)]
@@ -31,6 +32,7 @@ struct State {
     pages: Vec<Slot>,
     count: usize,
     running: BTreeMap<usize, Option<String>>,
+    pending: super::pending::PendingInputs,
     has_user: bool,
     last_handled: bool,
 }
@@ -44,6 +46,7 @@ pub struct History {
     base: Option<u64>,
     pages: Pages<Record>,
     running: BTreeMap<usize, Option<String>>,
+    pending: super::pending::PendingInputs,
     has_user: bool,
     last_handled: bool,
     through: u64,
@@ -127,17 +130,24 @@ impl History {
             .filter(|path| path.is_dir())
             .map(ToOwned::to_owned);
         let mut running = state.running;
+        let mut pending = state.pending;
         let mut has_user = state.has_user;
         let mut last_handled = state.last_handled;
         let pages = match Pages::open(root.clone(), state.pages, state.count) {
-            Ok(pages) if running.keys().all(|index| *index < pages.len()) => pages,
+            Ok(pages)
+                if running.keys().all(|index| *index < pages.len())
+                    && pending.valid(pages.len()) =>
+            {
+                pages
+            }
             result => {
                 cold_reason = Some(match result {
                     Err(error) => error.to_string(),
-                    Ok(_) => "running card is outside recovered history".into(),
+                    Ok(_) => "invalid running or pending card state in recovered history".into(),
                 });
                 boundary = base.unwrap_or(0);
                 running.clear();
+                pending = Default::default();
                 has_user = false;
                 last_handled = false;
                 Pages::open(root, Vec::new(), 0)?
@@ -148,6 +158,7 @@ impl History {
             base,
             pages,
             running,
+            pending,
             has_user,
             last_handled,
             through: boundary,
@@ -265,6 +276,7 @@ impl History {
     }
 
     fn fold(&mut self, event: &EventEnvelope) -> io::Result<bool> {
+        self.pending.observe(event);
         if event.event_type == ce::TOOL_EXEC_STARTED {
             if let Some(call) = event.payload["call"].as_str() {
                 let chain = if event.causes.is_empty() {
@@ -344,6 +356,10 @@ impl History {
         }
         let mut entries = Vec::new();
         let handled = ingest(&mut entries, event);
+        self.pending.cards(
+            &event.id,
+            self.pages.len()..self.pages.len() + entries.len(),
+        );
         for (ordinal, entry) in entries.iter().enumerate() {
             let record = Record::new(&event.id, ordinal, entry);
             let index = self.pages.push(record)?;
@@ -446,6 +462,7 @@ impl History {
             pages: self.pages.directory()?,
             count: self.pages.len(),
             running: self.running.clone(),
+            pending: self.pending.clone(),
             has_user: self.has_user,
             last_handled: self.last_handled,
         };

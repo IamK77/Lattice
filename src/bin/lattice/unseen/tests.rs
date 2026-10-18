@@ -40,17 +40,28 @@ fn only_original_user_text_and_wakes_add_lines_in_recorded_order() {
 }
 
 #[test]
-fn every_model_request_carries_the_list_regardless_of_purpose() {
+fn only_ordinary_requests_that_include_the_input_remove_it() {
+    let mut unseen = Unseen::default();
+    unseen.observe(
+        &event(ce::USER_MESSAGE, &[], json!({"text":"waiting"})),
+        None,
+    );
     for payload in [
         json!({}),
-        json!({"purpose":null}),
-        json!({"purpose":"condense"}),
+        json!({"input":{"parts":[{"event":"other"}]}}),
+        json!({"purpose":null,"input":{"parts":[{"event":"input"}]}}),
+        json!({"purpose":"condense","input":{"parts":[{"event":"input"}]}}),
     ] {
-        let mut unseen = Unseen::default();
-        unseen.restore(vec!["waiting".into()]);
         unseen.observe(&event(ce::MODEL_CALL_STARTED, &[], payload), None);
-        assert!(unseen.lines().is_empty());
-        unseen.observe(&event(ce::USER_MESSAGE, &[], json!({"text":"next"})), None);
-        assert_eq!(unseen.lines(), ["next"]);
+        assert_eq!(unseen.lines(), ["waiting"]);
     }
+    unseen.observe(
+        &event(
+            ce::MODEL_CALL_STARTED,
+            &[],
+            json!({"input":{"parts":[{"event":"input"}]}}),
+        ),
+        None,
+    );
+    assert!(unseen.lines().is_empty());
 }
