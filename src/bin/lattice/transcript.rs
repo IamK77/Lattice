@@ -59,15 +59,18 @@ struct Positioned {
 fn wrap_positioned(lines: Vec<TLine>, width: usize) -> Vec<Positioned> {
     let mut rows = Vec::new();
     let mut entry = lines.iter().find_map(|line| line.entry);
-    // All card content starts at one. Generated separation and group controls
-    // share address zero and never shift a card's content coordinates.
+    // All card content starts at one. Generated rows share line zero, but
+    // occupy distinct byte ranges there, including an empty row's newline.
+    // These offsets come from unwrapped text, never from screen-row counts.
     let mut logical = 1;
+    let mut decoration_byte = 0;
     let mut source_base = None;
     for tl in lines {
         let next = tl.entry.or(entry);
         if next != entry {
             entry = next;
             logical = 1;
+            decoration_byte = 0;
             source_base = None;
         }
         if let Some(layout) = &tl.layout {
@@ -182,11 +185,14 @@ fn wrap_positioned(lines: Vec<TLine>, width: usize) -> Vec<Positioned> {
                 },
                 entry,
                 line: if tl.decoration { 0 } else { logical },
-                byte: tl
-                    .layout
-                    .as_ref()
-                    .filter(|layout| layout.prewrapped)
-                    .map_or(source_byte, |layout| layout.byte),
+                byte: if tl.decoration {
+                    decoration_byte + source_byte
+                } else {
+                    tl.layout
+                        .as_ref()
+                        .filter(|layout| layout.prewrapped)
+                        .map_or(source_byte, |layout| layout.byte)
+                },
                 ranges: tl
                     .layout
                     .as_ref()
@@ -194,7 +200,9 @@ fn wrap_positioned(lines: Vec<TLine>, width: usize) -> Vec<Positioned> {
                     .map_or_else(Vec::new, |layout| layout.ranges.clone()),
             });
         }
-        if !tl.decoration {
+        if tl.decoration {
+            decoration_byte += text.len() + 1;
+        } else {
             logical += 1;
         }
     }

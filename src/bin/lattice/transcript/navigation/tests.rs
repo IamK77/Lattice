@@ -2,6 +2,97 @@ use super::super::render::transcript_range;
 use super::*;
 use crate::terminal_host::{Entry, Ui};
 
+fn tool_separator_fixture() -> Ui {
+    let mut ui = Ui::replayed(&[]);
+    let tool = |call: &str| {
+        Entry::Tool(crate::terminal_host::ToolCard {
+            call: Some(call.into()),
+            name: "Read".into(),
+            args: serde_json::json!({}),
+            status: crate::terminal_host::ToolStatus::Ok,
+            output: vec!["result".into()],
+            changed: None,
+            edit_diff: None,
+        })
+    };
+    ui.entries = vec![
+        Entry::Agent("BEFORE_TOOLS".into()),
+        tool("first"),
+        tool("second"),
+        Entry::Agent("Tail one\n\nTail two\n\nTail three".into()),
+    ];
+    ui
+}
+
+#[test]
+fn review_mouse_scroll_position_survives_redraw_at_tool_separator() {
+    let mut ui = tool_separator_fixture();
+    let full = page(&ui, 'x', 60, 100).unwrap();
+    let heading = full
+        .rows
+        .iter()
+        .position(|row| row.row.owner.as_deref() == Some("first"))
+        .unwrap();
+    ui.browsing.set_offset(1);
+    ui.browsing.drawn(full.rows[heading + 2].position, true);
+    let before = page(&ui, 'x', 60, 1).unwrap();
+    assert!(before.rows[0].row.line.to_string().contains("Tail one"));
+    // The production mouse-wheel path scrolls three rows per event.
+    ui.browsing.scroll(
+        3,
+        Some(before.rows[0].position),
+        before.before,
+        before.after,
+        None,
+    );
+    let moved = page(&ui, 'x', 60, 1).unwrap();
+    let expected = moved.rows[0].row.line.to_string();
+    assert!(expected.is_empty(), "the wheel step lands on the separator");
+    ui.browsing.drawn(moved.rows[0].position, moved.after);
+    let redrawn = page(&ui, 'x', 60, 1).unwrap();
+    assert_eq!(
+        redrawn.rows[0].row.line.to_string(),
+        expected,
+        "redrawing without new content or scrolling must not jump to the tool heading"
+    );
+}
+
+#[test]
+fn separator_and_wrapped_group_heading_rows_are_individually_seekable() {
+    for expanded in [false, true] {
+        for width in [1, 2, 4, 6, 12, 40, 60] {
+            let mut ui = tool_separator_fixture();
+            if expanded {
+                ui.browsing.expand("first".into());
+            }
+            let full = page(&ui, 'x', width, 1000).unwrap();
+            let decoration: Vec<_> = full
+                .rows
+                .iter()
+                .filter(|row| row.position.block == Block::Entries(1) && row.position.line == 0)
+                .collect();
+            assert!(
+                decoration.len() >= 2,
+                "separator and heading are both present"
+            );
+            for expected in decoration {
+                ui.browsing.set_offset(1);
+                ui.browsing.drawn(expected.position, true);
+                let actual = page(&ui, 'x', width, 1).unwrap();
+                assert_eq!(
+                    actual.rows[0].position, expected.position,
+                    "decoration address changed at width {width}, expanded={expanded}"
+                );
+                assert_eq!(
+                    actual.rows[0].row, expected.row,
+                    "decoration cannot be revisited at width {width}, expanded={expanded}, {:?}",
+                    expected.position
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn table_generated_rows_are_individually_seekable() {
     for md in [

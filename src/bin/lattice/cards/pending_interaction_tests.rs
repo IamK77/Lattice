@@ -230,3 +230,58 @@ fn check_tool_position_after_reveal(target: &str) {
         "tool reading moved (paged, memory): {observed:?}"
     );
 }
+
+#[test]
+fn cached_decoration_anchors_survive_redraw_in_memory_and_paged_views() {
+    use crate::terminal_host::transcript::Cache;
+    use lattice::view::TranscriptBlock as Block;
+
+    let temp = tempfile::tempdir().unwrap();
+    let mut ledger = log(&temp.path().join("decoration-anchors.ledger"));
+    let mut events = vec![append(
+        &mut ledger,
+        ce::OUTPUT_REPLY,
+        json!({"text":"BEFORE_TOOLS"}),
+    )];
+    for call in ["first", "second"] {
+        events.push(append(
+            &mut ledger,
+            ce::TOOL_EXEC_STARTED,
+            json!({"call":call,"tool":"Read","arguments":{}}),
+        ));
+        events.push(append(
+            &mut ledger,
+            ce::TOOL_EXEC_COMPLETED,
+            json!({"call":call,"tool":"Read","status":"ok","result":{"stdout":"result"}}),
+        ));
+    }
+    events.push(append(
+        &mut ledger,
+        ce::OUTPUT_REPLY,
+        json!({"text":"Tail one\n\nTail two\n\nTail three"}),
+    ));
+    let mut memory = Ui::replayed(&events);
+    let mut paged = Ui::replayed(&[]);
+    let reader = ledger.reader();
+    paged.replay_prefix(&reader, reader.snapshot_end()).unwrap();
+    for ui in [&mut memory, &mut paged] {
+        for width in [1, 6, 60] {
+            ui.browsing = Default::default();
+            let mut cache = Cache::default();
+            let full = cache.page(ui, 'x', width, 1000, 0).unwrap();
+            let decoration: Vec<_> = full
+                .rows
+                .iter()
+                .filter(|row| row.position.block == Block::Entries(1) && row.position.line == 0)
+                .collect();
+            assert!(decoration.len() >= 2);
+            for expected in decoration {
+                ui.browsing.set_offset(1);
+                ui.browsing.drawn(expected.position, true);
+                let actual = cache.page(ui, 'x', width, 1, 0).unwrap();
+                assert_eq!(actual.rows[0].position, expected.position);
+                assert_eq!(actual.rows[0].row, expected.row);
+            }
+        }
+    }
+}
