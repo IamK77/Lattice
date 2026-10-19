@@ -22,7 +22,7 @@ tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "macros", 
 # Keep the pre-0.13 native TLS backend and feature selection explicit.
 reqwest = { version = "0.13", default-features = false, features = ["native-tls-no-alpn", "charset", "http2", "system-proxy", "json", "stream"] }
 futures-util = "0.3"
-jsonschema = { version = "0.58", default-features = false }
+jsonschema = { version = "0.59", default-features = false }
 # Parse data only: no YAML serialization, includes, or property expansion.
 serde-saphyr = { version = "1.3", default-features = false, features = ["deserialize"] }
 # On macOS use kernel notifications without registering with fseventsd.
@@ -74,4 +74,4 @@ vt100 = "=0.16.2"
 tokio = { version = "1", features = ["test-util"] }
 tempfile = "3"
 sha2 = "0.10"
-jsonschema = { version = "0.58", default-features = false }
+jsonschema = { version = "0.59", default-features = false }
