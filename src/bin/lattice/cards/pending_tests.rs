@@ -2,13 +2,29 @@ use super::*;
 
 #[test]
 fn releasing_an_earlier_user_message_keeps_the_rendered_top_on_the_later_message() {
+    check_reading_after_reveal(false);
+}
+
+#[test]
+fn revealing_input_after_a_tool_keeps_the_later_message_line() {
+    check_reading_after_reveal(true);
+}
+
+fn check_reading_after_reveal(preceding_tool: bool) {
     let temp = tempfile::tempdir().unwrap();
     let mut ledger = log(&temp.path().join("reading.ledger"));
+    let tool = preceding_tool.then(|| {
+        append(
+            &mut ledger,
+            ce::TOOL_EXEC_STARTED,
+            json!({"call":"before-input", "tool":"Read", "arguments":{}}),
+        )
+    });
     let first = append(&mut ledger, ce::USER_MESSAGE, json!({"text":"A first"}));
     let second = append(
         &mut ledger,
         ce::USER_MESSAGE,
-        json!({"text":"B first\nB second\nB third\nB fourth\nB fifth"}),
+        json!({"text":"B first with wrapped continuation\nB second\nB third\nB fourth\nB fifth"}),
     );
     let request = append(
         &mut ledger,
@@ -18,7 +34,7 @@ fn releasing_an_earlier_user_message_keeps_the_rendered_top_on_the_later_message
     let mut memory = Ui::replayed(&[]);
     let mut paged = Ui::replayed(&[]);
     paged.replay_prefix(&ledger.reader(), 0).unwrap();
-    for event in [&first, &second, &request] {
+    for event in tool.iter().chain([&first, &second, &request]) {
         fold(&mut paged, &mut memory, event);
     }
     let top = |ui: &Ui| {
@@ -32,32 +48,68 @@ fn releasing_an_earlier_user_message_keeps_the_rendered_top_on_the_later_message
             .collect::<String>()
     };
     for ui in [&mut paged, &mut memory] {
-        ui.browsing.scroll(
-            0,
-            Some(lattice::view::TranscriptPosition {
-                block: lattice::view::TranscriptBlock::Entries(0),
-                line: 1,
-                byte: 0,
-            }),
-            true,
-            true,
-            None,
-        );
+        let frame = crate::terminal_host::transcript::page(ui, ' ', 40, 20).unwrap();
+        let position = frame
+            .rows
+            .iter()
+            .find(|row| row.row.line.to_string().contains("B second"))
+            .expect("the initial frame contains the target content")
+            .position;
+        ui.browsing.scroll(0, Some(position), true, true, None);
         assert!(top(ui).contains("B second"));
     }
+    let positions = |ui: &Ui, width, card| {
+        crate::terminal_host::transcript::page(ui, ' ', width, 200)
+            .unwrap()
+            .rows
+            .into_iter()
+            .filter(|row| {
+                // A prompt-marker-only row may disappear when messages merge;
+                // compare the addresses of actual message content, not decoration.
+                let text = row.row.line.to_string();
+                row.position.block == lattice::view::TranscriptBlock::Entries(card)
+                    && row.position.line > 0
+                    && !text.trim().is_empty()
+                    && text.trim() != "❯"
+            })
+            .map(|row| (row.position.line, row.position.byte))
+            .collect::<Vec<_>>()
+    };
+    let before: Vec<_> = [1, 2, 4, 6, 12]
+        .into_iter()
+        .map(|width| {
+            let positions = positions(&paged, width, usize::from(preceding_tool));
+            assert!(
+                positions.iter().any(|(_, byte)| *byte > 0),
+                "fixture must wrap"
+            );
+            assert!(
+                positions.windows(2).all(|pair| pair[0] != pair[1]),
+                "each rendered row must remain seekable: {positions:?}"
+            );
+            positions
+        })
+        .collect();
     let request = append(
         &mut ledger,
         ce::MODEL_CALL_STARTED,
         json!({"input":{"parts":[{"event":first.id}]}}),
     );
     fold(&mut paged, &mut memory, &request);
-    for ui in [&paged, &memory] {
-        assert!(
-            top(ui).contains("B second"),
-            "reading moved to {:?}",
-            top(ui)
-        );
+    for (width, before) in [1, 2, 4, 6, 12].into_iter().zip(before) {
+        for ui in [&paged, &memory] {
+            assert_eq!(
+                positions(ui, width, usize::from(preceding_tool) + 1),
+                before,
+                "content line/byte addresses must not depend on generated separation or markers"
+            );
+        }
     }
+    let observed = [top(&paged), top(&memory)];
+    assert!(
+        observed.iter().all(|top| top.contains("B second")),
+        "reading moved (paged, memory): {observed:?}"
+    );
 }
 
 #[test]

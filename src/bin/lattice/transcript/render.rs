@@ -20,6 +20,8 @@ use ratatui::text::{Line, Span};
 #[derive(Debug, PartialEq)]
 pub(crate) struct TLine {
     pub entry: Option<usize>,
+    /// Original user-message line, excluding generated group separators.
+    pub content_line: Option<usize>,
     pub line: Line<'static>,
     pub links: Vec<Option<String>>,
     pub layout: Option<lattice::richtext::LineLayout>,
@@ -49,6 +51,7 @@ fn transcript_kind(kind: view::TranscriptKind) -> u8 {
 fn blank_line() -> TLine {
     TLine {
         entry: None,
+        content_line: None,
         line: Line::default(),
         owner: None,
         indent: 0,
@@ -143,6 +146,7 @@ pub(super) fn render_transcript_group(
                 if !live && foldable {
                     out.push(TLine {
                         entry: Some(base + i),
+                        content_line: None,
                         line: folded_work(&entries[i..group], false),
                         owner: key.clone(),
                         indent: INDENT_AGENT,
@@ -159,6 +163,7 @@ pub(super) fn render_transcript_group(
                     for (line, indent) in entry_lines(e, spinner, expanded, room) {
                         out.push(TLine {
                             entry: Some(base + i + relative),
+                            content_line: None,
                             line,
                             owner: owner.clone(),
                             indent,
@@ -171,6 +176,7 @@ pub(super) fn render_transcript_group(
             } else {
                 out.push(TLine {
                     entry: Some(base + i),
+                    content_line: None,
                     line: folded_work(&entries[i..group], true),
                     owner: key,
                     indent: INDENT_AGENT,
@@ -205,14 +211,17 @@ pub(super) fn render_transcript_group(
                 // group. Otherwise revealing an earlier message changes the
                 // reading address of every later line in the merged block.
                 let sources = joined.iter().enumerate().flat_map(|(offset, text)| {
-                    std::iter::repeat_n(base + i + offset, text.split('\n').count())
+                    let source = base + i + offset;
+                    (0..text.split('\n').count()).map(move |line| (source, line))
                 });
-                for ((line, indent), source) in entry_lines(&merged, spinner, false, room)
-                    .into_iter()
-                    .zip(sources)
+                for ((line, indent), (source, content_line)) in
+                    entry_lines(&merged, spinner, false, room)
+                        .into_iter()
+                        .zip(sources)
                 {
                     out.push(TLine {
                         entry: Some(source),
+                        content_line: Some(content_line),
                         line,
                         owner: None,
                         indent,
@@ -240,6 +249,7 @@ pub(super) fn render_transcript_group(
                     .into_iter()
                     .map(|row| TLine {
                         entry: Some(base + i - 1),
+                        content_line: None,
                         line: row.line,
                         links: row.links,
                         layout: row.layout,
@@ -250,9 +260,12 @@ pub(super) fn render_transcript_group(
             );
             continue;
         }
-        for (line, indent) in entry_lines(e, spinner, false, room) {
+        for (content_line, (line, indent)) in
+            entry_lines(e, spinner, false, room).into_iter().enumerate()
+        {
             out.push(TLine {
                 entry: Some(base + i - 1),
+                content_line: matches!(e, Entry::User(_)).then_some(content_line),
                 line,
                 owner: None,
                 indent,
@@ -274,6 +287,7 @@ pub(super) fn render_transcript_group(
         let style = Style::default().fg(DIM).add_modifier(Modifier::ITALIC);
         out.push(TLine {
             entry: None,
+            content_line: None,
             line: Line::from(vec![
                 Span::styled("✻ ", Style::default().fg(ACCENT)),
                 Span::styled("Thinking", style.add_modifier(Modifier::BOLD)),
@@ -289,6 +303,7 @@ pub(super) fn render_transcript_group(
         for line in &all[tail..] {
             out.push(TLine {
                 entry: None,
+                content_line: None,
                 line: Line::from(Span::styled((*line).to_string(), style)),
                 owner: None,
                 indent: INDENT_TOOL_OUT,
@@ -334,6 +349,7 @@ pub(super) fn render_transcript_group(
         }
         out.extend(streamed.into_iter().map(|row| TLine {
             entry: None,
+            content_line: None,
             line: row.line,
             links: row.links,
             layout: row.layout,

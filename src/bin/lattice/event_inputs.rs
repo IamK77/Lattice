@@ -694,7 +694,20 @@ mod tests {
         restored.replay_prefix(&log.reader(), through).unwrap();
         assert_eq!(
             crate::terminal_host::cards::tests::materialize(&restored),
-            original.entries
+            crate::terminal_host::cards::tests::materialize(&original)
+        );
+        let pending: Vec<_> = (0..140).map(|index| format!("line {index}")).collect();
+        assert_eq!(original.domain.unseen.lines(), pending);
+        assert_eq!(indexed.domain.unseen.lines(), pending);
+        assert_eq!(restored.domain.unseen.lines(), pending);
+        assert_eq!(
+            original
+                .entries
+                .iter()
+                .filter(|entry| matches!(entry, lattice::view::Entry::User(_)))
+                .count(),
+            141,
+            "raw cards retain the recorded inputs while display hides pending ones"
         );
         assert!(restored.entries.is_empty());
         assert_eq!(

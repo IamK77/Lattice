@@ -73,6 +73,19 @@ fn wrap_positioned(lines: Vec<TLine>, width: usize) -> Vec<Positioned> {
         } else {
             source_base = None;
         }
+        if let Some(content_line) = tl.content_line {
+            // Reserve address zero for optional leading separation. Content
+            // keeps the same address with or without that generated row,
+            // including when adjacent user messages merge into one group.
+            logical = content_line + 1;
+        }
+        // User lines start with a presentation span: either the prompt
+        // marker or equal-width indentation inside a merged group. Reserve
+        // the same canonical prefix bytes for both, so marker-only rows at
+        // very narrow widths retain distinct addresses from content rows.
+        let content_prefix = tl.content_line.map_or(0, |_| {
+            tl.line.spans.first().map_or(0, |span| span.content.len())
+        });
         let prewrapped = tl.layout.as_ref().is_some_and(|layout| layout.prewrapped);
         let text: String = tl
             .line
@@ -109,6 +122,19 @@ fn wrap_positioned(lines: Vec<TLine>, width: usize) -> Vec<Positioned> {
                 .and_then(|tail| tail.find(&rendered))
                 .map_or(consumed, |offset| consumed + offset);
             consumed = (begin + rendered.len()).min(text.len());
+            let source_byte = if tl.content_line.is_some() {
+                if begin < content_prefix {
+                    if begin == 0 {
+                        0
+                    } else {
+                        "❯".len()
+                    }
+                } else {
+                    begin - content_prefix + "❯ ".len()
+                }
+            } else {
+                begin
+            };
             let lead = indent + if at > 0 { hang } else { 0 };
             let mut x = lead;
             let mut links = Vec::new();
@@ -158,7 +184,7 @@ fn wrap_positioned(lines: Vec<TLine>, width: usize) -> Vec<Positioned> {
                     .layout
                     .as_ref()
                     .filter(|layout| layout.prewrapped)
-                    .map_or(begin, |layout| layout.byte),
+                    .map_or(source_byte, |layout| layout.byte),
                 ranges: tl
                     .layout
                     .as_ref()
