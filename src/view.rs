@@ -33,6 +33,7 @@ pub mod activity;
 pub mod expert_panel;
 pub mod facts;
 pub mod history;
+pub mod pending;
 use crate::derived_pages as pages;
 pub mod peaks;
 mod transcript;
@@ -340,7 +341,8 @@ pub struct Live {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum TranscriptBlock {
     Welcome,
-    /// Stable display-card ordinal, not a ledger event sequence.
+    /// Display-card ordinal, not a ledger event sequence. Frontends remap
+    /// existing positions when pending cards become visible before them.
     Entries(usize),
     Streaming,
 }
@@ -498,11 +500,9 @@ pub trait View {
             detail_line: 0,
         }))
     }
-    /// Lines the user has said that the model has NOT been shown yet — typed
-    /// while a question was already out, and riding along on the next one.
-    /// They are on the ledger (they were really said), so the transcript
-    /// carries them; this is the separate fact that they have not landed in
-    /// front of the model yet, which only a live view can know. Default: none.
+    /// Recorded input not yet included in an ordinary model request.
+    /// Pending user messages appear here instead of in the transcript;
+    /// both live observation and recovery derive this from event identities.
     fn unseen(&self) -> &[String] {
         &[]
     }

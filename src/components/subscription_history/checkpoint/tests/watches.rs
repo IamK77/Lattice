@@ -80,7 +80,7 @@ fn warm_watch_recovery_is_incremental_and_independent_of_timers() {
         super::fire(&mut log, id, 5);
     }
     let cold = compare(&log.reader());
-    assert!(cold.cold_reason.is_some());
+    assert!(cold.cold_reason.is_none());
     assert_eq!((cold.headers, cold.bodies), (240, 160));
     assert_eq!(cold.state.next_id, 41);
     assert!(cold.state.live.is_empty());

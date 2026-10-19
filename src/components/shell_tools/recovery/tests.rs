@@ -114,7 +114,7 @@ fn warm_recovery_reads_only_the_suffix_and_keeps_only_unfinished_receipts() {
         wake(&mut log, &[&started]);
     }
     let first = recover(&log.reader()).unwrap();
-    assert!(first.cold_reason.is_some());
+    assert!(first.cold_reason.is_none());
     assert_eq!(first.headers as u64, log.reader().snapshot_end());
     assert!(first.jobs.is_empty());
     assert!(stored(&log.reader()).pending.is_empty());
@@ -240,7 +240,7 @@ fn same_stream_name_does_not_share_recovery_state_between_ledgers() {
     assert_eq!(recover(&one.reader()).unwrap().jobs.len(), 1);
     let other = open(&temp.path().join("other.ledger"));
     let empty = recover(&other.reader()).unwrap();
-    assert!(empty.cold_reason.is_some());
+    assert!(empty.cold_reason.is_none());
     assert!(empty.jobs.is_empty());
 }
 

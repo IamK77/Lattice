@@ -9,6 +9,11 @@ use lattice::LogReader;
 #[path = "cards/tests.rs"]
 pub(super) mod tests;
 
+pub(super) enum CardSource {
+    History(usize),
+    Local(usize),
+}
+
 pub(super) struct Cards {
     history: History,
     cleared: Option<History>,
@@ -30,7 +35,7 @@ impl Cards {
     }
 
     pub fn len(&self) -> usize {
-        self.displayed().len() + self.local.len()
+        self.displayed().visible_len() + self.local.len()
     }
 
     pub fn has_user(&self) -> bool {
@@ -48,7 +53,7 @@ impl Cards {
     }
 
     fn local_position(&self, index: usize) -> usize {
-        self.local[index].0 + index
+        self.displayed().visible_boundary(self.local[index].0) + index
     }
 
     fn resolve(&self, index: usize) -> io::Result<Result<usize, usize>> {
@@ -76,9 +81,26 @@ impl Cards {
         }
     }
 
+    pub fn source(&self, index: usize) -> io::Result<CardSource> {
+        Ok(match self.resolve(index)? {
+            Ok(visible) => CardSource::History(self.displayed().source_ordinal(visible)),
+            Err(local) => CardSource::Local(local),
+        })
+    }
+
+    pub fn display_position(&self, source: CardSource) -> usize {
+        match source {
+            CardSource::Local(local) => self.local_position(local),
+            CardSource::History(raw) => {
+                self.displayed().visible_boundary(raw)
+                    + self.local.partition_point(|(boundary, _)| *boundary <= raw)
+            }
+        }
+    }
+
     fn kind(&self, index: usize) -> io::Result<TranscriptKind> {
         match self.resolve(index)? {
-            Ok(source) => self.displayed().transcript_kind(source),
+            Ok(source) => self.displayed().visible_kind(source),
             Err(local) => Ok(TranscriptKind::of(&self.local[local].1)),
         }
     }
@@ -96,21 +118,24 @@ impl Cards {
         let (first, entries) = match self.resolve(index)? {
             Err(local) => (index, vec![self.local[local].1.clone()]),
             Ok(source) => {
-                let mut range = self.displayed().group(source)?;
+                let history = self.displayed();
+                let mut range = history.visible_group(source)?;
                 let preceding = self
                     .local
-                    .partition_point(|(boundary, _)| *boundary <= source);
+                    .partition_point(|(boundary, _)| history.visible_boundary(*boundary) <= source);
                 if preceding > 0 {
-                    range.start = range.start.max(self.local[preceding - 1].0);
+                    range.start = range
+                        .start
+                        .max(history.visible_boundary(self.local[preceding - 1].0));
                 }
                 if let Some((boundary, _)) = self.local.get(preceding) {
-                    range.end = range.end.min(*boundary);
+                    range.end = range.end.min(history.visible_boundary(*boundary));
                 }
                 let first = range.start
-                    + self
-                        .local
-                        .partition_point(|(boundary, _)| *boundary <= range.start);
-                (first, self.displayed().load(range)?)
+                    + self.local.partition_point(|(boundary, _)| {
+                        history.visible_boundary(*boundary) <= range.start
+                    });
+                (first, history.visible_load(range)?)
             }
         };
         Ok(TranscriptGroup {
@@ -134,13 +159,15 @@ impl Cards {
 
     pub fn last_tool_running(&self) -> bool {
         self.len().checked_sub(1).is_some_and(|last| {
-            matches!(self.resolve(last), Ok(Ok(_))) && self.displayed().last_tool_running()
+            matches!(self.resolve(last), Ok(Ok(_))) && self.displayed().visible_last_tool_running()
         })
     }
 
     fn last_is_thinking(&self) -> io::Result<bool> {
         match self.len().checked_sub(1) {
-            Some(last) if self.resolve(last)?.is_ok() => self.displayed().last_is_thinking(),
+            Some(last) if self.resolve(last)?.is_ok() => {
+                self.displayed().visible_last_is_thinking()
+            }
             _ => Ok(false),
         }
     }

@@ -4,6 +4,9 @@ use lattice::view::View;
 use lattice::{core_events as ce, EventDraft, EventEnvelope, EventLog};
 use serde_json::{json, Value};
 
+#[path = "pending_tests.rs"]
+mod pending_tests;
+
 pub(crate) fn materialize(ui: &Ui) -> Vec<Entry> {
     let mut entries = Vec::new();
     while entries.len() < ui.entry_count() {
@@ -35,7 +38,12 @@ fn log(root: &std::path::Path) -> EventLog {
 fn fold(ui: &mut Ui, reference: &mut Ui, event: &EventEnvelope) {
     reference.absorb(event, SETTLED_TICK);
     ui.try_absorb_profiled(event, SETTLED_TICK, None).unwrap();
-    assert_eq!(materialize(ui), reference.entries, "event {}", event.seq);
+    assert_eq!(
+        materialize(ui),
+        materialize(reference),
+        "event {}",
+        event.seq
+    );
     assert!(
         ui.entries.is_empty(),
         "reader-backed cards must not accumulate"
@@ -244,18 +252,18 @@ fn paged_cards_preserve_old_updates_local_errors_clear_and_recovery() {
     restored
         .replay_prefix(&log.reader(), log.reader().snapshot_end())
         .unwrap();
-    let mut canonical = Vec::new();
+    let mut canonical = Ui::replayed(&[]);
     log.reader()
         .visit_prefix(log.reader().snapshot_end(), |events| {
             for event in events {
-                lattice::view::ingest(&mut canonical, event);
+                canonical.absorb(event, SETTLED_TICK);
             }
             Ok(())
         })
         .unwrap();
     assert_eq!(
         materialize(&restored),
-        canonical,
+        materialize(&canonical),
         "local clear must not overwrite the canonical checkpoint"
     );
 }

@@ -20,6 +20,13 @@ impl Browsing {
     pub fn position(&self) -> Option<Anchor> {
         self.anchor.filter(|_| self.offset > 0)
     }
+    pub fn reading_entry(&self) -> Option<usize> {
+        match self.position()?.0.block {
+            lattice::view::TranscriptBlock::Entries(index) => Some(index),
+            _ => None,
+        }
+    }
+
     pub fn is_expanded(&self, id: &str) -> bool {
         self.expanded.contains(id)
     }
@@ -32,6 +39,16 @@ impl Browsing {
     }
     pub fn forget_position(&mut self) {
         self.anchor = None;
+    }
+
+    /// Revealing earlier recorded input changes display ordinals, not the
+    /// content being read. Preserve its line, byte, and pending scroll delta.
+    pub fn remap_entry(&mut self, index: usize) {
+        if let Some((position, _)) = &mut self.anchor {
+            if matches!(position.block, lattice::view::TranscriptBlock::Entries(_)) {
+                position.block = lattice::view::TranscriptBlock::Entries(index);
+            }
+        }
     }
     pub fn folds_revision(&self) -> u64 {
         self.folds_revision

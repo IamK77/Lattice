@@ -59,13 +59,18 @@ struct Positioned {
 fn wrap_positioned(lines: Vec<TLine>, width: usize) -> Vec<Positioned> {
     let mut rows = Vec::new();
     let mut entry = lines.iter().find_map(|line| line.entry);
-    let mut logical = 0;
+    // All card content starts at one. Generated rows share line zero, but
+    // occupy distinct byte ranges there, including an empty row's newline.
+    // These offsets come from unwrapped text, never from screen-row counts.
+    let mut logical = 1;
+    let mut decoration_byte = 0;
     let mut source_base = None;
     for tl in lines {
         let next = tl.entry.or(entry);
         if next != entry {
             entry = next;
-            logical = 0;
+            logical = 1;
+            decoration_byte = 0;
             source_base = None;
         }
         if let Some(layout) = &tl.layout {
@@ -73,6 +78,19 @@ fn wrap_positioned(lines: Vec<TLine>, width: usize) -> Vec<Positioned> {
         } else {
             source_base = None;
         }
+        if let Some(content_line) = tl.content_line {
+            // Reserve address zero for optional leading separation. Content
+            // keeps the same address with or without that generated row,
+            // including when adjacent user messages merge into one group.
+            logical = content_line + 1;
+        }
+        // User lines start with a presentation span: either the prompt
+        // marker or equal-width indentation inside a merged group. Reserve
+        // the same canonical prefix bytes for both, so marker-only rows at
+        // very narrow widths retain distinct addresses from content rows.
+        let content_prefix = tl.content_line.map_or(0, |_| {
+            tl.line.spans.first().map_or(0, |span| span.content.len())
+        });
         let prewrapped = tl.layout.as_ref().is_some_and(|layout| layout.prewrapped);
         let text: String = tl
             .line
@@ -109,6 +127,19 @@ fn wrap_positioned(lines: Vec<TLine>, width: usize) -> Vec<Positioned> {
                 .and_then(|tail| tail.find(&rendered))
                 .map_or(consumed, |offset| consumed + offset);
             consumed = (begin + rendered.len()).min(text.len());
+            let source_byte = if tl.content_line.is_some() {
+                if begin < content_prefix {
+                    if begin == 0 {
+                        0
+                    } else {
+                        "❯".len()
+                    }
+                } else {
+                    begin - content_prefix + "❯ ".len()
+                }
+            } else {
+                begin
+            };
             let lead = indent + if at > 0 { hang } else { 0 };
             let mut x = lead;
             let mut links = Vec::new();
@@ -153,12 +184,15 @@ fn wrap_positioned(lines: Vec<TLine>, width: usize) -> Vec<Positioned> {
                     links,
                 },
                 entry,
-                line: logical,
-                byte: tl
-                    .layout
-                    .as_ref()
-                    .filter(|layout| layout.prewrapped)
-                    .map_or(begin, |layout| layout.byte),
+                line: if tl.decoration { 0 } else { logical },
+                byte: if tl.decoration {
+                    decoration_byte + source_byte
+                } else {
+                    tl.layout
+                        .as_ref()
+                        .filter(|layout| layout.prewrapped)
+                        .map_or(source_byte, |layout| layout.byte)
+                },
                 ranges: tl
                     .layout
                     .as_ref()
@@ -166,7 +200,11 @@ fn wrap_positioned(lines: Vec<TLine>, width: usize) -> Vec<Positioned> {
                     .map_or_else(Vec::new, |layout| layout.ranges.clone()),
             });
         }
-        logical += 1;
+        if tl.decoration {
+            decoration_byte += text.len() + 1;
+        } else {
+            logical += 1;
+        }
     }
     rows
 }

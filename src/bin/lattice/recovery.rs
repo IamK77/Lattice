@@ -29,8 +29,8 @@ mod tests;
 
 // Bump when State, its reducers, or initial-context interpretation changes,
 // not when an unrelated part of the executable is released.
-// v8 retains per-turn activity measurements and pending-call attribution.
-const VERSION: u32 = 8;
+// v10 combines per-turn measurements with recorded idle/busy input visibility.
+const VERSION: u32 = 10;
 const EVERY: u64 = 256;
 
 #[derive(Clone, Serialize)]
