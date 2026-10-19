@@ -4,6 +4,8 @@ use serde_json::{json, Value};
 
 #[path = "background_aliases.rs"]
 mod background_aliases;
+#[path = "diagnostics.rs"]
+mod diagnostics;
 
 fn append(log: &mut EventLog, kind: &str, causes: &[&str], payload: Value) -> EventEnvelope {
     log.append(EventDraft::new(kind, causes, payload), "fixture")

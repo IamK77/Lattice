@@ -74,17 +74,19 @@ impl Settings {
             let saved = reader
                 .load_checkpoint::<Saved>("terminal-tab-settings", 1, reader.snapshot_end())
                 .map_err(|error| error.to_string())?;
-            if let Some(state) = saved.state.filter(|state| state.initial == initial_key) {
-                settings = Some(state.settings);
-                through = saved.through;
-            } else {
+            let mut reason = saved.cold_reason;
+            if let Some(state) = saved.state {
+                if state.initial == initial_key {
+                    settings = Some(state.settings);
+                    through = saved.through;
+                } else {
+                    reason = Some("initial configuration changed".into());
+                }
+            }
+            if let Some(reason) = reason {
                 eprintln!(
-                    "warning: {} cold-restoring side settings: {}",
-                    path.display(),
-                    saved
-                        .cold_reason
-                        .as_deref()
-                        .unwrap_or("initial configuration changed")
+                    "warning: {} cold-restoring side settings: {reason}",
+                    path.display()
                 );
             }
         }
