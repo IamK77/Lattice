@@ -22,8 +22,8 @@ mod visibility;
 mod tests;
 
 const CONSUMER: &str = "view-cards";
-// Pending input identities and source-card ranges survive recovery.
-const VERSION: u32 = 6;
+// Pending visibility includes the recorded activity before each input.
+const VERSION: u32 = 7;
 const CHECKPOINT_EVERY: u64 = 256;
 
 #[derive(Default, Serialize, Deserialize)]
@@ -37,13 +37,19 @@ struct State {
     last_handled: bool,
 }
 
+#[derive(Clone)]
+struct ClearBoundary {
+    through: u64,
+    pending: super::pending::PendingInputs,
+}
+
 /// A stable display ordinal addresses one card, regardless of which page the
 /// frontend has loaded. Only live running candidates remain in the in-memory
 /// lookup table; completed command identities live in bounded recipe pages.
 pub struct History {
     reader: LogReader,
     // A local cleared view starts here; it must never replace the full-history checkpoint.
-    base: Option<u64>,
+    base: Option<ClearBoundary>,
     pages: Pages<Record>,
     running: BTreeMap<usize, Option<String>>,
     pending: super::pending::PendingInputs,
@@ -97,9 +103,16 @@ impl History {
         Self::from_state(
             self.reader.clone(),
             through,
-            self.base,
-            self.base.unwrap_or(0),
-            State::default(),
+            self.base.clone(),
+            self.base.as_ref().map_or(0, |base| base.through),
+            State {
+                pending: self
+                    .base
+                    .as_ref()
+                    .map(|base| base.pending.clone())
+                    .unwrap_or_default(),
+                ..State::default()
+            },
             Some(reason),
         )
     }
@@ -107,12 +120,20 @@ impl History {
     /// Start a local display at this boundary without changing the canonical
     /// transcript checkpoint. Later unmatched results retain normal ingest behavior.
     pub fn empty_tail(&self) -> io::Result<Self> {
+        let mut pending = self.pending.clone();
+        pending.clear_cards();
         Self::from_state(
             self.reader.clone(),
             self.through,
-            Some(self.through),
+            Some(ClearBoundary {
+                through: self.through,
+                pending: pending.clone(),
+            }),
             self.through,
-            State::default(),
+            State {
+                pending,
+                ..State::default()
+            },
             None,
         )
     }
@@ -120,7 +141,7 @@ impl History {
     fn from_state(
         reader: LogReader,
         through: u64,
-        base: Option<u64>,
+        base: Option<ClearBoundary>,
         mut boundary: u64,
         state: State,
         mut cold_reason: Option<String>,
@@ -145,9 +166,12 @@ impl History {
                     Err(error) => error.to_string(),
                     Ok(_) => "invalid running or pending card state in recovered history".into(),
                 });
-                boundary = base.unwrap_or(0);
+                boundary = base.as_ref().map_or(0, |base| base.through);
                 running.clear();
-                pending = Default::default();
+                pending = base
+                    .as_ref()
+                    .map(|base| base.pending.clone())
+                    .unwrap_or_default();
                 has_user = false;
                 last_handled = false;
                 Pages::open(root, Vec::new(), 0)?

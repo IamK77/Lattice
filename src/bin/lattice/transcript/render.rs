@@ -22,6 +22,8 @@ pub(crate) struct TLine {
     pub entry: Option<usize>,
     /// Original user-message line, excluding generated group separators.
     pub content_line: Option<usize>,
+    /// Generated separators and group controls do not consume content addresses.
+    pub decoration: bool,
     pub line: Line<'static>,
     pub links: Vec<Option<String>>,
     pub layout: Option<lattice::richtext::LineLayout>,
@@ -52,6 +54,7 @@ fn blank_line() -> TLine {
     TLine {
         entry: None,
         content_line: None,
+        decoration: true,
         line: Line::default(),
         owner: None,
         indent: 0,
@@ -147,6 +150,7 @@ pub(super) fn render_transcript_group(
                     out.push(TLine {
                         entry: Some(base + i),
                         content_line: None,
+                        decoration: true,
                         line: folded_work(&entries[i..group], false),
                         owner: key.clone(),
                         indent: INDENT_AGENT,
@@ -164,6 +168,7 @@ pub(super) fn render_transcript_group(
                         out.push(TLine {
                             entry: Some(base + i + relative),
                             content_line: None,
+                            decoration: false,
                             line,
                             owner: owner.clone(),
                             indent,
@@ -177,6 +182,7 @@ pub(super) fn render_transcript_group(
                 out.push(TLine {
                     entry: Some(base + i),
                     content_line: None,
+                    decoration: true,
                     line: folded_work(&entries[i..group], true),
                     owner: key,
                     indent: INDENT_AGENT,
@@ -222,6 +228,7 @@ pub(super) fn render_transcript_group(
                     out.push(TLine {
                         entry: Some(source),
                         content_line: Some(content_line),
+                        decoration: false,
                         line,
                         owner: None,
                         indent,
@@ -250,6 +257,7 @@ pub(super) fn render_transcript_group(
                     .map(|row| TLine {
                         entry: Some(base + i - 1),
                         content_line: None,
+                        decoration: false,
                         line: row.line,
                         links: row.links,
                         layout: row.layout,
@@ -266,6 +274,7 @@ pub(super) fn render_transcript_group(
             out.push(TLine {
                 entry: Some(base + i - 1),
                 content_line: matches!(e, Entry::User(_)).then_some(content_line),
+                decoration: false,
                 line,
                 owner: None,
                 indent,
@@ -288,6 +297,7 @@ pub(super) fn render_transcript_group(
         out.push(TLine {
             entry: None,
             content_line: None,
+            decoration: false,
             line: Line::from(vec![
                 Span::styled("✻ ", Style::default().fg(ACCENT)),
                 Span::styled("Thinking", style.add_modifier(Modifier::BOLD)),
@@ -304,6 +314,7 @@ pub(super) fn render_transcript_group(
             out.push(TLine {
                 entry: None,
                 content_line: None,
+                decoration: false,
                 line: Line::from(Span::styled((*line).to_string(), style)),
                 owner: None,
                 indent: INDENT_TOOL_OUT,
@@ -350,6 +361,7 @@ pub(super) fn render_transcript_group(
         out.extend(streamed.into_iter().map(|row| TLine {
             entry: None,
             content_line: None,
+            decoration: false,
             line: row.line,
             links: row.links,
             layout: row.layout,

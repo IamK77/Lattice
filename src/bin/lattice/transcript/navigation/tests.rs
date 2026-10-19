@@ -169,7 +169,7 @@ fn anchored_frames_do_not_walk_from_the_end_or_move_when_new_messages_arrive() {
     ui.browsing.set_offset(1);
     let anchor = Position {
         block: Block::Entries(5000),
-        line: 0,
+        line: 1,
         byte: 0,
     };
     ui.browsing.drawn(anchor, true);
@@ -241,7 +241,7 @@ fn a_later_card_stays_anchored_when_an_earlier_anonymous_tool_gains_output() {
     ui.browsing.set_offset(1);
     let anchor = Position {
         block: Block::Entries(1),
-        line: 0,
+        line: 1,
         byte: 0,
     };
     ui.browsing.drawn(anchor, true);
@@ -280,7 +280,7 @@ fn content_bytes_keep_the_reading_location_when_width_changes() {
     ui.browsing.drawn(
         Position {
             block: Block::Entries(0),
-            line: 0,
+            line: 1,
             byte,
         },
         true,

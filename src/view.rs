@@ -29,6 +29,7 @@ use crate::components::trust_policy;
 use crate::contracts::core_events as ce;
 use crate::contracts::event::EventEnvelope;
 
+pub mod activity;
 pub mod expert_panel;
 pub mod facts;
 pub mod history;

@@ -1855,8 +1855,8 @@ where
     // after the turn ends, settling into "Done" rather than vanishing. It only
     // hides before the very first turn.
     let show_line = view.busy() || view.waiting() || view.done_at().is_some();
-    // Recorded input waits beside the editor until an ordinary model
-    // request actually includes it. Recovery uses the same receipt rules.
+    // Input submitted while busy waits beside the editor until an ordinary
+    // request includes it. Idle submissions go straight into the transcript.
     let queued = view.unseen();
     let queued_h = (queued.len() as u16).min(QUEUED_ROWS);
     // Blank, the line, blank. The trailing blank goes when something waits
@@ -5570,6 +5570,30 @@ mod tests {
         );
     }
 
+    #[test]
+    fn idle_input_enters_transcript_without_a_pending_flash() {
+        let mut u = ui(vec![], false);
+        u.domain.turns.submitted_input();
+        let input = serde_json::from_value(serde_json::json!({
+            "v":1, "id":"idle-input", "seq":1, "stream":"main", "time":"t",
+            "type":core_events::USER_MESSAGE, "source":"ui", "causes":[],
+            "payload":{"text":"visible immediately"}
+        }))
+        .unwrap();
+        fold_render(&mut u, RenderEvent::Appended(Box::new(input))).unwrap();
+        assert!(u.unseen().is_empty());
+        assert_eq!(u.entry_count(), 1);
+        let screen = snapshot(&u, 76, 20);
+        assert_eq!(
+            screen
+                .rows
+                .iter()
+                .filter(|row| row.contains("visible immediately"))
+                .count(),
+            1
+        );
+    }
+
     /// A line said while a question was already out is on the ledger — it was
     /// really said — but the model has not been shown it. That is a fact about
     /// right now, not about what happened, so it belongs beside the input box
@@ -5591,6 +5615,12 @@ mod tests {
             reason: None,
             payload: serde_json::json!({"text": text}),
         };
+        let active = lattice::EventEnvelope {
+            event_type: core_events::MODEL_CALL_STARTED.to_string(),
+            payload: serde_json::json!({"input":{"parts":[]}}),
+            ..said("active question")
+        };
+        fold_render(&mut u, RenderEvent::Appended(Box::new(active))).unwrap();
         // Through the LIVE path, not by calling the fold step directly. The
         // display half of this feature was dead from the day it was written
         // — the live drain simply never called `note_unseen` — and a test

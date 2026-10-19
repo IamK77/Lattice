@@ -8,7 +8,10 @@ fn event(id: &str, kind: &str, payload: serde_json::Value) -> EventEnvelope {
 #[test]
 fn visible_ordinals_and_groups_match_explicit_filter_for_every_pending_subset() {
     for mask in 0..64 {
-        let mut pending = PendingInputs::default();
+        let mut pending = PendingInputs::with_activity(crate::view::activity::Activity {
+            busy: true,
+            ..Default::default()
+        });
         let mut entries = Vec::new();
         let mut hidden = Vec::new();
         for n in 0..6 {
@@ -59,7 +62,10 @@ fn visible_ordinals_and_groups_match_explicit_filter_for_every_pending_subset() 
 
 #[test]
 fn invalid_recovered_ranges_are_rejected_before_mapping() {
-    let mut pending = PendingInputs::default();
+    let mut pending = PendingInputs::with_activity(crate::view::activity::Activity {
+        busy: true,
+        ..Default::default()
+    });
     pending.observe(&event("input", ce::USER_MESSAGE, json!({"text":"same"})));
     pending.cards("input", 1..3);
     assert!(!pending.valid(2));

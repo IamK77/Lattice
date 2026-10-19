@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "pending_interaction_tests.rs"]
+mod interaction;
+
 #[test]
 fn releasing_an_earlier_user_message_keeps_the_rendered_top_on_the_later_message() {
     check_reading_after_reveal(false);
@@ -13,6 +16,11 @@ fn revealing_input_after_a_tool_keeps_the_later_message_line() {
 fn check_reading_after_reveal(preceding_tool: bool) {
     let temp = tempfile::tempdir().unwrap();
     let mut ledger = log(&temp.path().join("reading.ledger"));
+    let busy = append(
+        &mut ledger,
+        ce::MODEL_CALL_STARTED,
+        json!({"input":{"parts":[]}}),
+    );
     let tool = preceding_tool.then(|| {
         append(
             &mut ledger,
@@ -34,7 +42,10 @@ fn check_reading_after_reveal(preceding_tool: bool) {
     let mut memory = Ui::replayed(&[]);
     let mut paged = Ui::replayed(&[]);
     paged.replay_prefix(&ledger.reader(), 0).unwrap();
-    for event in tool.iter().chain([&first, &second, &request]) {
+    for event in std::iter::once(&busy)
+        .chain(tool.iter())
+        .chain([&first, &second, &request])
+    {
         fold(&mut paged, &mut memory, event);
     }
     let top = |ui: &Ui| {
@@ -116,6 +127,11 @@ fn check_reading_after_reveal(preceding_tool: bool) {
 fn pending_inputs_keep_identity_attachments_and_order_across_every_recovery_cut() {
     let temp = tempfile::tempdir().unwrap();
     let mut ledger = log(&temp.path().join("pending.ledger"));
+    let busy = append(
+        &mut ledger,
+        ce::MODEL_CALL_STARTED,
+        json!({"input":{"parts":[]}}),
+    );
     let first = append(
         &mut ledger,
         ce::USER_MESSAGE,
@@ -203,6 +219,7 @@ fn pending_inputs_keep_identity_attachments_and_order_across_every_recovery_cut(
     let mut memory = Ui::replayed(&[]);
     let mut paged = Ui::replayed(&[]);
     paged.replay_prefix(&reader, 0).unwrap();
+    fold(&mut paged, &mut memory, &busy);
     for (index, event) in events.iter().enumerate() {
         if index == 8 {
             for ui in [&mut paged, &mut memory] {
@@ -311,6 +328,12 @@ fn local_cards_and_clear_keep_source_boundaries_when_pending_input_becomes_visib
     let mut paged = Ui::replayed(&[]);
     paged.replay_prefix(&ledger.reader(), 0).unwrap();
     let mut memory = Ui::replayed(&[]);
+    let busy = append(
+        &mut ledger,
+        ce::MODEL_CALL_STARTED,
+        json!({"input":{"parts":[]}}),
+    );
+    fold(&mut paged, &mut memory, &busy);
     let input = append(&mut ledger, ce::USER_MESSAGE, json!({"text":"first"}));
     fold(&mut paged, &mut memory, &input);
     for ui in [&mut paged, &mut memory] {

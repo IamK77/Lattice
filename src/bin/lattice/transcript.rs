@@ -59,13 +59,15 @@ struct Positioned {
 fn wrap_positioned(lines: Vec<TLine>, width: usize) -> Vec<Positioned> {
     let mut rows = Vec::new();
     let mut entry = lines.iter().find_map(|line| line.entry);
-    let mut logical = 0;
+    // All card content starts at one. Generated separation and group controls
+    // share address zero and never shift a card's content coordinates.
+    let mut logical = 1;
     let mut source_base = None;
     for tl in lines {
         let next = tl.entry.or(entry);
         if next != entry {
             entry = next;
-            logical = 0;
+            logical = 1;
             source_base = None;
         }
         if let Some(layout) = &tl.layout {
@@ -179,7 +181,7 @@ fn wrap_positioned(lines: Vec<TLine>, width: usize) -> Vec<Positioned> {
                     links,
                 },
                 entry,
-                line: logical,
+                line: if tl.decoration { 0 } else { logical },
                 byte: tl
                     .layout
                     .as_ref()
@@ -192,7 +194,9 @@ fn wrap_positioned(lines: Vec<TLine>, width: usize) -> Vec<Positioned> {
                     .map_or_else(Vec::new, |layout| layout.ranges.clone()),
             });
         }
-        logical += 1;
+        if !tl.decoration {
+            logical += 1;
+        }
     }
     rows
 }

@@ -20,7 +20,13 @@ fn event(kind: &str, causes: &[&str], payload: Value) -> EventEnvelope {
 #[test]
 fn only_original_user_text_and_wakes_add_lines_in_recorded_order() {
     let mut unseen = Unseen::default();
-    unseen.restore(vec!["restored".into()]);
+    unseen.restore_at(
+        vec!["restored".into()],
+        lattice::view::activity::Activity {
+            busy: true,
+            ..Default::default()
+        },
+    );
     for (kind, causes, payload) in [
         (ce::USER_MESSAGE, vec![], json!({"text":"first"})),
         (ce::USER_MESSAGE, vec!["first"], json!({"text":"forwarded"})),
@@ -42,6 +48,7 @@ fn only_original_user_text_and_wakes_add_lines_in_recorded_order() {
 #[test]
 fn only_ordinary_requests_that_include_the_input_remove_it() {
     let mut unseen = Unseen::default();
+    unseen.observe(&event(ce::MODEL_CALL_STARTED, &[], json!({})), None);
     unseen.observe(
         &event(ce::USER_MESSAGE, &[], json!({"text":"waiting"})),
         None,

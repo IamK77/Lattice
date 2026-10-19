@@ -228,7 +228,7 @@ impl State {
         if let Some(pending) = self.pending_inputs {
             ui.unseen.restore_pending(pending);
         } else {
-            ui.unseen.restore(self.unseen);
+            ui.unseen.restore_at(self.unseen, ui.turns.history());
         }
         ui.skills = self.skills;
         ui.accounting.restore(measurements);

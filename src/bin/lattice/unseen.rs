@@ -18,8 +18,12 @@ impl Unseen {
     pub fn lines(&self) -> &[String] {
         &self.lines
     }
+    #[cfg(test)]
     pub fn restore(&mut self, lines: Vec<String>) {
-        self.pending = PendingInputs::default();
+        self.restore_at(lines, Default::default());
+    }
+    pub fn restore_at(&mut self, lines: Vec<String>, activity: lattice::view::activity::Activity) {
+        self.pending = PendingInputs::with_activity(activity);
         self.legacy = lines.clone();
         self.lines = lines;
     }

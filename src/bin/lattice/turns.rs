@@ -1,7 +1,9 @@
 //! Recorded turn boundaries and local activity have separate lifetimes.
 //! Unrelated events never overwrite optimistic activity or a live quiet notice.
 
-use lattice::{components::minimal_loop, core_events as ce, EventEnvelope};
+#[cfg(test)]
+use lattice::components::minimal_loop;
+use lattice::{core_events as ce, EventEnvelope};
 
 #[path = "turns/completion.rs"]
 mod completion;
@@ -11,43 +13,7 @@ pub(super) use completion::Completion;
 #[path = "turns/tests.rs"]
 mod tests;
 
-/// Pure data for the checkpoint adapter; not a mutable view into the owner.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(super) struct History {
-    pub busy: bool,
-    pub waiting: bool,
-    pub done: bool,
-    pub number: usize,
-    pub completion: Completion,
-}
-
-impl History {
-    /// None leaves local activity untouched. Some reports a recorded boundary
-    /// and whether it starts a new turn, without introducing a display clock.
-    pub fn observe(&mut self, event: &EventEnvelope) -> Option<bool> {
-        self.completion.observe(event, self.number);
-        let (busy, waiting, done, new_turn) = match event.event_type.as_str() {
-            ce::USER_MESSAGE if !event.causes.is_empty() => return None,
-            ce::USER_MESSAGE | ce::WAKE => {
-                self.number = self.number.wrapping_add(1);
-                (true, false, false, true)
-            }
-            minimal_loop::WAITING => (false, true, false, false),
-            ce::MODEL_CALL_STARTED if event.payload.get("purpose").is_none() => {
-                (true, false, false, false)
-            }
-            ce::TURN_COMPLETED if self.completion.finish(event) => {
-                let current = self.completion.ends_activity(self.number);
-                (!current, false, current, false)
-            }
-            _ => return None,
-        };
-        self.busy = busy;
-        self.waiting = waiting;
-        self.done = done;
-        Some(new_turn)
-    }
-}
+pub(super) use lattice::view::activity::Activity as History;
 
 #[derive(Default)]
 pub(super) struct Turns {

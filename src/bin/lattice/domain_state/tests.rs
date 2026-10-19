@@ -280,9 +280,7 @@ fn both_domain_modes_match_the_original_ui_fold_after_every_event() {
         // Preserve the fixed fixture for unchanged fields. Pending receipts
         // now require actual inclusion by an ordinary request; test that new
         // rule explicitly rather than regenerating the old fixture.
-        let expected_pending: &[&str] = if event.seq < 3 {
-            &["question"]
-        } else if event.seq >= 11 {
+        let expected_pending: &[&str] = if event.seq >= 11 {
             &["timer:1 ↯"]
         } else {
             &[]

@@ -11,6 +11,7 @@ use std::{collections::BTreeSet, io, ops::Range};
 #[serde(deny_unknown_fields)]
 pub struct PendingInputs {
     inputs: Vec<Input>,
+    activity: super::activity::Activity,
 }
 
 #[cfg(test)]
@@ -27,9 +28,21 @@ struct Input {
 }
 
 impl PendingInputs {
+    pub fn with_activity(activity: super::activity::Activity) -> Self {
+        Self {
+            activity,
+            ..Self::default()
+        }
+    }
+
     pub fn observe(&mut self, event: &EventEnvelope) {
+        let was_busy = self.activity.busy;
+        self.activity.observe(event);
         match event.event_type.as_str() {
             ce::USER_MESSAGE if event.causes.is_empty() => {
+                if !was_busy {
+                    return;
+                }
                 let Some(text) = event.payload["text"].as_str() else {
                     return;
                 };
