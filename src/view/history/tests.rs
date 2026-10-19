@@ -201,7 +201,7 @@ fn warm_card_recovery_does_not_load_old_recipe_pages_and_reads_only_selected_car
     }
     let end = log.reader().snapshot_end();
     let cold = History::recover(log.reader(), end).unwrap();
-    assert!(cold.cold_reason().is_some());
+    assert!(cold.cold_reason().is_none());
     drop(cold);
     drop(log);
     let log = EventLog::open_segmented(declarations(), "cards", root, 4096).unwrap();

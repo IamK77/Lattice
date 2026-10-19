@@ -95,7 +95,6 @@ pub(super) struct Recovery {
     compaction: lattice::components::context_gate::CompactionObserver,
     summary: lattice::ledgers::Summary,
     pub cold_reason: Option<String>,
-    pub cold_expected: bool,
     pub replayed: u64,
 }
 
@@ -125,7 +124,6 @@ impl Recovery {
             through: 0,
             saved_through: 0,
             cold_reason: checkpoint.cold_reason,
-            cold_expected: checkpoint.cold_expected,
             replayed: 0,
         };
         if let Some(saved) = checkpoint.state {
@@ -168,7 +166,6 @@ impl Recovery {
         self.through = 0;
         self.saved_through = 0;
         self.cold_reason = Some(reason);
-        self.cold_expected = false;
         self.replayed = 0;
         Ok(())
     }

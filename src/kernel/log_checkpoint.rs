@@ -30,10 +30,8 @@ pub(super) struct PendingCache {
 pub struct Checkpoint<T> {
     pub through: u64,
     pub state: Option<T>,
-    /// A cold recovery is explicit, even when the cache simply does not exist.
+    /// Why existing derived state could not be reused. Normal absence has no reason.
     pub cold_reason: Option<String>,
-    /// Expected absence stays available as recovery metadata, not a warning.
-    pub cold_expected: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -151,21 +149,17 @@ impl LogReader {
         version: u32,
         through: u64,
     ) -> io::Result<Checkpoint<T>> {
-        let cold = |reason: String| Checkpoint {
+        let cold = |cold_reason: Option<String>| Checkpoint {
             through: 0,
             state: None,
-            cold_reason: Some(reason),
-            cold_expected: false,
+            cold_reason,
         };
         let history = self
             .history
             .read()
             .map_err(|_| io::Error::other("log history lock poisoned"))?;
         if history.checkpoint_digest(0)?.is_none() {
-            return Ok(Checkpoint {
-                cold_expected: true,
-                ..cold("legacy or memory history has no segmented recovery cache".into())
-            });
+            return Ok(cold(None));
         }
         let root = self
             .path
@@ -173,16 +167,8 @@ impl LogReader {
             .ok_or_else(|| io::Error::other("segmented history has no path"))?;
         let stored = match read(&path(root, consumer)) {
             Ok(stored) => stored,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                return Ok(Checkpoint {
-                    cold_expected: true,
-                    ..cold(
-                        "recovery checkpoint has not been created yet; rebuilding from the ledger"
-                            .into(),
-                    )
-                });
-            }
-            Err(error) => return Ok(cold(error.to_string())),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(cold(None)),
+            Err(error) => return Ok(cold(Some(error.to_string()))),
         };
         let data = stored.data;
         if data.format != 1
@@ -192,25 +178,24 @@ impl LogReader {
             || data.through > through
             || data.through > history.len() as u64
         {
-            return Ok(cold(
+            return Ok(cold(Some(
                 "recovery checkpoint identity, version or boundary mismatch".into(),
-            ));
+            )));
         }
         // Failure to read SOURCE metadata is fatal, not a reason to invent an
         // empty state. Only a bad derived cache is allowed to fall back.
         if history.checkpoint_digest(data.through)? != Some(data.prefix) {
-            return Ok(cold(
+            return Ok(cold(Some(
                 "recovery checkpoint belongs to a different ledger prefix".into(),
-            ));
+            )));
         }
         match serde_json::from_str(&data.body) {
             Ok(state) => Ok(Checkpoint {
                 through: data.through,
                 state: Some(state),
                 cold_reason: None,
-                cold_expected: false,
             }),
-            Err(error) => Ok(cold(format!("incompatible recovery state: {error}"))),
+            Err(error) => Ok(cold(Some(format!("incompatible recovery state: {error}")))),
         }
     }
 

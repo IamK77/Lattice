@@ -36,7 +36,6 @@ pub(super) struct Job {
 pub(super) struct Recovery {
     pub jobs: Vec<Job>,
     pub cold_reason: Option<String>,
-    pub cold_expected: bool,
     #[cfg(test)]
     headers: usize,
     #[cfg(test)]
@@ -123,12 +122,10 @@ pub(super) fn recover(reader: &LogReader) -> io::Result<Recovery> {
     let through = reader.snapshot_end();
     let checkpoint = reader.load_checkpoint::<State>(CONSUMER, VERSION, through)?;
     let mut cold_reason = checkpoint.cold_reason;
-    let mut cold_expected = checkpoint.cold_expected;
     let mut state = checkpoint.state.unwrap_or_default();
     let mut reads = Reads::default();
     if fold(reader, checkpoint.through, through, &mut state, &mut reads)? {
         cold_reason = Some("background receipt refers to a pre-checkpoint request".into());
-        cold_expected = false;
         state = State::default();
         fold(reader, 0, through, &mut state, &mut reads)?;
     }
@@ -157,7 +154,6 @@ pub(super) fn recover(reader: &LogReader) -> io::Result<Recovery> {
     Ok(Recovery {
         jobs,
         cold_reason,
-        cold_expected,
         #[cfg(test)]
         headers: reads.headers,
         #[cfg(test)]

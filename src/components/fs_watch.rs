@@ -240,7 +240,7 @@ impl Component for FsWatch {
                 return;
             }
         };
-        if let Some(reason) = restored.cold_reason.filter(|_| !restored.cold_expected) {
+        if let Some(reason) = restored.cold_reason {
             eprintln!("slow recovery for file watches: {reason}");
         }
         let state = restored.state;

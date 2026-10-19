@@ -137,7 +137,7 @@ impl MinimalLoop {
                 checkpoint.through = 0;
                 eprintln!("slow recovery for {key}: checkpoint owner mismatch");
             }
-            if let Some(reason) = checkpoint.cold_reason.filter(|_| !checkpoint.cold_expected) {
+            if let Some(reason) = checkpoint.cold_reason {
                 if reader.path().is_some() {
                     eprintln!("slow recovery for {KEY}: {reason}");
                 }

@@ -111,7 +111,7 @@ fn warm_timer_recovery_skips_old_history_and_unrelated_tool_bodies() {
         );
     }
     let cold = compare(&log.reader());
-    assert!(cold.cold_reason.is_some());
+    assert!(cold.cold_reason.is_none());
     assert_eq!(cold.headers, 300);
     assert_eq!(
         cold.bodies, 180,
@@ -248,7 +248,7 @@ fn exhausted_ids_fail_without_publishing_and_distinct_ledgers_do_not_share_state
     assert_eq!(std::fs::read(checkpoint(&root)).unwrap(), before);
     let other = open(&temp.path().join("two.ledger"));
     let recovered = recover(&other.reader()).unwrap();
-    assert!(recovered.cold_reason.is_some());
+    assert!(recovered.cold_reason.is_none());
     assert_eq!(recovered.state.next_id, 1);
     assert!(recovered.state.live.is_empty());
 }

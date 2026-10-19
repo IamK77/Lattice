@@ -94,7 +94,6 @@ impl Reads {
 pub(in crate::components) struct Recovery {
     pub state: Restored,
     pub cold_reason: Option<String>,
-    pub cold_expected: bool,
     #[cfg(test)]
     headers: usize,
     #[cfg(test)]
@@ -248,7 +247,6 @@ pub(in crate::components) fn recover(reader: &LogReader, kind: Kind) -> io::Resu
     let checkpoint = reader.load_checkpoint::<State>(consumer, VERSION, through)?;
     let mut state = checkpoint.state.unwrap_or_default();
     let mut cold_reason = checkpoint.cold_reason;
-    let mut cold_expected = checkpoint.cold_expected;
     let mut reads = Reads::default();
     if fold(
         reader,
@@ -258,7 +256,6 @@ pub(in crate::components) fn recover(reader: &LogReader, kind: Kind) -> io::Resu
         &mut reads,
         kind,
     )? {
-        cold_expected = false;
         cold_reason =
             Some("subscription assignment refers to an older request or identifier".into());
         state = State::default();
@@ -284,7 +281,6 @@ pub(in crate::components) fn recover(reader: &LogReader, kind: Kind) -> io::Resu
             live,
         },
         cold_reason,
-        cold_expected,
         #[cfg(test)]
         headers: reads.headers,
         #[cfg(test)]

@@ -708,11 +708,7 @@ impl Ui {
             trace,
         )?;
         recovered.apply(self)?;
-        if let Some(reason) = recovered
-            .cold_reason
-            .as_ref()
-            .filter(|_| !recovered.cold_expected)
-        {
+        if let Some(reason) = &recovered.cold_reason {
             eprintln!("slow recovery for terminal state: {reason}");
         }
         self.recovery = Some(Box::new(recovered));

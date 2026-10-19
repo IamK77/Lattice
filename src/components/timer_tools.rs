@@ -244,7 +244,7 @@ impl Component for TimerTools {
                 return;
             }
         };
-        if let Some(reason) = restored.cold_reason.filter(|_| !restored.cold_expected) {
+        if let Some(reason) = restored.cold_reason {
             eprintln!("slow recovery for timers: {reason}");
         }
         let state = restored.state;
