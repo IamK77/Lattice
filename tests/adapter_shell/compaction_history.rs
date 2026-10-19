@@ -217,6 +217,8 @@ fn exercise(output: Vec<Value>, mode: Mode, gate: bool) -> Outcome {
             Wire::new("gate.forward", "main.request"),
             Wire::new("gate.condense", "cmodel.request"),
             Wire::new("cmodel.result", "gate.condensed"),
+            Wire::new("gate.decision", "gate.handoff"),
+            Wire::new("gate.summary", "gate.handoff"),
         ]);
     }
     let mut kernel = Kernel::start(

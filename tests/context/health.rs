@@ -87,7 +87,7 @@ fn disabled_manual_compaction_reports_skip_without_clearing_an_existing_pause() 
 }
 
 #[test]
-fn mechanical_reduction_and_lower_usage_do_not_clear_a_semantic_failure() {
+fn failed_handoff_retains_originals_and_pause_across_inputs_and_restart() {
     for native in [false, true] {
         let root = tempfile::tempdir().unwrap();
         let path = root.path().join("context.jsonl");
@@ -129,42 +129,41 @@ fn mechanical_reduction_and_lower_usage_do_not_clear_a_semantic_failure() {
                     && event.payload.get("purpose").is_none()
             })
             .collect();
-        let reduced = forwards
+        assert_eq!(
+            forwards.len(),
+            1,
+            "no ordinary request proceeds on reduced receipts after failure"
+        );
+        assert!(!events
             .iter()
-            .find(|event| {
-                event.payload["input"]["parts"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .any(|part| part.get("digest").is_some())
-            })
+            .any(|e| e.event_type == context_gate::DECISION && e.payload["action"] == "digest"));
+        let source = events
+            .iter()
+            .find(|e| e.event_type == ce::TOOL_EXEC_COMPLETED)
             .unwrap();
-        let digests: Vec<_> = reduced.payload["input"]["parts"]
+        let latest = events
+            .iter()
+            .rev()
+            .find(|e| e.source == "loop" && e.event_type == ce::MODEL_CALL_STARTED)
+            .unwrap();
+        assert!(latest.payload["input"]["parts"]
             .as_array()
             .unwrap()
             .iter()
-            .filter(|part| part.get("digest").is_some())
-            .collect();
-        let latest = forwards.last().unwrap().payload["input"]["parts"]
-            .as_array()
-            .unwrap();
-        assert!(digests.iter().all(|digest| latest.contains(digest)));
-        let failed = events
-            .iter()
-            .find(|event| event.id == failure.event)
-            .unwrap();
-        assert!(
-            reduced.seq < failed.seq,
-            "mechanical reduction must precede this semantic failure"
+            .any(|part| part["event"] == source.id));
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| e.source == "gate" && e.event_type == ce::INTERRUPTED)
+                .count(),
+            3
         );
         let completions: Vec<_> = events
             .iter()
             .filter(|event| event.event_type == ce::MODEL_CALL_COMPLETED && event.source == "model")
             .collect();
-        assert_eq!(
-            completions.last().unwrap().payload["usage"]["input_tokens"],
-            144281
-        );
+        assert_eq!(completions.len(), 1);
+        assert_eq!(completions[0].payload["usage"]["input_tokens"], 228025);
         let attempts = |events: &[lattice::EventEnvelope]| {
             events
                 .iter()

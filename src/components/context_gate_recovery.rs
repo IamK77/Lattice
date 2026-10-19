@@ -1,6 +1,6 @@
 //! Derived observations of a committed prefix, never replayed handlers.
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::io;
 
 use serde::{Deserialize, Serialize};
@@ -11,7 +11,7 @@ use crate::kernel::log::Header;
 use crate::LogReader;
 
 const KEY: &str = "context-gate-observations";
-const VERSION: u32 = 4;
+const VERSION: u32 = 5;
 
 #[cfg(test)]
 #[path = "context_gate_recovery_tests.rs"]
@@ -127,11 +127,14 @@ fn body(reader: &LogReader, id: &str) -> io::Result<crate::EventEnvelope> {
 
 impl Observations {
     fn observe(&mut self, reader: &LogReader, header: &Header) -> io::Result<()> {
-        // Track only compaction requests, so an ordinary ask that caused a
-        // compaction is not mistaken for another copy of the same call.
-        if condense(header) || ce::is_outcome(&header.event_type) {
-            self.pending.observe(header.relations());
-        }
+        // Determine eligibility before consuming this outcome. A late second
+        // result for a settled attempt cannot supersede a newer attempt.
+        let pending_completion = header.event_type == ce::MODEL_CALL_COMPLETED
+            && self
+                .pending
+                .requests()
+                .iter()
+                .any(|id| header.causes.contains(id));
         match header.event_type.as_str() {
             ce::MODEL_CALL_STARTED => {
                 if !header.has_purpose {
@@ -162,7 +165,7 @@ impl Observations {
                 if let Some(request) = request.as_ref().filter(|request| !request.has_purpose) {
                     self.measured_request = Some(request.id.clone());
                 }
-                if current_request(reader, request.as_ref(), self.epoch)? {
+                if pending_completion && current_request(reader, request.as_ref(), self.epoch)? {
                     let event = body(reader, &header.id)?;
                     self.condense_completion = Some(header.id.clone());
                     if event.payload["status"] == "error" {
@@ -244,6 +247,12 @@ impl Observations {
             }
             _ => {}
         }
+        // Consume the outcome only after its required observations succeeded.
+        // Otherwise retrying an unreadable completion would see it as settled
+        // and silently skip the very evidence that failed to load.
+        if condense(header) || ce::is_outcome(&header.event_type) {
+            self.pending.observe(header.relations());
+        }
         Ok(())
     }
 
@@ -305,60 +314,6 @@ impl ContextGate {
     }
 }
 
-impl Observations<HashMap<String, ()>> {
-    fn upgrade(mut self, reader: &LogReader, through: u64) -> io::Result<Observations> {
-        // v2 retained only request IDs, including forwarded roots whose child
-        // had already answered. Rebuild only the potentially unresolved tail,
-        // not all archived history, using the contract's settlement logic.
-        let mut first = None;
-        let mut queue: Vec<_> = self.pending.keys().cloned().collect();
-        let mut seen = HashSet::new();
-        while let Some(id) = queue.pop() {
-            if !seen.insert(id.clone()) {
-                continue;
-            }
-            let header = reader.header(&id)?.ok_or_else(|| {
-                io::Error::other(format!("pending compaction request missing: {id}"))
-            })?;
-            if condense(&header) {
-                // A legacy cache may retain only a forwarded child after its
-                // root was interrupted. Replay from that root, not the child.
-                first = Some(first.map_or(header.seq, |seq: u64| seq.min(header.seq)));
-                queue.extend(header.causes.iter().cloned());
-            }
-        }
-        let mut pending = ce::PendingCalls::new(ce::MODEL_CALL_STARTED);
-        if let Some(first) = first {
-            reader.try_visit_header_range(first, through, |headers| {
-                for header in headers {
-                    if condense(header) || ce::is_outcome(&header.event_type) {
-                        pending.observe(header.relations());
-                    }
-                }
-                Ok(())
-            })?;
-        }
-        if let Some(id) = self.condense_completion.as_ref() {
-            if body(reader, id)?.payload["status"] == "error" {
-                self.condense_failure = Some(id.clone());
-            }
-        }
-        Ok(Observations {
-            dials: self.dials,
-            main_completion: self.main_completion,
-            measured_request: self.measured_request,
-            system_request: self.system_request,
-            forwarded_request: self.forwarded_request,
-            summaries: self.summaries,
-            promoted: self.promoted,
-            pending,
-            epoch: self.epoch,
-            condense_completion: self.condense_completion,
-            condense_failure: self.condense_failure,
-        })
-    }
-}
-
 impl Recovery {
     pub(super) fn matches(&self, reader: &LogReader) -> bool {
         self.source
@@ -379,16 +334,10 @@ impl Recovery {
             .as_ref()
             .is_none_or(|source| !source.matches(reader));
         if cold {
-            let mut checkpoint = reader.load_checkpoint::<Observations>(KEY, VERSION, through)?;
-            if checkpoint.state.is_none() {
-                let legacy =
-                    reader.load_checkpoint::<Observations<HashMap<String, ()>>>(KEY, 2, through)?;
-                if let Some(state) = legacy.state {
-                    checkpoint.state = Some(state.upgrade(reader, legacy.through)?);
-                    checkpoint.through = legacy.through;
-                    checkpoint.cold_reason = legacy.cold_reason;
-                }
-            }
+            // Older projections accepted late duplicate completions and may
+            // retain the wrong summary or failure pause. Rebuild once from
+            // immutable history instead of upgrading that unproven state.
+            let checkpoint = reader.load_checkpoint::<Observations>(KEY, VERSION, through)?;
             if let Some(reason) = checkpoint.cold_reason {
                 if persist && reader.path().is_some() {
                     eprintln!("slow recovery for {KEY}: {reason}");

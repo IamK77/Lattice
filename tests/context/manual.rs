@@ -184,7 +184,9 @@ fn explicit_compaction_runs_while_idle_below_the_automatic_threshold() {
                 event.event_type == ce::MODEL_CALL_STARTED && event.payload.get("purpose").is_some()
             })
             .unwrap();
-        assert_eq!(request.causes, std::slice::from_ref(&command.id));
+        let decision = kernel.log().get(&request.causes[0]).unwrap().unwrap();
+        assert_eq!(decision.event_type, context_gate::DECISION);
+        assert_eq!(decision.causes, std::slice::from_ref(&command.id));
         if native {
             assert_eq!(assembled["system"], "keep these instructions");
             assert_eq!(request.payload["system"], assembled["system"]);
