@@ -277,13 +277,23 @@ fn both_domain_modes_match_the_original_ui_fold_after_every_event() {
             reference.completed_usage(event)
         );
         reference.absorb_state(event, 20, None);
-        // The fixed pre-coordinator fixture predates the terminal-outcome
-        // projection. Compare its original fields; both current modes below
-        // must still agree on the complete state, including that projection.
+        // Preserve the fixed fixture for unchanged fields. Pending receipts
+        // now require actual inclusion by an ordinary request; test that new
+        // rule explicitly rather than regenerating the old fixture.
+        let expected_pending: &[&str] = if event.seq >= 11 {
+            &["timer:1 ↯"]
+        } else {
+            &[]
+        };
+        assert_eq!(reference.domain.unseen.lines(), expected_pending);
         let mut legacy_fields = crate::terminal_host::recovery::reference_snapshot(&reference);
-        legacy_fields.as_object_mut().unwrap().remove("completion");
+        let mut old = expected[at].clone();
+        for field in ["completion", "pending_inputs", "unseen"] {
+            legacy_fields.as_object_mut().unwrap().remove(field);
+            old.as_object_mut().unwrap().remove(field);
+        }
         assert_eq!(
-            legacy_fields, expected[at],
+            legacy_fields, old,
             "pre-coordinator snapshot after event {}",
             event.seq
         );
