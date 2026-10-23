@@ -652,6 +652,10 @@ pub trait View {
     fn done_at(&self) -> Option<usize> {
         None
     }
+    /// Current turn measurements, distinct from the conversation usage totals.
+    fn turn_summary(&self) -> Option<activity::TurnSummary> {
+        None
+    }
     /// Outcome shown in the terminal's existing end-of-turn status position.
     fn turn_status(&self) -> &str {
         "Done"

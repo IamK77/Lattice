@@ -1,9 +1,29 @@
-//! Recorded activity shared by live and recovered display projections.
+//! Recorded activity and read-only progress for frontend projections.
+//! Provider measurements and provisional output estimates remain distinct.
 use crate::{components::minimal_loop, core_events as ce, EventEnvelope};
 use serde::{Deserialize, Serialize};
 
 mod completion;
 pub use completion::{Completion, Outcome};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TokenCount {
+    /// None means no measurement is available, not zero consumption.
+    pub known: Option<u64>,
+    /// False means `known` is only a subtotal / lower bound.
+    pub complete: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TurnSummary {
+    pub elapsed_ms: Option<u64>,
+    pub input: TokenCount,
+    pub output: TokenCount,
+    /// Provisional total including streamed text, displayed with `~`, never `≥`.
+    pub output_estimate: Option<u64>,
+    pub running: bool,
+    pub model_pending: bool,
+}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

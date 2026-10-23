@@ -48,17 +48,19 @@ fn waiting_wins_over_working_text_and_is_static_when_not_busy() {
         working: true,
         ..Default::default()
     };
-    let before = line(&view);
+    let before = line(&view, usize::MAX);
     assert_eq!(
         before.to_string(),
         " · Waiting for results — you can still type"
     );
     view.tick = 17;
-    assert_eq!(line(&view), before);
+    assert_eq!(line(&view, usize::MAX), before);
     assert_eq!(before.spans[1].style.fg, Some(RULE));
     assert!(before.spans[1].style.add_modifier.contains(Modifier::BOLD));
     view.busy = true;
-    assert!(line(&view).to_string().contains("Waiting for results"));
+    assert!(line(&view, usize::MAX)
+        .to_string()
+        .contains("Waiting for results"));
 }
 
 #[test]
@@ -67,18 +69,26 @@ fn running_work_and_streamed_output_select_working_while_done_uses_elapsed_ticks
         busy: true,
         ..Default::default()
     };
-    assert!(line(&view).to_string().contains(state_phrase(0, false)));
+    assert!(line(&view, usize::MAX)
+        .to_string()
+        .contains(state_phrase(0, false)));
     view.working = true;
-    assert!(line(&view).to_string().contains(state_phrase(0, true)));
+    assert!(line(&view, usize::MAX)
+        .to_string()
+        .contains(state_phrase(0, true)));
     view.working = false;
     view.streaming = "answer".into();
-    assert!(line(&view).to_string().contains(state_phrase(0, true)));
+    assert!(line(&view, usize::MAX)
+        .to_string()
+        .contains(state_phrase(0, true)));
     view.busy = false;
     view.done_at = Some(100);
     view.tick = 100;
-    assert!(line(&view).to_string().contains(state_phrase(0, true)));
+    assert!(line(&view, usize::MAX)
+        .to_string()
+        .contains(state_phrase(0, true)));
     view.tick += DONE_SETTLE;
-    assert_eq!(line(&view).to_string(), " · Done");
+    assert_eq!(line(&view, usize::MAX).to_string(), " · Done");
     assert_eq!(spinner(0), spinner(1));
     assert_ne!(spinner(1), spinner(2));
     assert_eq!(spinner(0), spinner(SPINNER.len() * SPIN_DIV));

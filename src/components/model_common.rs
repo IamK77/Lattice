@@ -83,6 +83,16 @@ impl Fragment {
     }
 }
 
+/// Attribute transient text/usage to the exact request seen by the adapter.
+/// The payload stays on the notification channel, never the event ledger.
+pub(crate) fn stream_notice(event: &crate::EventEnvelope, mut payload: Value) -> Value {
+    payload["call"] = json!(event.id);
+    if let Some(purpose) = event.payload.get("purpose") {
+        payload["purpose"] = purpose.clone();
+    }
+    payload
+}
+
 /// Lattice's effort ruler: every rung any known provider offers, weakest
 /// first. Deliberately WIDE — wider than any single model — because a model
 /// declares which of these it actually has, and a request for one it lacks

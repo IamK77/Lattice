@@ -277,7 +277,6 @@ impl Component for ResponsesModel {
                     "responses"
                 };
                 let token = ctx.cancellation();
-                let purpose = event.payload.get("purpose").cloned();
                 self.runtime.block_on(async {
                     let work = async {
                         let mut request = self.client
@@ -373,13 +372,16 @@ impl Component for ResponsesModel {
                                     Ok(value) => value,
                                     Err(error) => return error.failure(),
                                 };
+                                if value["response"]["usage"].is_object() {
+                                    ctx.notify(model_common::stream_notice(
+                                        event, json!({"usage":value["response"]["usage"]}),
+                                    ));
+                                }
                                 match value["type"].as_str() {
                                     Some("response.output_text.delta") => {
-                                        let mut note = json!({"chunk":value["delta"]});
-                                        if let Some(purpose) = &purpose {
-                                            note["purpose"] = purpose.clone();
-                                        }
-                                        ctx.notify(note);
+                                        ctx.notify(model_common::stream_notice(
+                                            event, json!({"chunk":value["delta"]}),
+                                        ));
                                     }
                                     Some("response.output_item.done") if trigger_compact => {
                                         compact_items.push(value["item"].clone());

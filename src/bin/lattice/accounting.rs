@@ -258,61 +258,114 @@ pub(super) fn completed_usage(
 /// progress to this conversation's accumulated usage.
 pub(super) fn read_usage(payload: &Value, model: &str, dialect: &str) -> Option<Usage> {
     let usage = payload.get("usage")?;
-    let named = lattice::profile::usage_fields(model);
-    let at = |path: &str| -> u64 {
-        let mut cur = usage;
-        for step in path.split('.') {
-            match cur.get(step) {
-                Some(next) => cur = next,
-                None => return 0,
-            }
-        }
-        cur.as_u64().unwrap_or(0)
-    };
-    let get = |role: &str, fallbacks: &[&str]| -> u64 {
-        if let Some(declared) = named.get(role).and_then(Value::as_str) {
-            let found = at(declared);
-            if found > 0 {
-                return found;
-            }
-        }
-        fallbacks
-            .iter()
-            .map(|f| at(f))
-            .find(|n| *n > 0)
-            .unwrap_or(0)
-    };
-    let input = get("input", &["input_tokens", "prompt_tokens"]);
-    let cached = get(
-        "cacheRead",
-        &[
-            "cache_read_input_tokens",
-            "prompt_cache_hit_tokens",
-            "prompt_tokens_details.cached_tokens",
-            "input_tokens_details.cached_tokens",
-        ],
-    );
-    let written = get("cacheWrite", &["cache_creation_input_tokens"]);
-    let prompt = if dialect == "anthropic" {
-        input + cached + written
-    } else {
-        input.max(cached)
-    };
+    let fields = UsageFields::read(usage, model);
     Some(Usage {
-        prompt,
-        cached,
-        written,
-        output: get("output", &["output_tokens", "completion_tokens"]),
-        reasoning: get(
-            "reasoning",
-            &[
-                "completion_tokens_details.reasoning_tokens",
-                "output_tokens_details.reasoning_tokens",
-            ],
-        ),
+        prompt: fields.prompt(dialect).known.unwrap_or(0),
+        cached: fields.cached.unwrap_or(0),
+        written: fields.written.unwrap_or(0),
+        output: fields.output.unwrap_or(0),
+        reasoning: fields.reasoning.unwrap_or(0),
         millis: 0,
         calls: 1,
     })
+}
+
+/// Preserve field presence for the activity summary while sharing the existing
+/// profile aliases, cache inclusion, and nonzero-fallback precedence.
+pub(super) fn token_counts(
+    payload: &Value,
+    model: &str,
+    dialect: &str,
+) -> (
+    lattice::view::activity::TokenCount,
+    lattice::view::activity::TokenCount,
+) {
+    let Some(usage) = payload.get("usage") else {
+        return Default::default();
+    };
+    let fields = UsageFields::read(usage, model);
+    (
+        fields.prompt(dialect),
+        lattice::view::activity::TokenCount {
+            known: fields.output,
+            complete: fields.output.is_some(),
+        },
+    )
+}
+
+struct UsageFields {
+    input: Option<u64>,
+    cached: Option<u64>,
+    written: Option<u64>,
+    output: Option<u64>,
+    reasoning: Option<u64>,
+}
+
+impl UsageFields {
+    fn prompt(&self, dialect: &str) -> lattice::view::activity::TokenCount {
+        // Optional cache buckets contribute to input. A cache-only report is
+        // useful, but it is a lower bound rather than a complete input count.
+        let anthropic = dialect == "anthropic";
+        if self.input.is_none() && self.cached.is_none() && (!anthropic || self.written.is_none()) {
+            return Default::default();
+        }
+        let input = self.input.unwrap_or(0);
+        let cached = self.cached.unwrap_or(0);
+        let total = if anthropic {
+            input
+                .checked_add(cached)
+                .and_then(|n| n.checked_add(self.written.unwrap_or(0)))
+        } else {
+            Some(input.max(cached))
+        };
+        lattice::view::activity::TokenCount {
+            known: Some(total.unwrap_or(u64::MAX)),
+            complete: self.input.is_some() && total.is_some(),
+        }
+    }
+
+    fn read(usage: &Value, model: &str) -> Self {
+        let named = lattice::profile::usage_fields(model);
+        let at = |path: &str| -> Option<u64> {
+            let mut cur = usage;
+            for step in path.split('.') {
+                cur = cur.get(step)?;
+            }
+            cur.as_u64()
+        };
+        let get = |role: &str, fallbacks: &[&str]| -> Option<u64> {
+            let declared = named.get(role).and_then(Value::as_str).and_then(at);
+            declared
+                .filter(|n| *n > 0)
+                .or_else(|| fallbacks.iter().filter_map(|f| at(f)).find(|n| *n > 0))
+                .or(declared)
+                .or_else(|| fallbacks.iter().find_map(|f| at(f)))
+        };
+        let input = get("input", &["input_tokens", "prompt_tokens"]);
+        let cached = get(
+            "cacheRead",
+            &[
+                "cache_read_input_tokens",
+                "prompt_cache_hit_tokens",
+                "prompt_tokens_details.cached_tokens",
+                "input_tokens_details.cached_tokens",
+            ],
+        );
+        let written = get("cacheWrite", &["cache_creation_input_tokens"]);
+        Self {
+            input,
+            cached,
+            written,
+            output: get("output", &["output_tokens", "completion_tokens"]),
+            reasoning: get(
+                "reasoning",
+                &[
+                    "completion_tokens_details.reasoning_tokens",
+                    "output_tokens_details.reasoning_tokens",
+                ],
+            ),
+        }
+    }
 }
 
 /// Growth counts positive deltas per material kind, not repeated snapshots.

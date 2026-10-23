@@ -143,6 +143,10 @@ fn old_release_bound_projection_is_rebuilt_after_semantics_change() {
             initial.title.clone(),
         ),
         (legacy, 2, "changed context".to_string()),
+        // Both merge parents used incomplete projections: summary-only v8
+        // and pending-visibility-only v9 must rebuild under the combined state.
+        (stable, 8, initial.title.clone()),
+        (stable, 9, initial.title.clone()),
         (stable, VERSION + 1, initial.title.clone()),
     ] {
         saved.context = context;
@@ -464,6 +468,8 @@ pub(super) fn decode_legacy_state(bytes: &[u8]) -> State {
 fn with_completion_projection(mut value: Value) -> Value {
     value["completion"] =
         serde_json::to_value(crate::terminal_host::turns::Completion::default()).unwrap();
+    value["turn_summary"] =
+        serde_json::to_value(crate::terminal_host::turn_summary::Summary::default()).unwrap();
     value
 }
 
