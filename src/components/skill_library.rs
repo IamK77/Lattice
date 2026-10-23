@@ -238,7 +238,7 @@ fn read_skill_text(text: &str, dir_name: &str) -> Result<(Value, String), String
             duplicate_keys: serde_saphyr::DuplicateKeyPolicy::Error,
             merge_keys: serde_saphyr::MergeKeyPolicy::AsOrdinary,
             reject_unsupported_tags: true,
-            reject_non_finite_typeless_float: true,
+            non_finite_float_policy: serde_saphyr::NonFiniteFloatPolicy::Reject,
             budget: serde_saphyr::budget! { max_documents: 1 },
         },
     )
