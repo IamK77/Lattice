@@ -35,6 +35,7 @@ impl Main {
                 model: ModelState::new(self.models, self.running, self.effort, effective_window),
                 ..domain_state::Live::default()
             },
+            turn_clock: Default::default(),
             workspace: self.workspace,
             bar: configured_bar(),
             entries: Vec::new(),

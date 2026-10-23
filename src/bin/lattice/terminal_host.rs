@@ -118,6 +118,8 @@ mod recovery;
 mod shutdown;
 #[path = "status.rs"]
 mod status;
+#[path = "turn_summary.rs"]
+mod turn_summary;
 #[path = "turns.rs"]
 mod turns;
 #[path = "unseen.rs"]
@@ -224,6 +226,7 @@ pub(super) use lifecycle::run_tui;
 /// a ledger replay or a per-stream selector could feed the same `draw`.
 struct Ui {
     domain: domain_state::Live,
+    turn_clock: turn_summary::Clock,
     /// Where the tools are working, for the status bar's `cwd` readout.
     workspace: String,
     /// The status bar's readouts, in order. Resolved once at startup from the
@@ -438,6 +441,13 @@ impl View for Ui {
     fn turn_status(&self) -> &str {
         self.domain.turns.status()
     }
+    fn turn_summary(&self) -> Option<view::activity::TurnSummary> {
+        self.turn_clock.snapshot(
+            &self.domain.turn_summary,
+            std::time::Instant::now(),
+            chrono::Utc::now().timestamp_millis(),
+        )
+    }
     fn turn(&self) -> usize {
         self.domain.turns.number()
     }
@@ -450,6 +460,7 @@ impl Ui {
     fn replayed(events: &[EventEnvelope]) -> Self {
         let mut ui = Ui {
             domain: domain_state::Live::default(),
+            turn_clock: Default::default(),
             workspace: String::new(),
             bar: Vec::new(),
             entries: Vec::new(),
@@ -543,6 +554,8 @@ impl Ui {
             through = event.seq;
         }
         self.replayed_through = through;
+        // Historical elapsed time comes from the ledger, not replay speed.
+        self.turn_clock = Default::default();
     }
 
     fn absorb(&mut self, event: &lattice::EventEnvelope, tick: usize) {
@@ -738,6 +751,8 @@ impl Ui {
         if self.domain.absorb(event, tick, trace) {
             self.flash = None;
         }
+        self.turn_clock
+            .observe(&self.domain.turn_summary, event, std::time::Instant::now());
         if event.event_type == lattice::components::context_gate::DECISION
             && event.payload["action"] == "compact_skipped"
         {
@@ -1064,6 +1079,7 @@ fn tui_loop(
     let mut redraw = true;
     let mut cost = RenderCost::default();
     let mut settled_at = ui.domain.turns.done_at();
+    let mut shown_second = activity::clock_second(&ui);
     let mut tabs = tabs::Tabs::interactive(session, tab_config, &main_ledger, &mut ui, true);
 
     let result = (|| {
@@ -1096,6 +1112,9 @@ fn tui_loop(
             // Only draw when the visible frame can differ. Transcript layout
             // is cached separately from the input and animation glyphs, so a
             // keystroke does not rematerialize a long unchanged work group.
+            let second = activity::clock_second(&ui);
+            redraw |= second != shown_second;
+            shown_second = second;
             if folded || redraw || animating(&ui) {
                 redraw = false;
                 hit =
@@ -1259,6 +1278,7 @@ fn fold_render(ui: &mut Ui, render: RenderEvent) -> std::io::Result<()> {
             }
         }
         RenderEvent::Notice { source: _, payload } => {
+            ui.domain.turn_summary.notice(&payload);
             if let Some(note) = ui.live_output.notice(&payload) {
                 // A runtime receipt belongs beside the input, not in the ledger.
                 ui.flash = Some(note.to_string());
@@ -1442,6 +1462,7 @@ fn on_key(
         // Modified Enter remains an edit; plain Enter submits here.
         KeyCode::Enter if !newline => {
             let submitted_ns = lattice::input_latency::clock_ns();
+            let submitted_at = std::time::Instant::now();
             let (line, kept) = match submission::submit(
                 &mut ui.draft,
                 &ui.domain.skills,
@@ -1464,6 +1485,7 @@ fn on_key(
                                // back from the ledger is authoritative — it advances the turn (via
                                // note_turn_boundary), the same path a background wake takes.
             ui.domain.turns.submitted_input();
+            ui.turn_clock.submitted(submitted_at);
             if let Some(session) = session {
                 // Only the ones whose placeholder is STILL in the line, in the
                 // order they appear there. Deleting a placeholder is how a
@@ -2062,7 +2084,7 @@ where
         // a tool, else thinking); finished → the dot settles and the phrase is
         // wiped and typed over to "Done".
         if think_h > 0 {
-            let think = activity::line(view);
+            let think = activity::line(view, areas[1].width as usize);
             frame.render_widget(
                 Paragraph::new(think),
                 ratatui::layout::Rect {
@@ -2464,6 +2486,9 @@ mod tests {
         assert!(!super::animating(&u));
         assert!(u.thinking().is_empty());
         assert!(u.streaming().is_empty());
+        // This fixture has no real timestamps. Keep the animation comparison
+        // independent of live elapsed time; the summary clock has controlled tests.
+        u.turn_clock = Default::default();
         let frame = snapshot(&u, 100, 30).rows.join("\n");
         assert!(frame.contains("Waiting for results"), "{frame}");
         assert!(!frame.contains("Done"));
@@ -3097,6 +3122,7 @@ mod tests {
         domain.turns.seed_busy(busy);
         Ui {
             domain,
+            turn_clock: Default::default(),
             workspace: "/tmp/work".to_string(),
             bar: Vec::new(),
             entries,
