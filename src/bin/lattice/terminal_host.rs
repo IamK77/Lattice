@@ -118,6 +118,8 @@ mod recovery;
 mod shutdown;
 #[path = "status.rs"]
 mod status;
+#[path = "turn_summary.rs"]
+mod turn_summary;
 #[path = "turns.rs"]
 mod turns;
 #[path = "unseen.rs"]
@@ -224,6 +226,7 @@ pub(super) use lifecycle::run_tui;
 /// a ledger replay or a per-stream selector could feed the same `draw`.
 struct Ui {
     domain: domain_state::Live,
+    turn_clock: turn_summary::Clock,
     /// Where the tools are working, for the status bar's `cwd` readout.
     workspace: String,
     /// The status bar's readouts, in order. Resolved once at startup from the
@@ -375,19 +378,24 @@ impl View for Ui {
         &self.entries
     }
     fn entry_count(&self) -> usize {
-        self.cards
-            .as_ref()
-            .map_or(self.entries.len(), |cards| cards.borrow().len())
+        self.cards.as_ref().map_or_else(
+            || self.domain.unseen.pending.before(self.entries.len()),
+            |cards| cards.borrow().len(),
+        )
     }
     fn transcript_group(&self, index: usize) -> std::io::Result<view::TranscriptGroup> {
         match &self.cards {
             Some(cards) => cards.borrow_mut().group(index),
-            None => view::TranscriptGroup::from_entries(&self.entries, index),
+            None => self
+                .domain
+                .unseen
+                .pending
+                .transcript_group(&self.entries, index),
         }
     }
     fn last_tool_running(&self) -> bool {
         self.cards.as_ref().map_or_else(
-            || matches!(self.entries.last(), Some(Entry::Tool(card)) if card.status == ToolStatus::Running),
+            || self.entry_count().checked_sub(1).is_some_and(|index| matches!(self.entries.get(self.domain.unseen.pending.source(index)), Some(Entry::Tool(card)) if card.status == ToolStatus::Running)),
             |cards| cards.borrow().last_tool_running(),
         )
     }
@@ -433,6 +441,13 @@ impl View for Ui {
     fn turn_status(&self) -> &str {
         self.domain.turns.status()
     }
+    fn turn_summary(&self) -> Option<view::activity::TurnSummary> {
+        self.turn_clock.snapshot(
+            &self.domain.turn_summary,
+            std::time::Instant::now(),
+            chrono::Utc::now().timestamp_millis(),
+        )
+    }
     fn turn(&self) -> usize {
         self.domain.turns.number()
     }
@@ -445,6 +460,7 @@ impl Ui {
     fn replayed(events: &[EventEnvelope]) -> Self {
         let mut ui = Ui {
             domain: domain_state::Live::default(),
+            turn_clock: Default::default(),
             workspace: String::new(),
             bar: Vec::new(),
             entries: Vec::new(),
@@ -538,6 +554,8 @@ impl Ui {
             through = event.seq;
         }
         self.replayed_through = through;
+        // Historical elapsed time comes from the ledger, not replay speed.
+        self.turn_clock = Default::default();
     }
 
     fn absorb(&mut self, event: &lattice::EventEnvelope, tick: usize) {
@@ -594,6 +612,7 @@ impl Ui {
             }
         }
         self.entries.clear();
+        self.domain.unseen.pending.clear_cards();
         self.browsing.forget_position();
     }
 
@@ -626,6 +645,10 @@ impl Ui {
             return Ok(());
         }
         self.transcript_cache.get_mut().invalidate();
+        let reading = match (&self.cards, self.browsing.reading_entry()) {
+            (Some(cards), Some(index)) => Some(cards.borrow().source(index)?),
+            _ => None,
+        };
         // Finish all fallible reads before changing counters, authorization,
         // or cards. Historical dependencies never survive this one fold.
         let mut rebuilt = None;
@@ -668,6 +691,10 @@ impl Ui {
             self.domain.compaction = recovered.compaction_status().cloned();
         }
         self.absorb_profiled(event, tick, trace);
+        if let (Some(cards), Some(source)) = (&self.cards, reading) {
+            self.browsing
+                .remap_entry(cards.borrow().display_position(source));
+        }
         if let Some((true, _)) = card_change.unwrap() {
             if self.domain.turns.lands_live_text(event) {
                 self.live_output.card_landed(view::committed_text(event));
@@ -724,6 +751,8 @@ impl Ui {
         if self.domain.absorb(event, tick, trace) {
             self.flash = None;
         }
+        self.turn_clock
+            .observe(&self.domain.turn_summary, event, std::time::Instant::now());
         if event.event_type == lattice::components::context_gate::DECISION
             && event.payload["action"] == "compact_skipped"
         {
@@ -753,12 +782,27 @@ impl Ui {
             return;
         }
         self.transcript_cache.get_mut().invalidate();
+        let reading = self
+            .cards
+            .is_none()
+            .then(|| self.browsing.reading_entry())
+            .flatten()
+            .map(|index| self.domain.unseen.pending.source(index));
         self.absorb_state(event, tick, trace.as_deref_mut());
-        if self.cards.is_none()
-            && measure!(Stage::Cards, view::ingest(&mut self.entries, event))
-            && self.domain.turns.lands_live_text(event)
-        {
-            self.live_output.card_landed(view::committed_text(event));
+        if self.cards.is_none() {
+            let start = self.entries.len();
+            let handled = measure!(Stage::Cards, view::ingest(&mut self.entries, event));
+            self.domain
+                .unseen
+                .pending
+                .cards(&event.id, start..self.entries.len());
+            if handled && self.domain.turns.lands_live_text(event) {
+                self.live_output.card_landed(view::committed_text(event));
+            }
+        }
+        if let Some(source) = reading {
+            self.browsing
+                .remap_entry(self.domain.unseen.pending.before(source));
         }
         if self.domain.turns.ended() && self.domain.turns.interrupted() {
             let (thinking, reply) = self.live_output.take_interrupted();
@@ -1035,6 +1079,7 @@ fn tui_loop(
     let mut redraw = true;
     let mut cost = RenderCost::default();
     let mut settled_at = ui.domain.turns.done_at();
+    let mut shown_second = activity::clock_second(&ui);
     let mut tabs = tabs::Tabs::interactive(session, tab_config, &main_ledger, &mut ui, true);
 
     let result = (|| {
@@ -1067,6 +1112,9 @@ fn tui_loop(
             // Only draw when the visible frame can differ. Transcript layout
             // is cached separately from the input and animation glyphs, so a
             // keystroke does not rematerialize a long unchanged work group.
+            let second = activity::clock_second(&ui);
+            redraw |= second != shown_second;
+            shown_second = second;
             if folded || redraw || animating(&ui) {
                 redraw = false;
                 hit =
@@ -1230,6 +1278,7 @@ fn fold_render(ui: &mut Ui, render: RenderEvent) -> std::io::Result<()> {
             }
         }
         RenderEvent::Notice { source: _, payload } => {
+            ui.domain.turn_summary.notice(&payload);
             if let Some(note) = ui.live_output.notice(&payload) {
                 // A runtime receipt belongs beside the input, not in the ledger.
                 ui.flash = Some(note.to_string());
@@ -1413,6 +1462,7 @@ fn on_key(
         // Modified Enter remains an edit; plain Enter submits here.
         KeyCode::Enter if !newline => {
             let submitted_ns = lattice::input_latency::clock_ns();
+            let submitted_at = std::time::Instant::now();
             let (line, kept) = match submission::submit(
                 &mut ui.draft,
                 &ui.domain.skills,
@@ -1435,6 +1485,7 @@ fn on_key(
                                // back from the ledger is authoritative — it advances the turn (via
                                // note_turn_boundary), the same path a background wake takes.
             ui.domain.turns.submitted_input();
+            ui.turn_clock.submitted(submitted_at);
             if let Some(session) = session {
                 // Only the ones whose placeholder is STILL in the line, in the
                 // order they appear there. Deleting a placeholder is how a
@@ -1826,10 +1877,8 @@ where
     // after the turn ends, settling into "Done" rather than vanishing. It only
     // hides before the very first turn.
     let show_line = view.busy() || view.waiting() || view.done_at().is_some();
-    // Lines already said that the model has not been shown yet. They belong
-    // beside the input box, not in the transcript: the transcript is the
-    // ledger's story of what HAPPENED, and "not yet heard" is a fact about
-    // right now, which no replay of the ledger could reconstruct.
+    // Input submitted while busy waits beside the editor until an ordinary
+    // request includes it. Idle submissions go straight into the transcript.
     let queued = view.unseen();
     let queued_h = (queued.len() as u16).min(QUEUED_ROWS);
     // Blank, the line, blank. The trailing blank goes when something waits
@@ -2035,7 +2084,7 @@ where
         // a tool, else thinking); finished → the dot settles and the phrase is
         // wiped and typed over to "Done".
         if think_h > 0 {
-            let think = activity::line(view);
+            let think = activity::line(view, areas[1].width as usize);
             frame.render_widget(
                 Paragraph::new(think),
                 ratatui::layout::Rect {
@@ -2437,6 +2486,9 @@ mod tests {
         assert!(!super::animating(&u));
         assert!(u.thinking().is_empty());
         assert!(u.streaming().is_empty());
+        // This fixture has no real timestamps. Keep the animation comparison
+        // independent of live elapsed time; the summary clock has controlled tests.
+        u.turn_clock = Default::default();
         let frame = snapshot(&u, 100, 30).rows.join("\n");
         assert!(frame.contains("Waiting for results"), "{frame}");
         assert!(!frame.contains("Done"));
@@ -3070,6 +3122,7 @@ mod tests {
         domain.turns.seed_busy(busy);
         Ui {
             domain,
+            turn_clock: Default::default(),
             workspace: "/tmp/work".to_string(),
             bar: Vec::new(),
             entries,
@@ -4789,9 +4842,10 @@ mod tests {
             background.payload = json!({"purpose":purpose});
             u.domain.unseen.restore(vec!["not yet shown".into()]);
             fold_render(&mut u, RenderEvent::Appended(Box::new(background))).unwrap();
-            assert!(
-                u.domain.unseen.lines().is_empty(),
-                "background requests still clear the unseen list"
+            assert_eq!(
+                u.domain.unseen.lines(),
+                ["not yet shown"],
+                "background requests do not consume pending input"
             );
             assert_eq!(u.domain.turns.history(), history);
             assert!(u.domain.turns.busy() && u.domain.turns.waiting());
@@ -5542,6 +5596,30 @@ mod tests {
         );
     }
 
+    #[test]
+    fn idle_input_enters_transcript_without_a_pending_flash() {
+        let mut u = ui(vec![], false);
+        u.domain.turns.submitted_input();
+        let input = serde_json::from_value(serde_json::json!({
+            "v":1, "id":"idle-input", "seq":1, "stream":"main", "time":"t",
+            "type":core_events::USER_MESSAGE, "source":"ui", "causes":[],
+            "payload":{"text":"visible immediately"}
+        }))
+        .unwrap();
+        fold_render(&mut u, RenderEvent::Appended(Box::new(input))).unwrap();
+        assert!(u.unseen().is_empty());
+        assert_eq!(u.entry_count(), 1);
+        let screen = snapshot(&u, 76, 20);
+        assert_eq!(
+            screen
+                .rows
+                .iter()
+                .filter(|row| row.contains("visible immediately"))
+                .count(),
+            1
+        );
+    }
+
     /// A line said while a question was already out is on the ledger — it was
     /// really said — but the model has not been shown it. That is a fact about
     /// right now, not about what happened, so it belongs beside the input box
@@ -5563,6 +5641,12 @@ mod tests {
             reason: None,
             payload: serde_json::json!({"text": text}),
         };
+        let active = lattice::EventEnvelope {
+            event_type: core_events::MODEL_CALL_STARTED.to_string(),
+            payload: serde_json::json!({"input":{"parts":[]}}),
+            ..said("active question")
+        };
+        fold_render(&mut u, RenderEvent::Appended(Box::new(active))).unwrap();
         // Through the LIVE path, not by calling the fold step directly. The
         // display half of this feature was dead from the day it was written
         // — the live drain simply never called `note_unseen` — and a test
@@ -5576,14 +5660,15 @@ mod tests {
         assert_eq!(u.unseen(), ["wait, also this"]);
         let s = snapshot(&u, 76, 20);
         assert!(s.has("wait, also this"), "it shows while it waits");
-        // ABOVE the input line — beside where the reader's own words are
-        // typed, not among the things that have already happened
-        // It shows in TWO places, and they say different things: the
-        // transcript records that the line was said, the queued area says it
-        // has not been carried to the model yet. Locate the queued one by
-        // taking the last occurrence — a transcript user card is drawn with
-        // the same `❯` the input line uses, so neither can be found by
-        // prefix alone.
+        assert_eq!(
+            s.rows
+                .iter()
+                .filter(|row| row.contains("wait, also this"))
+                .count(),
+            1
+        );
+        assert_eq!(u.entry_count(), 0, "pending input is not a transcript card");
+        // The sole copy waits above the editor until a request includes it.
         let last_of = |needle: &str| {
             s.rows
                 .iter()
@@ -5600,6 +5685,7 @@ mod tests {
         // The next question carries it; the box clears
         let asked = lattice::EventEnvelope {
             event_type: core_events::MODEL_CALL_STARTED.to_string(),
+            payload: serde_json::json!({"input":{"parts":[{"event":"wait, also this"}]}}),
             ..said("q")
         };
         fold_render(&mut u, RenderEvent::Appended(Box::new(asked))).unwrap();

@@ -1,7 +1,5 @@
-//! Recorded input not yet carried by a model request. This is neither an
-//! unsubmitted draft nor a queue owned by the turn-activity state machine.
-
-use lattice::{core_events as ce, EventEnvelope};
+//! Recorded input not yet carried by an ordinary model request.
+use lattice::{core_events as ce, view::pending::PendingInputs, EventEnvelope};
 
 #[cfg(test)]
 #[path = "unseen/tests.rs"]
@@ -9,38 +7,52 @@ mod tests;
 
 #[derive(Default)]
 pub(super) struct Unseen {
+    pub pending: PendingInputs,
     lines: Vec<String>,
+    // Only used when explicitly importing old state in compatibility readers.
+    // On-disk terminal checkpoints are versioned and rebuilt from the ledger.
+    legacy: Vec<String>,
 }
 
 impl Unseen {
     pub fn lines(&self) -> &[String] {
         &self.lines
     }
+    #[cfg(test)]
     pub fn restore(&mut self, lines: Vec<String>) {
+        self.restore_at(lines, Default::default());
+    }
+    pub fn restore_at(&mut self, lines: Vec<String>, activity: lattice::view::activity::Activity) {
+        self.pending = PendingInputs::with_activity(activity);
+        self.legacy = lines.clone();
         self.lines = lines;
+    }
+    pub fn restore_pending(&mut self, pending: PendingInputs) {
+        self.pending = pending;
+        self.legacy.clear();
+        self.lines = self.pending.lines();
+    }
+    pub fn snapshot(&self) -> PendingInputs {
+        let mut pending = self.pending.clone();
+        pending.clear_cards();
+        pending
     }
     pub fn observe(
         &mut self,
         event: &EventEnvelope,
         reference: Option<&lattice::background_aliases::Reference>,
     ) {
-        match event.event_type.as_str() {
-            ce::USER_MESSAGE if event.causes.is_empty() => {
-                if let Some(text) = event.payload["text"].as_str() {
-                    self.lines.push(text.to_string());
-                }
+        self.pending.observe(event);
+        if event.event_type == ce::WAKE {
+            if let Some(reference) = reference {
+                self.pending.label(&event.id, format!("{reference} ↯"));
             }
-            ce::WAKE => {
-                let source = event.payload["source"].as_str().unwrap_or("wake");
-                let source = reference
-                    .map(ToString::to_string)
-                    .unwrap_or_else(|| source.to_owned());
-                self.lines.push(format!("{source} ↯"));
-            }
-            // Unlike turn activity and usage, every request clears this list,
-            // including requests with a purpose. Keep these rules independent.
-            ce::MODEL_CALL_STARTED => self.lines.clear(),
-            _ => {}
         }
+        self.lines = self
+            .legacy
+            .iter()
+            .cloned()
+            .chain(self.pending.lines())
+            .collect();
     }
 }

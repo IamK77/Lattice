@@ -18,8 +18,11 @@ pub(super) struct State {
     done: bool,
     turn: usize,
     completion: crate::terminal_host::turns::Completion,
+    turn_summary: crate::terminal_host::turn_summary::Summary,
     pending_auth: Vec<(String, String)>,
     unseen: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pending_inputs: Option<view::pending::PendingInputs>,
     skills: Vec<(String, String)>,
     usage: Option<lattice::Usage>,
     turn_usage: lattice::Usage,
@@ -109,8 +112,10 @@ impl State {
             done: turn.done,
             turn: turn.number,
             completion: turn.completion,
+            turn_summary: pure.turn_summary.clone(),
             pending_auth: pure.authorizations.history(),
             unseen: pure.unseen.lines().to_vec(),
+            pending_inputs: Some(pure.unseen.snapshot()),
             skills: pure.skills.clone(),
             usage: pure.accounting.last_call(),
             turn_usage: pure.accounting.turn_total(),
@@ -152,6 +157,16 @@ impl State {
         clock: T::Clock,
     ) -> io::Result<()> {
         // Validate the complete decoded state before mutating its destination.
+        if self
+            .pending_inputs
+            .as_ref()
+            .is_some_and(|pending| !pending.valid(0))
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid pending input state",
+            ));
+        }
         let composition = self
             .composition
             .into_iter()
@@ -211,8 +226,13 @@ impl State {
             },
             clock,
         );
+        ui.turn_summary = self.turn_summary;
         ui.authorizations.restore(self.pending_auth);
-        ui.unseen.restore(self.unseen);
+        if let Some(pending) = self.pending_inputs {
+            ui.unseen.restore_pending(pending);
+        } else {
+            ui.unseen.restore_at(self.unseen, ui.turns.history());
+        }
         ui.skills = self.skills;
         ui.accounting.restore(measurements);
         ui.background.install(

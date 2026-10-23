@@ -74,6 +74,15 @@ fn assert_history_sample(value: &serde_json::Value) {
 
 #[test]
 fn fresh_and_resumed_tui_record_one_complete_startup_each() {
+    check_startups(false);
+}
+
+#[test]
+fn damaged_checkpoint_reports_captured_diagnostics_on_resume() {
+    check_startups(true);
+}
+
+fn check_startups(corrupt_on_resume: bool) {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join(".lattice/ledgers")).unwrap();
     let (changed_tx, changed_rx) = mpsc::channel();
@@ -86,6 +95,26 @@ fn fresh_and_resumed_tui_record_one_complete_startup_each() {
         .unwrap();
 
     for launch in 1..=2 {
+        if corrupt_on_resume && launch == 2 {
+            use sha2::{Digest, Sha256};
+            let checkpoints: Vec<_> = std::fs::read_dir(dir.path().join(".lattice/ledgers"))
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+                .filter(|path| path.extension().is_some_and(|ext| ext == "ledger") && path.is_dir())
+                .map(|ledger| {
+                    ledger.join(format!(
+                        "checkpoint-{:x}.json",
+                        Sha256::digest(b"terminal-state")
+                    ))
+                })
+                .collect();
+            assert_eq!(checkpoints.len(), 1);
+            assert!(
+                checkpoints[0].is_file(),
+                "first launch must publish the terminal checkpoint"
+            );
+            std::fs::write(&checkpoints[0], b"{").unwrap();
+        }
         let mut master = -1;
         let mut slave = -1;
         let mut size = libc::winsize {
@@ -215,12 +244,11 @@ fn fresh_and_resumed_tui_record_one_complete_startup_each() {
             !active.contains("slow recovery for"),
             "raw recovery output escaped into the screen: {active}"
         );
-        if launch == 1 {
-            assert!(
-                active.contains("Diagnostics saved to"),
-                "the renderer must show where diagnostics went"
-            );
-        }
+        assert_eq!(
+            active.contains("Diagnostics saved to"),
+            corrupt_on_resume && launch == 2,
+            "normal startup stays quiet; actual corruption must show its diagnostic location: {active}"
+        );
         assert!(
             child.0.wait().unwrap().success(),
             "{}",
@@ -255,7 +283,17 @@ fn fresh_and_resumed_tui_record_one_complete_startup_each() {
             }
         }
     }
-    assert!(diagnostics.contains("slow recovery for terminal state"));
+    if corrupt_on_resume {
+        assert!(
+            diagnostics.contains("slow recovery for terminal state"),
+            "{diagnostics}"
+        );
+    } else {
+        assert!(
+            diagnostics.trim().is_empty(),
+            "normal startup wrote diagnostics: {diagnostics}"
+        );
+    }
     let events = history(dir.path());
     let inputs: Vec<_> = events
         .iter()

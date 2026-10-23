@@ -81,9 +81,14 @@ fn basename(name: &str) -> bool {
 }
 
 impl Index {
-    fn load(dir: &Path) -> io::Result<Self> {
+    fn load(dir: &Path) -> io::Result<Option<Self>> {
         let root = dir.join(".document-index");
-        if !root.symlink_metadata()?.is_dir() {
+        let metadata = match root.symlink_metadata() {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        if !metadata.is_dir() {
             return Err(io::Error::other("document lookup root is not a directory"));
         }
         let file = regular(&root.join("directory.json"))?;
@@ -104,7 +109,7 @@ impl Index {
             stored.directory.pages,
             stored.directory.count,
         )?;
-        Ok(Self { root, pages })
+        Ok(Some(Self { root, pages }))
     }
 
     fn rebuild(dir: &Path) -> io::Result<Self> {
@@ -190,10 +195,14 @@ impl Documents {
 
     fn lookup(&mut self, digest: &str) -> io::Result<Option<String>> {
         if self.index.is_none() {
-            self.index = Some(Index::load(&self.dir).or_else(|error| {
-                eprintln!("rebuilding document lookup: {error}");
-                Index::rebuild(&self.dir)
-            })?);
+            self.index = Some(match Index::load(&self.dir) {
+                Ok(Some(index)) => index,
+                Ok(None) => Index::rebuild(&self.dir)?,
+                Err(error) => {
+                    eprintln!("rebuilding document lookup: {error}");
+                    Index::rebuild(&self.dir)?
+                }
+            });
         }
         let found = self.index.as_ref().unwrap().find(digest);
         match found {

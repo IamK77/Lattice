@@ -268,11 +268,12 @@ impl Component for AnthropicModel {
                                     Err(error) => return accumulator.finish_invalid_stream(error),
                                 };
                                 if let Some(fragment) = accumulator.apply(&data) {
-                                    let mut note = fragment.note();
-                                    if let Some(p) = &purpose {
-                                        note["purpose"] = p.clone();
-                                    }
-                                    ctx.notify(note);
+                                    ctx.notify(super::model_common::stream_notice(event, fragment.note()));
+                                }
+                                if data["message"]["usage"].is_object() || data["usage"].is_object() {
+                                    ctx.notify(super::model_common::stream_notice(
+                                        event, json!({"usage": accumulator.usage}),
+                                    ));
                                 }
                             }
                         }

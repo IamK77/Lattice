@@ -4,6 +4,8 @@ use serde_json::{json, Value};
 
 #[path = "background_aliases.rs"]
 mod background_aliases;
+#[path = "diagnostics.rs"]
+mod diagnostics;
 
 fn append(log: &mut EventLog, kind: &str, causes: &[&str], payload: Value) -> EventEnvelope {
     log.append(EventDraft::new(kind, causes, payload), "fixture")
@@ -141,6 +143,10 @@ fn old_release_bound_projection_is_rebuilt_after_semantics_change() {
             initial.title.clone(),
         ),
         (legacy, 2, "changed context".to_string()),
+        // Both merge parents used incomplete projections: summary-only v8
+        // and pending-visibility-only v9 must rebuild under the combined state.
+        (stable, 8, initial.title.clone()),
+        (stable, 9, initial.title.clone()),
         (stable, VERSION + 1, initial.title.clone()),
     ] {
         saved.context = context;
@@ -462,6 +468,8 @@ pub(super) fn decode_legacy_state(bytes: &[u8]) -> State {
 fn with_completion_projection(mut value: Value) -> Value {
     value["completion"] =
         serde_json::to_value(crate::terminal_host::turns::Completion::default()).unwrap();
+    value["turn_summary"] =
+        serde_json::to_value(crate::terminal_host::turn_summary::Summary::default()).unwrap();
     value
 }
 
@@ -532,10 +540,18 @@ fn historical_install_is_atomic_and_round_trips_the_pre_refactor_document() {
         .unwrap()
         .apply(&mut historical, ())
         .unwrap();
+    let mut upgraded = serde_json::to_value(State::capture(&historical)).unwrap();
+    let pending = upgraded
+        .as_object_mut()
+        .unwrap()
+        .remove("pending_inputs")
+        .unwrap();
+    assert_eq!(pending["inputs"], json!([]));
     assert_eq!(
-        serde_json::to_value(State::capture(&historical)).unwrap(),
-        old
+        pending["activity"],
+        serde_json::to_value(&historical.turns).unwrap()
     );
+    assert_eq!(upgraded, old);
 }
 
 #[test]

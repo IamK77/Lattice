@@ -75,7 +75,7 @@ fn tool_spinner(ui: &Ui) -> char {
 
 fn phrase_styles(ui: &Ui) -> Vec<Style> {
     // The leading activity glyph can rotate independently of the phrase sweep.
-    activity::line(ui)
+    activity::line(ui, usize::MAX)
         .spans
         .iter()
         .skip(1)

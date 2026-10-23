@@ -1,6 +1,39 @@
 use super::*;
 
 #[test]
+fn expected_document_index_absence_is_quiet_but_damage_is_reported() {
+    const ENV: &str = "LATTICE_TEST_DOCUMENT_DIAGNOSTIC_LEDGER";
+    if let Some(ledger) = std::env::var_os(ENV) {
+        let mut documents = Documents::beside(Path::new(&ledger));
+        assert_eq!(
+            documents.put("prompt.txt", "original").unwrap(),
+            "prompt.txt"
+        );
+        return;
+    }
+    let temp = tempfile::tempdir().unwrap();
+    let ledger = temp.path().join("conversation.ledger");
+    let run = || {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "kernel::documents::tests::expected_document_index_absence_is_quiet_but_damage_is_reported", "--nocapture"])
+            .env(ENV, &ledger).output().unwrap();
+        assert!(output.status.success(), "{output:?}");
+        String::from_utf8(output.stderr).unwrap()
+    };
+    let first = run();
+    assert!(first.is_empty(), "{first}");
+    let index = crate::document::documents_dir(&ledger).join(".document-index/directory.json");
+    assert!(index.is_file());
+    fs::write(&index, b"invalid").unwrap();
+    assert!(run().contains("rebuilding document lookup"));
+    assert!(run().is_empty());
+    // An existing index with a missing directory is damage, not first use.
+    fs::remove_file(&index).unwrap();
+    assert!(run().contains("rebuilding document lookup"));
+    assert!(run().is_empty());
+}
+
+#[test]
 fn startup_is_lazy_and_warm_lookup_reads_no_unrelated_documents() {
     let temp = tempfile::tempdir().unwrap();
     let ledger = temp.path().join("conversation.ledger");
