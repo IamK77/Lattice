@@ -8,17 +8,13 @@
 //! mapping) against contextWindow × ratio; over it, old tool results become
 //! digest parts. No tokenizer, no model, deterministic.
 //!
-//! v2 (semantic): when the scale fires, the gate ALSO condenses in the
-//! background — it asks its own compactor model instance (assembly-isolated;
-//! the main loop never sees this traffic) to squeeze the old segment into a
-//! four-section summary (Done / State / Open / Facts). The summary lands on
-//! the ledger as the gate's own event (reusable, never recomputed per call);
-//! from the NEXT ask on, covered originals are substituted by ONE digest
-//! part carrying the summary text — input weight drops, the scale stops
-//! firing: the loop converges. The user's turn is never delayed: this turn
-//! rides on mechanical trims while the condenser works behind it. Whether a
-//! condensation is already in flight is read off the ledger, so a restart
-//! cannot double-condense.
+//! Semantic mode: when the scale fires, retain the original pointers and
+//! hold the ordinary request while a dedicated compactor prepares replacement
+//! context. Return from the handler immediately: inputs, tool results and
+//! cancellation remain deliverable. Only an accepted, committed summary can
+//! release the held request. Failure ends the wait explicitly, never by
+//! forwarding temporary mechanical receipts. Recovery settles old requests
+//! instead of resubmitting them. Mechanical-only assemblies retain v1 behavior.
 //!
 //! Every compaction move lands a reasoned decision event. Views are never
 //! events: the rewritten material rides inside the forwarded call, so audit
@@ -38,6 +34,8 @@ use crate::kernel::host::{Component, Ctx};
 
 #[path = "context_gate_dials.rs"]
 mod dials;
+#[path = "context_gate_handoff.rs"]
+mod handoff;
 #[path = "context_gate_manual.rs"]
 mod manual;
 #[path = "context_gate_status.rs"]
@@ -267,6 +265,9 @@ pub fn manifest() -> ComponentManifest {
             PortDecl::new("ask", &[ce::MODEL_CALL_STARTED]),
             // The condenser's answers come back here
             PortDecl::new("condensed", &[ce::MODEL_CALL_COMPLETED]),
+            // Resume only after our accepted replacement has been recorded.
+            PortDecl::new("handoff", &[SUMMARY, DECISION]),
+            PortDecl::new("faults", &[ce::INTERRUPTED]),
             // Settings a person turns mid-conversation. They arrive as
             // ordinary external input, so the act of changing one is on the
             // ledger like everything else, and the kernel needs no notion of
@@ -275,6 +276,7 @@ pub fn manifest() -> ComponentManifest {
         ],
         outputs: vec![
             PortDecl::new("forward", &[ce::MODEL_CALL_STARTED]),
+            PortDecl::new("interrupted", &[ce::INTERRUPTED]),
             // The gate's own condenser calls (wire to a dedicated model
             // instance; the main loop never sees this traffic)
             PortDecl::new("condense", &[ce::MODEL_CALL_STARTED]),
@@ -327,6 +329,8 @@ pub struct ContextGate {
     restored_dials: bool,
     /// In-process handoff protection, never part of a committed checkpoint.
     submission: Option<manual::Submission>,
+    /// Live requests only: restart settles these through the ordinary kernel path.
+    waiting: Vec<EventEnvelope>,
     /// From the model profile; None = the gate is inert (pure pass-through)
     context_window: Option<u64>,
     /// Which native usage field counts input tokens for this model (from
@@ -394,6 +398,7 @@ impl ContextGate {
             recovery: recovery::empty(),
             restored_dials: false,
             submission: None,
+            waiting: Vec::new(),
             context_window: profile
                 .and_then(|p| p.get("contextWindow"))
                 .and_then(Value::as_u64),
@@ -708,23 +713,31 @@ impl Component for ContextGate {
     }
 
     fn handle(&mut self, port: &str, event: &EventEnvelope, ctx: &mut Ctx) {
+        // Held calls are no longer active deliveries in the kernel. Preserve
+        // their identities even if a failed handoff drains the live collection.
+        let affected: Vec<_> = self.waiting.iter().map(|ask| ask.id.clone()).collect();
         if let Err(error) = self.restore_dials(ctx.log(), event.seq) {
-            ctx.fail("restore context settings", error.to_string(), &[]);
+            ctx.fail("restore context settings", error.to_string(), &affected);
             return;
         }
         if let Err(error) = self.refresh_submission(ctx.log()) {
-            ctx.fail("read compaction handoff", error, &[]);
+            ctx.fail("read compaction handoff", error, &affected);
             return;
         }
         let result = match port {
             "ask" => self.on_ask(event, ctx),
             "condensed" => self.on_condensed(event, ctx),
+            "handoff" | "faults" => self.on_handoff(event, ctx),
             "dial" if event.payload["channel"] == COMPACT_CHANNEL => {
                 self.on_manual_compact(event, ctx)
             }
             "dial" => {
                 self.on_dial(event);
-                Ok(())
+                if event.payload["channel"] == MODEL_CHANNEL {
+                    self.reject_waiting("The model changed while compaction was pending; continue explicitly with the new configuration", ctx)
+                } else {
+                    Ok(())
+                }
             }
             _ => Ok(()),
         };
@@ -740,13 +753,27 @@ impl Component for ContextGate {
                     .with_reason(&format!("Compaction could not be applied: {error}")),
                 );
             }
-            ctx.fail("prepare context view", error, &[]);
+            ctx.fail("prepare context view", error, &affected);
         }
     }
 }
 
 impl ContextGate {
     fn on_ask(&mut self, event: &EventEnvelope, ctx: &mut Ctx) -> Result<(), String> {
+        self.on_ask_after(event, None, ctx)
+    }
+
+    fn on_ask_after(
+        &mut self,
+        event: &EventEnvelope,
+        replacement: Option<&str>,
+        ctx: &mut Ctx,
+    ) -> Result<(), String> {
+        let ordinary = event.payload.get("purpose").is_none();
+        if ordinary && self.condense && self.condense_in_flight(ctx.log())? {
+            self.hold(event);
+            return Ok(());
+        }
         let original_parts = event.payload["input"]["parts"]
             .as_array()
             .cloned()
@@ -777,7 +804,11 @@ impl ContextGate {
 
         // Carry the previous view's mechanical digests forward. A smaller
         // measured request is not permission to restore the discarded bytes.
-        let previous = self.observation(ctx.log(), |state| state.forwarded_request.clone())?;
+        let previous = if self.condense {
+            None // Semantic handoff retains originals, including after an upgrade.
+        } else {
+            self.observation(ctx.log(), |state| state.forwarded_request.clone())?
+        };
         let previous_digests = if let Some(id) = previous {
             let e = ctx
                 .log()
@@ -834,8 +865,12 @@ impl ContextGate {
         if let Some(window) = self.context_window {
             let threshold = (window as f64 * self.ratio) as u64;
             let measured = self.last_measured_input(ctx)?;
-            if measured > threshold && summary_measured {
-                let (trimmed, digested) = self.trim(&parts, ctx)?;
+            if ordinary && measured > threshold && summary_measured {
+                let (trimmed, digested) = if self.condense {
+                    (parts.clone(), Vec::new())
+                } else {
+                    self.trim(&parts, ctx)?
+                };
                 if !digested.is_empty() {
                     parts = trimmed;
                     ctx.emit(
@@ -1037,7 +1072,7 @@ impl ContextGate {
             // and resident tool definitions. The cause remains the input ask.
             let mut assembled_ask = event.clone();
             assembled_ask.payload = payload.clone();
-            self.maybe_condense(
+            match self.maybe_condense(
                 CondenseTrigger::Window {
                     ask: &assembled_ask,
                     measured,
@@ -1046,11 +1081,23 @@ impl ContextGate {
                 &original_parts,
                 &summarized_ids,
                 ctx,
-            )?;
+            )? {
+                CondenseOutcome::Started => {
+                    self.hold(event);
+                    return Ok(());
+                }
+                CondenseOutcome::Skipped(reason) if self.condense => {
+                    Self::reject(event, reason, ctx);
+                    return Ok(());
+                }
+                CondenseOutcome::Skipped(_) => {}
+            }
         }
+        let mut causes = vec![event.id.as_str()];
+        causes.extend(replacement);
         ctx.emit(
             "forward",
-            EventDraft::new(ce::MODEL_CALL_STARTED, &[&event.id], payload),
+            EventDraft::new(ce::MODEL_CALL_STARTED, &causes, payload),
         );
         Ok(())
     }
@@ -1160,10 +1207,9 @@ impl ContextGate {
         Ok((rewritten, digested))
     }
 
-    /// Kick off a background condensation of the old segment, unless one is
-    /// already in flight or the segment is too small to be worth a call.
-    /// This turn is NOT delayed: it rides on the mechanical trim while the
-    /// condenser works behind it.
+    /// Prepare condensation of the old segment. Its recorded decision starts
+    /// the independent call; automatic callers wait for an accepted replacement.
+    /// Manual attempts use the same path without creating an ordinary request.
     fn maybe_condense(
         &mut self,
         trigger: CondenseTrigger<'_>,
@@ -1230,14 +1276,16 @@ impl ContextGate {
                 }
             }
         }
-        self.submission = Some(manual::Submission::new(trigger.cause(), trigger.position()));
+        self.submission = Some(manual::Submission::new(
+            trigger.cause(),
+            trigger.position(),
+            payload,
+        ));
+        // The recorded decision is a non-call causal bridge. The compactor
+        // must not look like a forwarding copy of the waiting ordinary call.
         ctx.emit(
             "decision",
             EventDraft::new(DECISION, &[trigger.cause()], decision).with_reason(&reason),
-        );
-        ctx.emit(
-            "condense",
-            EventDraft::new(ce::MODEL_CALL_STARTED, &[trigger.cause()], payload),
         );
         Ok(CondenseOutcome::Started)
     }

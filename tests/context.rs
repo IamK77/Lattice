@@ -9,6 +9,8 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};
 
+#[path = "context/handoff.rs"]
+mod handoff;
 #[path = "context/manual.rs"]
 mod manual;
 #[path = "context/model_prompt.rs"]
@@ -528,6 +530,9 @@ fn condensing_kernel_with(
             Wire::new("model.result", "loop.model"),
             Wire::new("gate.condense", "cmodel.request"),
             Wire::new("cmodel.result", "gate.condensed"),
+            Wire::new("gate.summary", "gate.handoff"),
+            Wire::new("gate.decision", "gate.handoff"),
+            Wire::new("gate.interrupted", "loop.faults"),
             Wire::new("ui.answer", "gate.dial"),
             Wire::new("loop.run", "tools.execute"),
             Wire::new("tools.outcome", "loop.tools"),
@@ -961,7 +966,7 @@ fn native_compaction_persists_replacement_and_materializes_without_plaintext_sum
         .log()
         .find_back(|e| {
             e.event_type == ce::MODEL_CALL_STARTED
-                && e.causes == compact.causes
+                && e.causes.contains(&summary.id)
                 && e.payload.get("purpose").is_none()
         })
         .unwrap()
@@ -1019,14 +1024,14 @@ fn native_compaction_persists_replacement_and_materializes_without_plaintext_sum
 }
 
 #[test]
-fn over_budget_condenses_in_the_background_and_substitutes_next_turn() {
+fn over_budget_waits_for_compaction_and_reuses_the_accepted_summary() {
     let mut kernel = condensing_kernel(
         json!({"script": [{"status": "ok", "text": GOOD_SUMMARY}]}),
         json!({"script": [
             {"status": "ok", "usage": {"input_tokens": 900},
              "toolCalls": [{"id": "c1", "tool": "calc", "arguments": {"numbers": [4, 7]}}]},
-            {"status": "ok", "text": "the sum is 11", "usage": {"input_tokens": 950}},
-            {"status": "ok", "text": "still 11", "usage": {"input_tokens": 960}},
+            {"status": "ok", "text": "the sum is 11", "usage": {"input_tokens": 100}},
+            {"status": "ok", "text": "still 11", "usage": {"input_tokens": 110}},
         ]}),
         json!({
             "profile": {"contextWindow": 1000, "usageFields": {"input": "input_tokens"}},
@@ -1038,8 +1043,8 @@ fn over_budget_condenses_in_the_background_and_substitutes_next_turn() {
         }),
     );
 
-    // Turn one: the second ask crosses the scale → mechanical trim NOW,
-    // condensation in the background, summary recorded before quiescence
+    // Turn one: the second ask waits; the accepted summary is recorded
+    // before the main request resumes and measures its smaller replacement.
     say(&mut kernel, "add 4 and 7");
     let events = kernel.log().replay(1).unwrap();
     let summary = events
@@ -1073,13 +1078,13 @@ fn over_budget_condenses_in_the_background_and_substitutes_next_turn() {
         covers.contains(&answer.id.as_str()),
         "a summary must not split a tool invocation from its answer"
     );
-    // The causal chain: ask → condense request → completion → summary
+    // The causal chain: ask → decision → compactor request → completion → summary
     let condense_requests: Vec<_> = events
         .iter()
         .filter(|e| e.payload["purpose"] == context_gate::CONDENSE_PURPOSE)
         .collect();
     assert_eq!(condense_requests.len(), 1);
-    // And this turn was NOT delayed: the reply came from the main script
+    // After the replacement is accepted, the reply comes from the main script.
     assert!(events
         .iter()
         .any(|e| e.event_type == ce::OUTPUT_REPLY && e.payload["text"] == "the sum is 11"));
@@ -1090,9 +1095,12 @@ fn over_budget_condenses_in_the_background_and_substitutes_next_turn() {
             && e.reason.as_deref().is_some_and(|r| !r.is_empty())
     }));
 
-    // Turn two: covered originals travel as ONE summary digest now
+    // Turn two: covered originals still travel as ONE summary digest.
     say(&mut kernel, "and again?");
     let events = kernel.log().replay(1).unwrap();
+    assert!(events
+        .iter()
+        .any(|e| e.event_type == ce::OUTPUT_REPLY && e.payload["text"] == "still 11"));
     let last_forward = events
         .iter()
         .rev()
@@ -1148,8 +1156,7 @@ fn a_second_condensation_rolls_the_previous_summary_in() {
     );
 
     say(&mut kernel, "first");
-    say(&mut kernel, "second"); // first condensation somewhere in here
-    say(&mut kernel, "third"); // measure the first summary before deciding again
+    say(&mut kernel, "second"); // compact, then measure the accepted replacement
     assert_eq!(
         kernel
             .log()
@@ -1161,7 +1168,7 @@ fn a_second_condensation_rolls_the_previous_summary_in() {
         1,
         "old-view usage must not trigger a second condensation"
     );
-    say(&mut kernel, "fourth"); // the measured new view is still over budget
+    say(&mut kernel, "third"); // the measured replacement is still over budget
 
     let events = kernel.log().replay(1).unwrap();
     let summaries: Vec<_> = events
@@ -1225,10 +1232,13 @@ fn a_malformed_summary_is_refused_not_recorded() {
         !events.iter().any(|e| e.event_type == context_gate::SUMMARY),
         "a summary without its fixed fields must not enter the ledger"
     );
-    // And the conversation itself was never disturbed
-    assert!(events
+    // No foreground answer proceeds on a failed replacement.
+    assert!(!events
         .iter()
         .any(|e| e.event_type == ce::OUTPUT_REPLY && e.payload["text"] == "two"));
+    assert!(events
+        .iter()
+        .any(|e| e.event_type == ce::INTERRUPTED && e.source == "gate"));
 }
 
 /// v3: the sidechannel truly reads its parent. A gated template opened

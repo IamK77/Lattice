@@ -3,7 +3,9 @@
 use super::*;
 
 pub(super) struct Submission {
-    origin: String,
+    pub(super) origin: String,
+    pub(super) prepared: Option<Value>,
+    pub(super) published: Option<String>,
     through: u64,
     seen: bool,
     calls: ce::PendingCalls,
@@ -11,9 +13,11 @@ pub(super) struct Submission {
 }
 
 impl Submission {
-    pub(super) fn new(origin: &str, through: u64) -> Self {
+    pub(super) fn new(origin: &str, through: u64, prepared: Value) -> Self {
         Self {
             origin: origin.into(),
+            prepared: Some(prepared),
+            published: None,
             through,
             seen: false,
             calls: ce::PendingCalls::new(ce::MODEL_CALL_STARTED),
@@ -27,7 +31,7 @@ impl ContextGate {
         let Some(mut submission) = self.submission.take() else {
             return Ok(());
         };
-        let mut published = false;
+        let mut published = submission.published.clone();
         let end = reader.snapshot_end();
         if submission.through >= end {
             self.submission = Some(submission);
@@ -55,7 +59,7 @@ impl ContextGate {
                         if pending && submission.calls.requests().is_empty() {
                             submission.outcome = Some(header.id.clone());
                             if header.event_type == ce::INTERRUPTED {
-                                published = true;
+                                published = Some(header.id.clone());
                             }
                         }
                     }
@@ -65,13 +69,17 @@ impl ContextGate {
                             .as_ref()
                             .is_some_and(|id| header.causes.contains(id))
                     {
-                        published = true;
+                        published = Some(header.id.clone());
                     }
                     submission.through = header.seq;
                 }
                 Ok(())
             });
-        if !published {
+        // A committed outcome is not yet a completed handoff. Keep this
+        // attempt reserved until its own delivery settles the attached waits;
+        // a queued manual retry must not inherit an older failed request.
+        if published.is_none() || !self.waiting.is_empty() {
+            submission.published = published;
             self.submission = Some(submission);
         }
         result.map_err(|error| error.to_string())
@@ -103,13 +111,22 @@ impl ContextGate {
             .get(&id)
             .map_err(|error| error.to_string())?
             .ok_or_else(|| format!("indexed forwarded request is missing: {id}"))?;
-        let original_id = assembled
-            .causes
-            .first()
+        // A failed automatic handoff never forwarded its latest request.
+        // Manual recovery must compact those retained originals, not the
+        // smaller material of the preceding successful provider request.
+        let original_id = ctx
+            .log()
+            .scan_back_headers(|header, _| {
+                Ok((header.event_type == ce::MODEL_CALL_STARTED
+                    && !header.has_purpose
+                    && header.source != ctx.source())
+                .then(|| header.id.clone()))
+            })
+            .map_err(|e| e.to_string())?
             .ok_or_else(|| format!("forwarded request has no original request: {id}"))?;
         let original = ctx
             .log()
-            .get(original_id)
+            .get(&original_id)
             .map_err(|error| error.to_string())?
             .ok_or_else(|| format!("original context request is missing: {original_id}"))?;
         if original.event_type != ce::MODEL_CALL_STARTED
@@ -160,11 +177,20 @@ impl ContextGate {
                 .map_err(|error| error.to_string())?
             {
                 if let Some(cause) = request.causes.first() {
-                    let origin = ctx
+                    let mut origin = ctx
                         .log()
                         .get(cause)
                         .map_err(|error| error.to_string())?
                         .ok_or_else(|| format!("compaction origin missing: {cause}"))?;
+                    if origin.event_type == DECISION {
+                        if let Some(cause) = origin.causes.first() {
+                            origin = ctx
+                                .log()
+                                .get(cause)
+                                .map_err(|e| e.to_string())?
+                                .ok_or_else(|| format!("compaction origin missing: {cause}"))?;
+                        }
+                    }
                     manual = origin.event_type == ce::EXTERNAL_INPUT
                         && origin.payload["channel"] == COMPACT_CHANNEL;
                 }

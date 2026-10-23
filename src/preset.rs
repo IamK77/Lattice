@@ -1158,6 +1158,9 @@ fn standard_wires() -> Vec<Wire> {
         Wire::new("ctx.forward", "model.request"),
         Wire::new("ctx.condense", "cmodel.request"),
         Wire::new("cmodel.result", "ctx.condensed"),
+        Wire::new("ctx.summary", "ctx.handoff"),
+        Wire::new("ctx.decision", "ctx.handoff"),
+        Wire::new("ctx.interrupted", "loop.faults"),
         Wire::new("model.result", "loop.model"),
         // Every tool request passes the trust gate: non-admissions are
         // forwarded untouched (the audit-visible hop), install-class
@@ -1244,6 +1247,8 @@ fn standard_wires() -> Vec<Wire> {
         Wire::new("skills.changed", "skills.refresh"),
         Wire::new("loop.out", "ui.display"),
         Wire::new("ui.interrupt", "model.control"),
+        Wire::new("ui.interrupt", "cmodel.control"),
+        Wire::new("ui.interrupt", "ctx.faults"),
     ]
 }
 
