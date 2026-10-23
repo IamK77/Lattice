@@ -30,7 +30,7 @@ pub(super) fn extract(html: &[u8], source: &str) -> Result<(String, &'static str
         }
         if let Element { attrs, .. } = &node.data {
             for attr in attrs.borrow_mut().iter_mut() {
-                if attr.name.local.as_ref() == "href" {
+                if &*attr.name.local == "href" {
                     if let Ok(url) = base.join(attr.value.as_ref()) {
                         attr.value = url.to_string().into();
                     }
@@ -177,8 +177,8 @@ fn noise(node: &Handle) -> bool {
     }
     if let Element { attrs, .. } = &node.data {
         return attrs.borrow().iter().any(|a| {
-            a.name.local.as_ref() == "hidden"
-                || (a.name.local.as_ref() == "aria-hidden" && a.value.as_ref() == "true")
+            &*a.name.local == "hidden"
+                || (&*a.name.local == "aria-hidden" && a.value.as_ref() == "true")
         });
     }
     false
@@ -221,6 +221,17 @@ mod tests {
         ] {
             assert!(!text.contains(word), "{text}");
         }
+    }
+
+    #[test]
+    fn hidden_attributes_preserve_visible_content_and_link_targets() {
+        let html = br#"<main><p hidden="false">HIDDEN_TEXT</p>
+            <p aria-hidden="true">ARIA_HIDDEN_TEXT</p>
+            <p aria-hidden="false">VISIBLE_TEXT <a href="/paper">paper</a></p></main>"#;
+        let (text, _) = extract(html, "https://example.com/post").unwrap();
+        assert!(!text.contains("HIDDEN_TEXT"), "{text}");
+        assert!(text.contains("VISIBLE_TEXT"), "{text}");
+        assert!(text.contains("https://example.com/paper"), "{text}");
     }
 
     #[test]
