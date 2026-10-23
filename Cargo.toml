@@ -24,7 +24,7 @@ reqwest = { version = "0.13", default-features = false, features = ["native-tls-
 futures-util = "0.3"
 jsonschema = { version = "0.59", default-features = false }
 # Parse data only: no YAML serialization, includes, or property expansion.
-serde-saphyr = { version = "1.3", default-features = false, features = ["deserialize"] }
+serde-saphyr = { version = "2.0", default-features = false, features = ["deserialize"] }
 # On macOS use kernel notifications without registering with fseventsd.
 notify = { version = "8", default-features = false, features = ["macos_kqueue"] }
 unicode-width = "0.2"
