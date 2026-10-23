@@ -18,6 +18,7 @@ pub(super) struct State {
     done: bool,
     turn: usize,
     completion: crate::terminal_host::turns::Completion,
+    turn_summary: crate::terminal_host::turn_summary::Summary,
     pending_auth: Vec<(String, String)>,
     unseen: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -111,6 +112,7 @@ impl State {
             done: turn.done,
             turn: turn.number,
             completion: turn.completion,
+            turn_summary: pure.turn_summary.clone(),
             pending_auth: pure.authorizations.history(),
             unseen: pure.unseen.lines().to_vec(),
             pending_inputs: Some(pure.unseen.snapshot()),
@@ -224,6 +226,7 @@ impl State {
             },
             clock,
         );
+        ui.turn_summary = self.turn_summary;
         ui.authorizations.restore(self.pending_auth);
         if let Some(pending) = self.pending_inputs {
             ui.unseen.restore_pending(pending);

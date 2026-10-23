@@ -95,6 +95,7 @@ pub(super) struct Domain<T: TurnState, B: BackgroundState<T::Clock>> {
     pub(super) authorizations: Authorizations,
     pub(super) unseen: Unseen,
     pub(super) turns: T,
+    pub(super) turn_summary: super::turn_summary::Summary,
     pub(super) background: B,
     pub(super) expert_dir: Option<PathBuf>,
     pub(super) stream_id: String,
@@ -112,6 +113,7 @@ impl<T: TurnState, B: BackgroundState<T::Clock>> Default for Domain<T, B> {
             authorizations: Authorizations::default(),
             unseen: Unseen::default(),
             turns: T::default(),
+            turn_summary: Default::default(),
             background: B::default(),
             expert_dir: None,
             stream_id: String::new(),
@@ -159,7 +161,17 @@ impl<T: TurnState, B: BackgroundState<T::Clock>> Domain<T, B> {
             new_turn
         });
         measure!(Stage::Size, self.event_inputs.observe_size(event));
-        measure!(Stage::Usage, self.note_usage(event));
+        measure!(Stage::Usage, {
+            let current = self.model.catalog().current();
+            self.turn_summary.observe(
+                event,
+                new_turn,
+                event.event_type == ce::TURN_COMPLETED && self.turns.history().done,
+                current.map(|row| row.model.as_str()).unwrap_or_default(),
+                current.map(|row| row.dialect.as_str()).unwrap_or_default(),
+            );
+            self.note_usage(event);
+        });
         measure!(Stage::Background, self.note_background(event, clock));
         new_turn
     }

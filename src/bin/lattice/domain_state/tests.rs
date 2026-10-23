@@ -48,6 +48,10 @@ fn same<T: TurnState, B: BackgroundState<T::Clock>>(
     assert_eq!(domain.skills, reference.skills);
     assert_eq!(domain.turns.history(), reference.turns.history());
     assert_eq!(
+        serde_json::to_value(&domain.turn_summary).unwrap(),
+        serde_json::to_value(&reference.turn_summary).unwrap()
+    );
+    assert_eq!(
         domain.authorizations.history(),
         reference.authorizations.history()
     );
@@ -288,7 +292,7 @@ fn both_domain_modes_match_the_original_ui_fold_after_every_event() {
         assert_eq!(reference.domain.unseen.lines(), expected_pending);
         let mut legacy_fields = crate::terminal_host::recovery::reference_snapshot(&reference);
         let mut old = expected[at].clone();
-        for field in ["completion", "pending_inputs", "unseen"] {
+        for field in ["completion", "pending_inputs", "unseen", "turn_summary"] {
             legacy_fields.as_object_mut().unwrap().remove(field);
             old.as_object_mut().unwrap().remove(field);
         }

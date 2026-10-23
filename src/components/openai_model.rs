@@ -276,11 +276,12 @@ impl Component for OpenAiModel {
                                     Err(error) => return accumulator.finish_invalid_stream(error),
                                 };
                                 for fragment in accumulator.apply(&data) {
-                                    let mut note = fragment.note();
-                                    if let Some(p) = &purpose {
-                                        note["purpose"] = p.clone();
-                                    }
-                                    ctx.notify(note);
+                                    ctx.notify(super::model_common::stream_notice(event, fragment.note()));
+                                }
+                                if data["usage"].is_object() {
+                                    ctx.notify(super::model_common::stream_notice(
+                                        event, json!({"usage": accumulator.usage}),
+                                    ));
                                 }
                             }
                         }
