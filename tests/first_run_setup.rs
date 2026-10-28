@@ -50,6 +50,11 @@ impl Terminal {
         cols: u16,
         redirect_stderr: bool,
     ) -> Self {
+        let parser = vt100::Parser::new(
+            rows.try_into().expect("terminal rows must be nonzero"),
+            cols.try_into().expect("terminal columns must be nonzero"),
+            100,
+        );
         let (mut master, mut slave) = (-1, -1);
         let mut size = libc::winsize {
             ws_row: rows,
@@ -124,7 +129,7 @@ impl Terminal {
             bytes: vec![],
             mark: 0,
             original,
-            parser: vt100::Parser::new(rows, cols, 100),
+            parser,
         }
     }
     fn wait(&mut self, text: &str) {
