@@ -1,6 +1,20 @@
 use super::*;
 
 #[test]
+#[should_panic(expected = "terminal rows must be nonzero")]
+fn terminal_fixture_rejects_zero_rows() {
+    let home = tempfile::tempdir().unwrap();
+    let _terminal = Terminal::with_size(home.path(), &[], "en_US.UTF-8", 0, 80);
+}
+
+#[test]
+#[should_panic(expected = "terminal columns must be nonzero")]
+fn terminal_fixture_rejects_zero_columns() {
+    let home = tempfile::tempdir().unwrap();
+    let _terminal = Terminal::with_size(home.path(), &[], "en_US.UTF-8", 24, 0);
+}
+
+#[test]
 fn request_error_survives_resize_failure_without_retry_or_configuration_side_effects() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
@@ -55,7 +69,10 @@ fn request_error_survives_resize_failure_without_retry_or_configuration_side_eff
         unsafe { libc::ioctl(terminal.master.as_raw_fd(), libc::TIOCSWINSZ, &size) },
         0
     );
-    terminal.parser.screen_mut().set_size(10, 30);
+    terminal
+        .parser
+        .screen_mut()
+        .set_size(10.try_into().unwrap(), 30.try_into().unwrap());
     release.send(()).unwrap();
     // Wait for the terminal failure first: the old implementation does exit,
     // but silently loses the queued network error on that path.

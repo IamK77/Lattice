@@ -70,7 +70,7 @@ name = "chat"
 required-features = ["cli"]
 
 [dev-dependencies]
-vt100 = "=0.16.2"
+vt100 = "=0.18.1"
 tokio = { version = "1", features = ["test-util"] }
 tempfile = "3"
 sha2 = "0.10"
