@@ -29,7 +29,7 @@ serde-saphyr = { version = "2.0", default-features = false, features = ["deseria
 notify = { version = "8", default-features = false, features = ["macos_kqueue"] }
 unicode-width = "0.2"
 unicode-segmentation = "1"
-similar = "2.7"
+similar = "3.2"
 # The product binary's terminal frontend; optional so a pure-library consumer
 # can drop it with default-features = false. The lib core never uses them.
 ratatui = { version = "0.30", optional = true }
